@@ -59,7 +59,19 @@ open "/Applications/cmux STAGING xhqing.app"
 
 用户日常就在用 `/Applications/cmux.app`，里面跑着多个 pi 会话——**在它运行时绝不 quit / kill / 重启 / 替换它**，也不要设 `CMUX_ALLOW_REPLACING_RUNNING_CMUX`（只有用户本人可以决定）。要验证新版，一律用上面的隔离 bundle id 并行安装。替换 `/Applications/cmux.app` 那一步必须用户单独点头。
 
-## 三、自动更新（Sparkle）已被关掉
+## 三、自建版验证清单（P1 专项）
+
+装好自建版、在新窗口里操作一遍：
+
+1. **默认不弹**：开一个工作区，里面跑点东西（比如一个 `sleep 300` 或一个 pi 会话），关掉这个工作区 → **应该直接关，不弹任何对话框**；
+2. 同样跑着进程，按 Cmd+W 关标签页 / 按 Cmd+Ctrl+W 关窗口 → 同样不该弹；
+3. **设置项能开回保护**：设置 → App → 找到「Confirm Before Closing Running Processes」打开，重做第 1 步 → 这次**应该弹**「Close workspace?」；
+4. **勾选真生效**：在第 3 步弹出的对话框里勾上 "Don't ask again" 再点关闭，然后重做一次 → **不应该再弹**；
+5. **未保存内容仍然保护**：在一个浏览器面板里输入点东西但不提交（页面变 dirty），关工作区 → **应该照样弹**（不受新开关影响）；
+6. **pinned 工作区**：把工作区 pin 住再关 → 仍应弹「Close pinned workspace?」；
+7. **Sparkle 已关**：菜单里「Check for Updates」不应去请求 `manaflow-ai/cmux`（如果它报错/无更新都正常，就是不能装到官方版本）。
+
+## 四、自动更新（Sparkle）已被关掉
 
 上游的 app 内建 Sparkle 自动更新，指向 `https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml`。**如果不关，官方一旦发新版就会把我们自建的 app 覆盖掉。** 本分叉已在 `Resources/Info.plist` 里做了两处改动：
 
@@ -68,19 +80,20 @@ open "/Applications/cmux STAGING xhqing.app"
 
 另外 `SUPublicEDKey` 是上游的签名公钥，我们手里没有对应私钥，所以我们也无法给自己的分叉签更新包——这个通道对我们来说本来就是死的，关掉只是把它彻底焊死。
 
-## 四、提交纪律与 gitleaks hook
+## 五、提交纪律与 gitleaks hook
 
 本机全局装了 gitleaks pre-commit hook（对暂存区做密钥扫描）。上游代码库里有大量**假 token 测试夹具**和 SVG 路径数字（会被 `public-ipv4-literal` 规则误伤成公网 IP），一次导入类提交能刷出 150 条误报。
 
 - **导入上游代码的提交**（比如把某个上游 tag 的文件一次性带进来）：允许 `git commit --no-verify`，并在提交信息里写清楚这是导入。
 - **我们自己的补丁提交**：照常过 hook，不许用 `--no-verify` 绕过——这条不能变成习惯。
+- **版本号会被误判成公网 IP**：`public-ipv4-literal` 规则匹配「四段数字」，所以版本文档里的 `0.65.2.2` 这类字符串会被误报。已在全局 `~/.gitleaks.toml` 给该规则补上 `^0\.` 白名单（`0.0.0.0/8` 是 IANA 保留段、不可能是公网地址），两边都不需要再拿 `--no-verify` 硬绕。
 
-## 五、版本与发版
+## 六、版本与发版
 
 - 版本号权威来源：仓库根 `VERSION`（当前 `0.65.2.2-xhqing.1`），格式是「上游基线版本 + `-xhqing.N` 后缀」，N 是本分叉自己的迭代号。
 - 每次发版：更新 `VERSION` → 在 `CHANGELOG.md` 顶部写条目 → 打 tag（`v0.65.2.2-xhqing.1`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 GitHub Release。
 - 发版判断：只有本分叉自上一个 tag 以来有 `fix` / `feat` 类改动才发版；纯文档、杂事不发版。
 
-## 六、上游同步
+## 七、上游同步
 
 见 [SYNC.md](SYNC.md)。核心原则：**基线永远用上游 release tag，不用上游 main**（main 每天在动），我们的补丁保持一两个小提交，这样跟着新 tag rebase 成本很低。

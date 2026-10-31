@@ -133,4 +133,24 @@ done
 
 **代价（必须知道的）**：关掉之后，**开 PR 时不会再有上游那套 CI 检查**。我们的验证靠 `build-macos` 构建成功 + 用户实测，不靠 PR 门禁。所以本仓库的改动要自己保证质量，不要以为「PR 绿了就是对的」。
 
+**别忘了清理队列里已经排进去的 run**：disable 只阻止**新的**触发，已经进队的 run 还会等着分配 runner（2026-11-01 实测：关完 145 个 workflow 之后队列里还积着 12 条 schedule 进去的 run，其中一条 `Nightly macOS build` 是几小时的全量构建）。清法：
+
+```bash
+# 看一眼还有多少排队/在跑的
+gh api "repos/xhqing/cmux/actions/runs?status=queued&per_page=20" --jq '.workflow_runs[] | "\(.id) \(.name)"'
+
+# 逐条取消（把 <id> 换成上面列出来的）
+gh run cancel <id> -R xhqing/cmux
+```
+
+清完用这四条复查，应该全是 0：
+
+```bash
+for st in in_progress queued waiting pending; do
+  echo "$st: $(gh api "repos/xhqing/cmux/actions/runs?status=$st&per_page=100" --jq '.total_count')"
+done
+```
+
+上游的 cron 随时可能改，所以**每次跟上游同步前后都顺手看一眼队列**。
+
 **边界**：只关继承来的、对我们无意义的 workflow；`build-macos` 永远保持 active。新增自己的 workflow 时，先在 fork 里手动触发验证一次，再决定要不要长期开着。

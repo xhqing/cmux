@@ -31,6 +31,8 @@ git remote -v
 git push origin HEAD:refs/heads/xhqing   # 或已设跟踪后直接 git push
 ```
 
+`gh` 命令一律带 `-R xhqing/cmux`：本仓库有两个 remote，`gh` 在本地 `main` 没设上游跟踪的时候会把它自己解析到 `upstream`（报 `workflow not found` 之类的误报），带上 `-R` 就不会错。
+
 ## 跟着新 tag 升级（标准流程）
 
 上游发了新 tag，比如 `v0.65.3.0`：

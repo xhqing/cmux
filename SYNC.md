@@ -14,6 +14,23 @@ git remote -v
 # upstream  https://github.com/manaflow-ai/cmux.git ← 上游，只读，只 fetch
 ```
 
+## 分支布局（2026-10-31 定）
+
+| 分支 | 角色 | 说明 |
+| --- | --- | --- |
+| `main` | **上游镜像** | 只跟踪上游 main，可以随时被快速前进（fast-forward）；我们的改动**不放这里** |
+| `xhqing` | **我们的分叉线** | 上游 release tag + 我们的补丁；**仓库默认分支、CI 与发版都从这条分支走** |
+
+为什么分开：我们的基线钉在 release tag 上，而上游 main 每天几百个提交，两套历史必然分叉（实测：tag `v0.65.2.2` 与上游 main 最新的 GitHub compare 结果是 `diverged`，谁都快进不了谁）。把两者分开，任何一边都能干净地快进，**全程不需要 force**。
+
+**注意**：默认分支已经切到 `xhqing`，GitHub 网页上的「Sync fork」按钮对 `main` 可能不再好用（它默认同步默认分支）。上游同步统一按本文下面的本地 `git fetch --depth 1 upstream <tag>` + rebase 流程走，**不依赖网页按钮**。
+
+日常推送：
+
+```bash
+git push origin HEAD:refs/heads/xhqing   # 或已设跟踪后直接 git push
+```
+
 ## 跟着新 tag 升级（标准流程）
 
 上游发了新 tag，比如 `v0.65.3.0`：

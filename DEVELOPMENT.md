@@ -13,6 +13,13 @@
 workflow 文件：`.github/workflows/build.yml`（我们自己的，不依赖上游的 Blacksmith 私有 runner）。
 
 - 触发方式：手动 `workflow_dispatch`，或推送形如 `v*-xhqing.*` 的 tag 时自动跑。
+- **仓库有两个分支、默认分支是 `xhqing`**（`main` 是上游镜像、不放我们的改动，理由见 SYNC.md）。注意 `gh` 在本仓库里可能把仓库解析错（本地 `main` 没设上游跟踪，它会把 `upstream` 当成目标仓库，报 `workflow not found`），**触发时一律带上 `-R xhqing/cmux`**：
+
+  ```bash
+  gh workflow run build-macos -R xhqing/cmux --ref xhqing -f tag=xhqing
+  gh run list -R xhqing/cmux --limit 5
+  gh run view <run-id> -R xhqing/cmux --log
+  ```
 - runner：`macos-26`（自带 Xcode 26.x，实测镜像里 26.0.1 ~ 26.6 都有，默认 26.6）。
 - 关键步骤：
   1. `actions/checkout` 带 `submodules: recursive`（`ghostty`、`homebrew-cmux`、`vendor/bonsplit` 三个子模块必须拉到）；

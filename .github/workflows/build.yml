@@ -70,10 +70,28 @@ jobs:
       - name: 安装 Metal 工具链
         run: xcodebuild -downloadComponent MetalToolchain
 
-      - name: 安装 Zig
+      - name: 安装 Zig 0.16.0（上游要求主次版本必须匹配）
         run: |
-          brew install zig
-          zig version
+          set -euo pipefail
+          ZIG_VERSION="0.16.0"
+          # ghostty/build.zig.zon 里写的是 minimum_zig_version = "0.16.0"，
+          # scripts/ghostty-zig-version.sh 要求主次版本完全一致，所以不能用
+          # brew 的 latest（现在是 0.17.x）。
+          curl -fsSL -o /tmp/zig.tar.xz \
+            "https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-macos-${ZIG_VERSION}.tar.xz"
+          mkdir -p "$HOME/.local/zig"
+          tar -xJf /tmp/zig.tar.xz -C "$HOME/.local/zig" --strip-components=1
+          echo "$HOME/.local/zig" >> "$GITHUB_PATH"
+          "$HOME/.local/zig/zig" version
+
+      - name: 检查 Go（Release 构建的 WireGuard 引擎需要）
+        run: |
+          if command -v go >/dev/null 2>&1; then
+            go version
+          else
+            brew install go
+            go version
+          fi
 
       - name: setup（子模块 / Rust 工具链 / 预编译 GhosttyKit）
         run: ./scripts/setup.sh

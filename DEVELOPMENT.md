@@ -17,8 +17,8 @@ workflow 文件：`.github/workflows/build.yml`（我们自己的，不依赖上
 - 关键步骤：
   1. `actions/checkout` 带 `submodules: recursive`（`ghostty`、`homebrew-cmux`、`vendor/bonsplit` 三个子模块必须拉到）；
   2. 选 Xcode 26，`xcodebuild -downloadComponent MetalToolchain` 装 Metal 工具链（上游要求单独下载）；
-  3. `brew install zig`（`cmuxd` 是 Zig 写的，构建脚本会 `zig build`）；
-  4. Rust 用 runner 自带的 rustup / cargo（`scripts/setup.sh` 会装固定版本工具链）；
+  3. 装 Zig **0.16.0**（`ghostty/build.zig.zon` 里写的是 `minimum_zig_version = "0.16.0"`，`scripts/setup.sh` 的版本检查要求主次版本完全一致，所以**不能用 `brew install zig` 的 latest**——现在是 0.17.x，会直接报不兼容；workflow 里改成下载 ziglang.org 上固定的 0.16.0 tarball）；
+  4. Rust 用 runner 自带的 rustup / cargo（`scripts/setup.sh` 会装固定版本工具链）；Go 用来编译 Cloud 隧道扩展里的 WireGuard 引擎，**Release 构建必须有**（runner 镜像一般自带，没有则 `brew install go`）；
   5. `./scripts/setup.sh`（初始化子模块、拉 checksum 固定的预编译 `GhosttyKit.xcframework`）；
   6. `./scripts/reloads.sh --tag xhqing`（Release 配置 + 隔离 bundle id 构建）；
   7. 打包 `.app` 为 zip 上传为 artifact。

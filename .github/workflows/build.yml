@@ -5,8 +5,12 @@ name: build-macos
 # 只做一件事——在 GitHub 公开的 macOS 26 runner 上构建 Release 版 app，产出可安装的 zip。
 #
 # 用法：
-#   1) 仓库 Actions 页面手动 Run workflow（tag 默认 xhqing）；
-#   2) 或推送形如 v0.65.2.2-xhqing.1 的 tag 自动触发。
+#   1) 仓库 Actions 页面手动 Run workflow（tag 默认 xhqing，arch 默认 arm64）；
+#   2) 或推送形如 v0.65.2.2-xhqing.1 的 tag 自动触发（按 arm64 构建）。
+#
+# 架构：默认只编 arm64。用户主机是 Apple Silicon，编通用二进制（arm64 + x86_64）
+# 等于把整个 app 编两遍——实测一轮要 3.5 小时以上还没编完。需要 x86_64（例如装到
+# macmini）时手动选 arch=x86_64 或 universal。
 
 on:
   workflow_dispatch:
@@ -15,6 +19,15 @@ on:
         description: "构建标签：决定 app 名与 bundle id 后缀（默认 xhqing）"
         required: false
         default: xhqing
+      arch:
+        description: "构建架构：arm64（默认，用户本机）/ x86_64（Intel Mac、macmini）/ universal（两者合一）"
+        required: false
+        type: choice
+        default: arm64
+        options:
+          - arm64
+          - x86_64
+          - universal
   push:
     tags:
       - "v*-xhqing.*"
@@ -45,6 +58,43 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 1
+
+      - name: 解析构建架构
+        run: |
+          set -euo pipefail
+          ARCH="${{ github.event.inputs.arch || 'arm64' }}"
+          case "${ARCH}" in
+            arm64)
+              echo "ARCHS=arm64" >> "$GITHUB_ENV"
+              echo "ONLY_ACTIVE_ARCH=YES" >> "$GITHUB_ENV"
+              ;;
+            x86_64)
+              echo "ARCHS=x86_64" >> "$GITHUB_ENV"
+              echo "ONLY_ACTIVE_ARCH=YES" >> "$GITHUB_ENV"
+              ;;
+            universal)
+              echo "ARCHS=arm64 x86_64" >> "$GITHUB_ENV"
+              echo "ONLY_ACTIVE_ARCH=NO" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::未知架构 '${ARCH}'（只支持 arm64 / x86_64 / universal）"
+              exit 1
+              ;;
+          esac
+          # CI 不跑增量/索引，关掉编译器索引存储能省下可观的时间。
+          echo "COMPILER_INDEX_STORE_ENABLE=NO" >> "$GITHUB_ENV"
+          echo "构建架构：${ARCH}"
+
+      - name: 缓存 Zig / Cargo 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: deps-${{ runner.os }}-${{ hashFiles('ghostty/build.zig.zon', 'Native/*/Cargo.lock', 'Packages/**/Cargo.lock') }}
+          restore-keys: |
+            deps-${{ runner.os }}-
 
       - name: 打印环境信息
         run: |
@@ -131,7 +181,11 @@ jobs:
           TAG="${{ github.event.inputs.tag || 'xhqing' }}"
           APP="/tmp/cmux-staging-${TAG}/Build/Products/Release/cmux STAGING ${TAG}.app"
           VERSION="$(cat VERSION)"
-          OUT="cmux-${VERSION}-macos-arm64.zip"
+          # 产物名带上真实架构（从二进制里读，不猜输入参数）
+          BIN="${APP}/Contents/MacOS/cmux"
+          ARCHS_PRESENT="$(lipo -archs "${BIN}" 2>/dev/null | tr ' ' '-' || echo unknown)"
+          echo "app 内的架构：${ARCHS_PRESENT}"
+          OUT="cmux-${VERSION}-macos-${ARCHS_PRESENT}.zip"
           ditto -c -k --sequesterRsrc --keepParent "${APP}" "${OUT}"
           ls -lh "${OUT}"
           shasum -a 256 "${OUT}" | tee "${OUT}.sha256"
@@ -139,7 +193,7 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: cmux-xhqing-${{ github.run_number }}
+          name: cmux-xhqing-${{ github.run_number }}-${{ github.event.inputs.arch || 'arm64' }}
           path: |
             cmux-*.zip
             cmux-*.zip.sha256

@@ -13,6 +13,7 @@
 workflow 文件：`.github/workflows/build.yml`（我们自己的，不依赖上游的 Blacksmith 私有 runner）。
 
 - 触发方式：手动 `workflow_dispatch`，或推送形如 `v*-xhqing.*` 的 tag 时自动跑。
+- **架构输入 `arch`（默认 `arm64`）**：用户本机是 Apple Silicon，而工程默认编通用二进制（arm64 + x86_64 = 整个 app 编两遍，实测一轮 3.5 小时还没编完）。日常发版只编 `arm64`；要装到 Intel 机器（如 macmini）时手动选 `x86_64`，确实两个都要才选 `universal`。产物名里的架构是从二进制里用 `lipo -archs` 读出来的真实值，不是输入参数。
 - **仓库有两个分支、默认分支是 `xhqing`**（`main` 是上游镜像、不放我们的改动，理由见 SYNC.md）。注意 `gh` 在本仓库里可能把仓库解析错（本地 `main` 没设上游跟踪，它会把 `upstream` 当成目标仓库，报 `workflow not found`），**触发时一律带上 `-R xhqing/cmux`**：
 
   ```bash

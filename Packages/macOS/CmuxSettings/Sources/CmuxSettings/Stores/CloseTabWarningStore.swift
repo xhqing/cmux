@@ -41,6 +41,15 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
         keys.warnBeforeClosingWindow.value(in: defaults)
     }
 
+    /// Whether a running foreground process is a reason to confirm a close.
+    ///
+    /// cmux fork (xhqing): backs `app.confirmCloseRunningProcess`, which
+    /// defaults to `false` — closing a workspace, tab or window stays quiet
+    /// while a shell or agent is running, and only unsaved content asks.
+    public var warnsBeforeClosingRunningProcess: Bool {
+        keys.confirmCloseRunningProcess.value(in: defaults)
+    }
+
     /// Whether closing a whole window should show "Close window?". It asks only
     /// when the window setting is on and something would be lost, meaning some
     /// panel in the window needs close confirmation (the same per-panel check
@@ -61,6 +70,12 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
 
     /// Turns off the given warnings, for a dialog's "Don't ask again" checkbox.
     public func disableWarnings(_ kinds: CloseWarningKinds) {
+        // A process-triggered prompt has to be able to silence itself, otherwise
+        // the "Don't ask again" checkbox lies: turning it off means the running
+        // process stops being a reason to confirm.
+        if kinds.contains(.safety) {
+            keys.confirmCloseRunningProcess.set(false, in: defaults)
+        }
         // An agent-session prompt owns its own suppression choice. Keep a
         // simultaneous tab-button warning enabled so “Don’t ask again” never
         // silences ordinary tab protection.

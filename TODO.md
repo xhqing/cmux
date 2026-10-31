@@ -1,127 +1,17 @@
 # TODO
 
-## Issue 151: Remote SSH (Living Execution)
-- [x] `cmux ssh` creates remote workspace metadata and does not require `--name`
-- [x] Remote daemon bootstrap/upload/start path with `cmuxd-remote serve --stdio`
-- [x] Reconnect/disconnect controls (CLI/API/context menu) + improved error surfacing
-- [x] Retry count/time surfaced in remote daemon/probe error details
-- [ ] Remove automatic remote service port mirroring (`ssh -L` from detected remote listening ports)
-- [ ] Add transport-scoped proxy broker (SOCKS5 + HTTP CONNECT) for remote traffic
-- [ ] Extend `cmuxd-remote` RPC beyond `hello/ping` with proxy stream methods (`proxy.open|close`)
-- [ ] Auto-wire WKWebView in remote workspaces to proxy via `WKWebsiteDataStore.proxyConfigurations`
-- [ ] Add browser proxy e2e tests (remote egress IP, websocket, reconnect continuity)
-- [ ] Implement PTY resize coordinator with tmux semantics (`smallest screen wins`)
-- [ ] Add resize tests for multi-attachment sessions (attach/detach/reconnect transitions)
+本分叉的活跃待办。已处理的条目移入 [TODO-archive.md](TODO-archive.md)；超低频备忘放 [MEMO.md](MEMO.md)。
 
-## Socket API / Agent
-- [x] Add window handles + `window.list/current/focus/create/close` for multi-window socket control (v2) + v1 equivalents (`list_windows`, etc) + CLI support.
-- [x] Add surface move/reorder commands (move between panes, reorder within pane, move across workspaces/windows).
-- [x] Add browser automation API inspired by `vercel-labs/agent-browser`, but backed by cmux's WKWebView (wait, click, type, eval, screenshot, etc.).
-- [x] Finalize browser parity contract and command mapping decisions in `docs/agent-browser-port-spec.md`.
-- [x] Add `cmux browser` command surface that mirrors agent-browser semantics and targets explicit `surface_id` handles.
-- [x] Add short handle refs (`surface:N`, `pane:N`, `workspace:N`, `window:N`) and CLI `--id-format refs|uuids|both` output control.
-- [x] Add v1->v2 compatibility shim for migrated browser/topology commands while v1 remains supported.
-- [x] Port browser automation coverage to `tests_v2/` per `docs/agent-browser-port-spec.md` and keep v1 + v2 suites green.
-  - Added `tests_v2/test_browser_api_comprehensive.py`, `tests_v2/test_browser_api_p0.py`, `tests_v2/test_browser_api_extended_families.py`, `tests_v2/test_browser_api_unsupported_matrix.py`, and `tests_v2/test_browser_cli_agent_port.py`.
-  - Full VM runs: `./scripts/run-tests-v1.sh` and `./scripts/run-tests-v2.sh` passing (v2 visual D12 remains reported as a known non-blocking VM failure, matching v1 policy).
-- [x] Fix `cmux browser open|open-split|new` URL parsing so routing flags (`--workspace`, `--window`) are removed before URL construction.
-- [x] Fix `identify --workspace/--surface` caller parsing to honor ref handles (`workspace:N`, `surface:N`) instead of falling back to current/focused IDs.
-- [x] Update `browser.open_split` placement policy: reuse nearest right sibling pane first (nested-aware), only create a new split when caller has no right sibling.
-- [x] Upgrade `browser.snapshot` to agent-browser-style output (`snapshot` tree text + `refs`) and make non-JSON CLI output print snapshot content instead of `OK`.
-- [x] Add richer selector failure diagnostics (`hint`, counts, sample, snapshot excerpt) with bounded retries for transient `not_found` races.
-- [x] Add regression coverage for browser placement policy + snapshot/ref output + diagnostics in v2 tests.
-- [x] Allow `browser fill` with empty text (clear input) in CLI + v2 API flows.
-- [x] Make legacy `new-pane`/`new-surface` CLI output prefer short `surface:N` refs by default.
-- [x] Add optional `--snapshot-after` / `snapshot_after` action feedback to include a fresh post-action browser snapshot.
-- [x] Switch CLI `--json` default ID output to refs-first (UUIDs only via `--id-format uuids|both`) and add regression coverage.
-- [x] Expand end-user skill docs with deep-linkable cmux-browser references/templates plus a new core `skills/cmux/` topology skill.
+## 🟠 橙色（边界情况、防护缺口，可能演化为实际问题）
 
-## Command Palette
-- [ ] Add cmd+shift+p palette with all commands
+- [ ] **T1** CI 流水线首次跑通：`build-macos` workflow 在 `macos-26` runner 上完整构建出 Release app 并产出可用 zip（当前只是写好了 workflow，还没实际跑过；要盯的是 Metal 工具链、Zig 构建 cmuxd、以及 ad-hoc 签名这三处）（记录：2026-10-31 22:30）
+- [ ] **T2** 自建版并行安装后验证 P1 的真实行为：关掉跑着 pi 的工作区不再弹窗、设置页开关打开后能恢复提示、"Don't ask again" 勾选真的生效（记录：2026-10-31 22:30）
 
-## Feature Requests
-- [ ] Warm pool of Claude Code instances mapped to a keyboard shortcut
+## 🟡 黄色（不影响正确性的优化、覆盖缺口）
 
-## Claude Code Integration
-- [ ] Add "Install Claude Code integration" menu item in menubar
-  - Opens a new terminal
-  - Shows user the diff to their config file (claude.json, opencode config, codex config, etc.)
-  - Prompts user to type 'y' to confirm
-  - Implement as part of `cmux` CLI, menubar just triggers the CLI command
+- [ ] **T3** Dock（侧边 Dock 里的标签页）关闭确认还没接 `app.confirmCloseRunningProcess` 开关：`DockSplitStore.dockPanelNeedsConfirmClose(_:)` 仍是旧的「有进程就确认」（记录：2026-10-31 22:30）
 
-## Additional Integrations
-- [ ] Codex integration
-- [ ] OpenCode integration
+## 🟢 绿色（计划类新功能）
 
-## Browser
-- [ ] Per-WKWebView proxy observability/inspection once remote proxy path is shipped (URL, method, headers, body, status, timing)
-
-## Bugs
-- [ ] **P0** Terminal title updates are suppressed when workspace is not focused (e.g. Claude Code loading indicator doesn't update in sidebar until you switch to that tab)
-- [ ] Sidebar tab reorder can get stuck in dragging state (dimmed tab + blue drop indicator line visible) after drag ends
-- [ ] Drag-and-drop files/images into terminal shows URL instead of file path (Ghostty supports dropping files as paths)
-- [ ] After opening a browser tab, up/down arrow keys (and possibly other keyboard shortcuts) stop working in the terminal
-- [ ] Notification marked unread doesn't get pushed to the top of the list
-- [ ] Browser cmd+shift+H ring flashes only once (should flash twice like other shortcuts)
-
-## Refactoring
-- [ ] **P0** Remove all index-based APIs in favor of short ID refs (surface:N, pane:N, workspace:N, window:N)
-- [ ] **P0** CLI commands should be workspace-relative using CMUX_WORKSPACE_ID env var (not focused workspace) so agents in background workspaces don't affect the user's active workspace. Affected: send, send-key, send-panel, send-key-panel, new-split, new-pane, new-surface, close-surface, list-panes, list-pane-surfaces, list-panels, focus-pane, focus-panel, surface-health
-- [ ] **P0** Remove `close-workspace` with no args — require explicit workspace short ID or UUID, with clear error message if missing
-
-## UI/UX Improvements
-- [ ] Show loading indicator in terminal while it's loading
-- [ ] Add question mark icon to learn shortcuts
-- [ ] Notification popover: each button item should show outline outside when focused/hovered
-- [ ] Notification popover: add right-click context menu to mark as read/unread
-- [ ] Right-click tab should allow renaming that workspace
-- [ ] Cmd+click should open links in cmux (browser panel) instead of external browser
-- [ ] "Waiting for input" notification should include custom terminal title if set
-- [ ] Close button for current/active tab should always be visible (not just on hover)
-- [ ] Add browser icon to the left of the plus button in the tab bar
-
-## Analytics
-- [x] Add PostHog tracking (set `PostHogAnalytics.apiKey` in `Sources/PostHogAnalytics.swift`)
-
-### Browser Parity Completion (agent-browser port)
-- [x] Implement locator family:
-  - `browser.find.role`
-  - `browser.find.text`
-  - `browser.find.label`
-  - `browser.find.placeholder`
-  - `browser.find.alt`
-  - `browser.find.title`
-  - `browser.find.testid`
-  - `browser.find.first`
-  - `browser.find.last`
-  - `browser.find.nth`
-- [x] Implement frame/dialog/download:
-  - `browser.frame.select`
-  - `browser.frame.main`
-  - `browser.dialog.accept`
-  - `browser.dialog.dismiss`
-  - `browser.download.wait|list`
-- [x] Implement session/context state APIs:
-  - `browser.cookies.get|set|clear`
-  - `browser.storage.get|set|clear`
-  - `browser.tab.new|list|switch|close`
-  - `browser.state.save|load`
-- [x] Implement developer/diagnostic helpers:
-  - `browser.console.list|clear`
-  - `browser.errors.list`
-  - `browser.highlight`
-  - `browser.addinitscript`
-  - `browser.addscript`
-  - `browser.addstyle`
-- [x] Add explicit `not_supported` for WebKit/CDP-gap commands:
-  - `browser.viewport.set`
-  - `browser.geolocation.set`
-  - `browser.offline.set`
-  - `browser.trace.start|stop`
-  - `browser.network.route|unroute|requests`
-  - `browser.screencast.start|stop`
-  - `browser.input_mouse|input_keyboard|input_touch`
-- [x] Extend `cmux browser ...` CLI grammar for the new families (including aliases).
-- [x] Port/add v2 tests for all newly implemented families.
-- [x] Update unsupported matrix tests to assert `not_supported` for hard platform gaps (instead of `method_not_found`).
-- [x] Re-run full `run-tests-v1.sh` and `run-tests-v2.sh` on `cmux-vm`.
+- [ ] **T4** 参考上游 issue #9865 实现「空闲的 coding agent 不算 running process」：agent 停在等用户输入的提示符时，即使把 `app.confirmCloseRunningProcess` 打开也不应该算作有进程在跑（记录：2026-10-31 22:30）
+- [ ] **T5** 建立上游同步节奏：至少每 1~2 个月 `gh release list -R manaflow-ai/cmux` 看一次新 tag，按 SYNC.md 的流程升级基线（记录：2026-10-31 22:30）

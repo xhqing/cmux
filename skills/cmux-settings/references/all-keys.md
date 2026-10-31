@@ -44,6 +44,7 @@ General app preferences from Settings > App.
 | `app.warnBeforeClosingTabXButton` | boolean | `false` | Show a confirmation before closing a tab with the tab close button. |
 | `app.warnBeforeClosingWorkspace` | boolean | `true` | Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off. |
 | `app.warnBeforeClosingWindow` | boolean | `true` | Show a confirmation before closing a window with a running process, or all of a window's workspaces at once. |
+| `app.confirmCloseRunningProcess` | boolean | `false` | Ask before closing a tab, workspace or window while a foreground process is still running. Off by default in the xhqing fork: only unsaved content asks. Turn it on to restore the upstream protected-process behavior. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
 | `app.tabBarVisibility` | `"always"` or `"multiple-tabs"` | `"always"` | Control when each pane's surface tab bar is shown. `"always"` shows it even when the pane has a single tab; `"multiple-tabs"` hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row. |
 

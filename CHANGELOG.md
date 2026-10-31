@@ -2,6 +2,22 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-xhqing.1] - 2026-10-31
+
+自建分叉（xhqing）第一个版本。基线上游 `v0.65.2.2`。补丁细节见 [PATCHES.md](PATCHES.md)。
+
+### Added
+- 新增设置项 `app.confirmCloseRunningProcess`（默认关闭），位于设置 → App、以及命令面板搜索：控制「有进程在运行时，关闭标签页 / 工作区 / 窗口是否先弹确认」。
+
+### Changed
+- 关闭工作区 / 标签页 / 窗口时，**不再因为里面还跑着进程就弹确认**（shell、空闲的 agent 都不再触发）。未保存内容、pinned 工作区、进行中的 agent 会话、X 按钮警告等保护保持不变。
+- 关闭对话框里的 "Don't ask again" 现在**真的生效**：勾选后连同「进程保护」一起关掉，不会再出现「勾了还是弹」的情况。
+- 关掉 Sparkle 自动更新（`SUEnableAutomaticChecks` → `false`，`SUFeedURL` 指向本分叉），避免自建版被官方版本更新覆盖。
+
+### 文档
+- 新增 `DEVELOPMENT.md`（构建 / 安装 / 发版）、`PATCHES.md`（补丁清单与根因）、`SYNC.md`（上游同步方法）、`TODO.md`、`VERSION`。
+- 上游的 `AGENTS.md` / `CLAUDE.md`（给上游 agent 的工作守则）迁到 `docs/upstream-agent-notes.md` 保存。
+
 ## [0.65.2.2] - 2026-10-27
 
 ### Fixed

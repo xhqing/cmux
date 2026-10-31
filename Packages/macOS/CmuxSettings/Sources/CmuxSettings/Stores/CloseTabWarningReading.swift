@@ -18,12 +18,23 @@ public protocol CloseTabWarningReading: Sendable {
 
     /// Whether closing an agent session while it is mid-turn warns first.
     var warnsBeforeClosingAgentSession: Bool { get }
+
+    /// Whether a running foreground process (a shell, a build, a busy agent)
+    /// is a reason to confirm before closing a tab, workspace or window.
+    ///
+    /// cmux fork (xhqing): defaults to `false` in the shipping store, so closes
+    /// are quiet unless something would actually be lost. Callers that mean
+    /// "unsaved content" must not go through this switch.
+    var warnsBeforeClosingRunningProcess: Bool { get }
 }
 
 extension CloseTabWarningReading {
     /// Existing fakes and consumers default to the protected behavior while
     /// they adopt the separate agent-session setting.
     public var warnsBeforeClosingAgentSession: Bool { true }
+    /// Fakes keep the historical protected behavior; the shipping store
+    /// overrides this with `app.confirmCloseRunningProcess`.
+    public var warnsBeforeClosingRunningProcess: Bool { true }
     /// The warning toggles that make this close ask first; empty when it
     /// closes without a dialog. A dialog's "Don't ask again" checkbox turns
     /// off exactly these.

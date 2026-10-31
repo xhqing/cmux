@@ -507,6 +507,9 @@ enum CommandPaletteSettingsToggleCommands {
                 userFacing: SettingCatalog().app.warnBeforeClosingWorkspace
             ),
             CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.confirmCloseRunningProcess
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 userFacing: SettingCatalog().app.warnBeforeClosingWindow
             ),
             CommandPaletteSettingToggleDescriptor(

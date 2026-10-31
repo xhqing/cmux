@@ -227,6 +227,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingWindow.userDefaultsKey
         ),
         .init(
+            jsonKey: "confirmCloseRunningProcess",
+            defaultsKey: app.confirmCloseRunningProcess.userDefaultsKey
+        ),
+        .init(
             jsonKey: "hideTabCloseButton",
             defaultsKey: app.hideTabCloseButton.userDefaultsKey
         ),

@@ -6624,8 +6624,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         surfaceResumeBindingsByPanelId[panelId]
     }
 
+    /// cmux fork (xhqing): whether a running foreground process is a reason to
+    /// confirm a close. Backs `app.confirmCloseRunningProcess`, default off.
+    var confirmsRunningProcessOnClose: Bool {
+        CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingRunningProcess
+    }
+
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
-        Self.resolveCloseConfirmation(
+        guard confirmsRunningProcessOnClose else { return false }
+        return Self.resolveCloseConfirmation(
             shellActivityState: panelShellActivityStates[panelId],
             fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
         )
@@ -6633,6 +6640,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func panelNeedsConfirmClose(panelId: UUID) -> Bool {
         guard let panel = panels[panelId] else { return false }
+        // cmux fork (xhqing): a running foreground process is only a reason to
+        // confirm when `app.confirmCloseRunningProcess` is on. It defaults to
+        // off, so closing a workspace, tab or window never asks just because a
+        // shell or an idle agent is still running. Unsaved content in
+        // non-terminal panels keeps its unconditional guard below.
+        //
         // Mirrored remote tmux window-tab: closing it kills the remote window,
         // and its manual-I/O surface has no local child process for the ghostty
         // fallback (which reports "needs confirm" whenever the cursor isn't at a
@@ -6641,7 +6654,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if isRemoteTmuxMirror,
            let activity = AppDelegate.shared?.remoteTmuxController
                .cachedMirrorTabActivity(workspaceId: id, panelId: panelId) {
-            return activity.hasActiveCommand
+            return confirmsRunningProcessOnClose && activity.hasActiveCommand
         }
         if let terminalPanel = panel as? TerminalPanel {
             return panelNeedsConfirmClose(

@@ -89,6 +89,7 @@ extension CmuxSettingsFileStore {
                     "warnBeforeClosingAgentSession": AppCatalogSection().warnBeforeClosingAgentSession.defaultValue,
                     "warnBeforeClosingWorkspace": AppCatalogSection().warnBeforeClosingWorkspace.defaultValue,
                     "warnBeforeClosingWindow": AppCatalogSection().warnBeforeClosingWindow.defaultValue,
+                    "confirmCloseRunningProcess": AppCatalogSection().confirmCloseRunningProcess.defaultValue,
                     "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
                     "tabBarVisibility": AppCatalogSection().tabBarVisibility.defaultValue.rawValue,
                     "renameSelectsExistingName": AppCatalogSection().renameSelectsExistingName.defaultValue,

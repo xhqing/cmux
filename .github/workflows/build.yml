@@ -1,0 +1,136 @@
+name: build-macos
+
+# xhqing 自建分叉的构建流水线。
+# 上游的 CI 跑在 Blacksmith 私有 runner 上，公开分叉用不了，所以我们自己写这一条：
+# 只做一件事——在 GitHub 公开的 macOS 26 runner 上构建 Release 版 app，产出可安装的 zip。
+#
+# 用法：
+#   1) 仓库 Actions 页面手动 Run workflow（tag 默认 xhqing）；
+#   2) 或推送形如 v0.65.2.2-xhqing.1 的 tag 自动触发。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "构建标签：决定 app 名与 bundle id 后缀（默认 xhqing）"
+        required: false
+        default: xhqing
+  push:
+    tags:
+      - "v*-xhqing.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Release build (macos-26)
+    runs-on: macos-26
+    # 这个工程 2 万多个文件，公开 runner 首次全量构建很慢，给足时间。
+    timeout-minutes: 360
+    env:
+      CMUX_DEV_BACKEND_MODE: local
+      # 没有 Developer ID：让 Xcode 用 ad-hoc 身份签名（每个嵌套二进制都会签），
+      # 而不是整包跳过签名后再补一刀 --deep。
+      CODE_SIGN_IDENTITY: "-"
+      CODE_SIGNING_REQUIRED: "NO"
+
+    steps:
+      - name: Checkout（含子模块）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: 打印环境信息
+        run: |
+          sw_vers
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          xcodebuild -version || true
+          zig version || true
+          cargo --version || true
+          rustup toolchain list || true
+
+      - name: 选择 Xcode 26
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "${XCODE_APP}" ]; then
+            echo "::error::runner 上没有 Xcode 26，无法构建"
+            exit 1
+          fi
+          echo "使用 ${XCODE_APP}"
+          sudo xcode-select -s "${XCODE_APP}"
+          xcodebuild -version
+
+      - name: 安装 Metal 工具链
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: 安装 Zig
+        run: |
+          brew install zig
+          zig version
+
+      - name: setup（子模块 / Rust 工具链 / 预编译 GhosttyKit）
+        run: ./scripts/setup.sh
+
+      - name: 构建 Release（隔离身份，不碰用户正在跑的 cmux）
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || 'xhqing' }}"
+          echo "构建标签：${TAG}"
+          ./scripts/reloads.sh --tag "${TAG}"
+
+      - name: 校验 Sparkle 已被关掉
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || 'xhqing' }}"
+          APP="/tmp/cmux-staging-${TAG}/Build/Products/Release/cmux STAGING ${TAG}.app"
+          PLIST="${APP}/Contents/Info.plist"
+          FEED="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "${PLIST}" || true)"
+          AUTO="$(/usr/libexec/PlistBuddy -c 'Print :SUEnableAutomaticChecks' "${PLIST}" || true)"
+          BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${PLIST}" || true)"
+          VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${PLIST}" || true)"
+          echo "bundle id : ${BID}"
+          echo "version   : ${VER}"
+          echo "feed      : ${FEED}"
+          echo "auto check: ${AUTO}"
+          case "${FEED}" in
+            *manaflow-ai/cmux*) echo "::error::SUFeedURL 仍指向上游，会被官方版本覆盖"; exit 1 ;;
+          esac
+          if [ "${AUTO}" = "true" ]; then
+            echo "::error::SUEnableAutomaticChecks 仍为 true"
+            exit 1
+          fi
+
+      - name: 打包
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || 'xhqing' }}"
+          APP="/tmp/cmux-staging-${TAG}/Build/Products/Release/cmux STAGING ${TAG}.app"
+          VERSION="$(cat VERSION)"
+          OUT="cmux-${VERSION}-macos-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent "${APP}" "${OUT}"
+          ls -lh "${OUT}"
+          shasum -a 256 "${OUT}" | tee "${OUT}.sha256"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmux-xhqing-${{ github.run_number }}
+          path: |
+            cmux-*.zip
+            cmux-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 收尾（关掉构建脚本顺手拉起的实例）
+        if: always()
+        run: |
+          TAG="${{ github.event.inputs.tag || 'xhqing' }}"
+          pkill -f "cmux STAGING ${TAG}.app/Contents/MacOS/cmux" || true
+          exit 0

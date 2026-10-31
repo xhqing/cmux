@@ -231,6 +231,32 @@ public struct AppCatalogSection: SettingCatalogSection {
         )
     )
 
+    /// Whether a running foreground process counts as a reason to confirm a
+    /// close. cmux fork (xhqing): defaults to `false`, so a workspace, tab or
+    /// window closes without a prompt while a shell or agent is still running;
+    /// unsaved content keeps asking either way. Turn it on to restore the
+    /// upstream "protected process" behavior.
+    public let confirmCloseRunningProcess = DefaultsKey<Bool>(
+        id: "app.confirmCloseRunningProcess",
+        defaultValue: false,
+        userDefaultsKey: "confirmCloseRunningProcess",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.confirmCloseRunningProcess",
+                defaultValue: "Confirm Before Closing Running Processes"
+            ),
+            section: .app,
+            searchID: "confirm-before-closing-running-processes",
+            searchKeywords: ["close", "running", "process", "agent", "confirmation", "safety"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "confirmCloseRunningProcess",
+                    keywords: ["confirm", "close", "running", "process"]
+                )
+            ))
+        )
+    )
+
     public let warnBeforeClosingWorkspace = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingWorkspace",
         defaultValue: true,

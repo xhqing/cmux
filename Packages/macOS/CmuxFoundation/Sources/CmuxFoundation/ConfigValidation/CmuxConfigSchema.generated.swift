@@ -919,6 +919,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show a confirmation before closing a window with a running process, or all of a window's workspaces at once."
         },
+        "confirmCloseRunningProcess": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ask before closing a tab, workspace or window while a foreground process is still running. Off by default in this fork: only unsaved content asks. Turn it on to restore the upstream protected-process behavior."
+        },
         "hideTabCloseButton": {
           "type": "boolean",
           "default": false,

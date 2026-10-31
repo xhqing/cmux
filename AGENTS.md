@@ -1,1 +1,1 @@
-CLAUDE.md
+../FullStackEngineerAgent/AGENTS.md

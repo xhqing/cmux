@@ -4,11 +4,11 @@
 
 ## 🟠 橙色（边界情况、防护缺口，可能演化为实际问题）
 
-- [ ] **T1** CI 流水线首次跑通：`build-macos` workflow 在 `macos-26` runner 上完整构建出 Release app 并产出可用 zip（当前只是写好了 workflow，还没实际跑过；要盯的是 Metal 工具链、Zig 构建 cmuxd、以及 ad-hoc 签名这三处）（记录：2026-10-31 22:30）
 - [ ] **T2** 自建版并行安装后验证 P1 的真实行为：关掉跑着 pi 的工作区不再弹窗、设置页开关打开后能恢复提示、"Don't ask again" 勾选真的生效（记录：2026-10-31 22:30）
 
 ## 🟡 黄色（不影响正确性的优化、覆盖缺口）
 
+- [ ] **T6** CI 注入 `MARKETING_VERSION=0.65.2.2`：当前 app 内 `CFBundleShortVersionString` 还是上游的 `0.65.2`（工程里 12 处硬编码），与 VERSION 的 `0.65.2.2-xhqing.1` 不一致；后缀不进 CFBundleShortVersionString（Apple 要求纯数字段），只保留在 VERSION / tag / Release / 产物名（记录：2026-11-01 02:40）
 - [ ] **T3** Dock（侧边 Dock 里的标签页）关闭确认还没接 `app.confirmCloseRunningProcess` 开关：`DockSplitStore.dockPanelNeedsConfirmClose(_:)` 仍是旧的「有进程就确认」（记录：2026-10-31 22:30）
 
 ## 🟢 绿色（计划类新功能）

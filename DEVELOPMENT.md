@@ -106,3 +106,31 @@ open "/Applications/cmux STAGING xhqing.app"
 ## 七、上游同步
 
 见 [SYNC.md](SYNC.md)。核心原则：**基线永远用上游 release tag，不用上游 main**（main 每天在动），我们的补丁保持一两个小提交，这样跟着新 tag rebase 成本很低。
+
+## 八、仓库 housekeeping：继承来的 workflow 要批量关掉
+
+**问题**：GitHub 的 fork 会把上游 `.github/workflows/` 下的全部 workflow 一起继承过来（本仓 146 个），而且 **`schedule`（定时）触发在 fork 里照样生效**。上游那套是给他们的私有 runner 和 secrets 准备的：`Nightly macOS build` 每次是几小时的全量构建，`iOS TestFlight` 上传和公证续做在我们这里没有对应凭据，只会失败刷屏；这些 run 还会跟我们自己的 `build-macos` 抢 macOS runner 队列。
+
+**现状（2026-11-01 处理）**：除 `build-macos` 外，145 个 workflow 已全部 `disabled_manually`，排队中的残留 run 也已取消。
+
+**恢复某个 workflow**（比如想临时跑一次上游的静态检查）：
+
+```bash
+gh workflow list -R xhqing/cmux                      # 看状态
+gh workflow enable <workflow 名或 id> -R xhqing/cmux  # 开回来
+gh workflow disable <workflow 名或 id> -R xhqing/cmux # 再关掉
+```
+
+**批量复查 / 再关一遍**（上游会持续新增 workflow，跟着默认分支进到 fork）：
+
+```bash
+for id in $(gh api repos/xhqing/cmux/actions/workflows --paginate --jq '.workflows[].id'); do
+  name=$(gh api repos/xhqing/cmux/actions/workflows/$id --jq '.name')
+  [ "$name" = "build-macos" ] && continue
+  gh api -X PUT repos/xhqing/cmux/actions/workflows/$id/disable
+done
+```
+
+**代价（必须知道的）**：关掉之后，**开 PR 时不会再有上游那套 CI 检查**。我们的验证靠 `build-macos` 构建成功 + 用户实测，不靠 PR 门禁。所以本仓库的改动要自己保证质量，不要以为「PR 绿了就是对的」。
+
+**边界**：只关继承来的、对我们无意义的 workflow；`build-macos` 永远保持 active。新增自己的 workflow 时，先在 fork 里手动触发验证一次，再决定要不要长期开着。

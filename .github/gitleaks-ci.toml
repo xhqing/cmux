@@ -17,3 +17,10 @@ paths = [
   '''\.svg$''',
   '''\.svg\.txt$''',
 ]
+
+[[allowlists]]
+description = "Computer Use 测试夹具里的 64 位十六进制 auth code 被 generic-api-key 误报（`state_authentication_code` 是 JSON 字段名，值是假的）"
+regexTarget = "line"
+regexes = [
+  '''"state_authentication_code"''',
+]

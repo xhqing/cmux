@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## [未发布]
 
 ### Changed
+- **修掉构建设置转发缺失（同时解决 T6）**：`build.yml` 把 `ARCHS` / `ONLY_ACTIVE_ARCH` / `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` 写进环境变量，但 `scripts/reloads.sh` 从未把它们转成 `xcodebuild` 的构建设置——xcodebuild 不读环境变量，于是「只编 arm64」静默失效（实测 arm64 构建里仍有 4662 次 x86_64 编译调用，等于每次都编通用二进制、耗时数小时），`MARKETING_VERSION` 注入也一直不生效（Info.plist 里始终是工程硬编码的 `0.65.2`，即 T6）。现在 `reloads.sh` 统一把这几项转发为构建设置；本地不设这些环境变量时行为不变。
 - **仓库脱离 fork network，重建为独立仓库（2026-11-02）**：原 fork 带着上游 20,328 个提交，仓库体积 1.11 GiB，超过 GitHub「Leave fork network」要求的 1 GiB 上限，按钮走不通。做法是把上游 `v0.65.2.2` 的树**剥掉非 macOS 构建内容**后压平成一条基线提交，再把我们自己的 14 个补丁提交逐个重放到上面，得到 15 个提交、约 137 MiB 的新历史；随后删除旧 fork、以同名新建独立仓库并推上去。上游历史需要时按 `SYNC.md` 浅拉 tag，同步流程本身不变（`rebase --onto` 的「旧基线」改为压平后的基线提交）。
 - **剥离非 macOS 内容**：删除 `web/`（官网，含 62 MB 博客视频与字体）、`docs/`、`ios/`（iOS app：只保留 Xcode 工程真正依赖的 6 个 `Packages/iOS/CmuxMobile*` 包）、`cmux-tui/`、`webviews/`、`daemon/`、`coderouter/`、`agent-chat/`、`services/`、`tests/`、`tests_v2/`、`vault/`、`plans/`、`design/`、`dogfood/`、`examples/`、`experiments/`、`Prototypes/`、`KeyboardPinningLab/`、`artifacts/`、上游 24 个语种的翻译 README，以及上游的 `CLA / CODE_OF_CONDUCT / CONTRIBUTING / SECURITY / STYLE / CODEOWNERS` 等社区文件。`workers/` 只留 `cmux-paste-text`（Xcode 构建阶段要用）。剩下的部分全部落在 GPL-3.0-or-later（采用 BUSL 的服务端目录已随 `web/` 等一起删除）。
 - **移除 `homebrew-cmux` 子模块**：那是上游自己的 Homebrew tap，与本 app 构建无关；子模块只剩 `ghostty`（终端内核）与 `vendor/bonsplit`。

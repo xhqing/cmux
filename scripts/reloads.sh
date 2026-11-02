@@ -152,12 +152,16 @@ XCODEBUILD_ARGS=(
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
 fi
-# 架构：CI 通过环境变量传 ARCHS / ONLY_ACTIVE_ARCH，必须显式翻成 xcodebuild 的构建设置——
-# xcodebuild 不读环境变量，只认命令行里的 build settings（2026-11-02 实测：只写环境变量时
-# 仍然按工程默认的 ARCHS_STANDARD 编 arm64 + x86_64 两遍，"只编 arm64" 静默失效）。
-if [[ -n "${ARCHS:-}" ]]; then
-  XCODEBUILD_ARGS+=("ARCHS=${ARCHS}" "ONLY_ACTIVE_ARCH=${ONLY_ACTIVE_ARCH:-NO}")
-fi
+# 架构与版本：CI 通过环境变量传这些构建设置，必须显式翻成 xcodebuild 的构建设置——
+# xcodebuild 不读环境变量，只认命令行里的 build settings（2026-11-02 实测两例）：
+#   * ARCHS 只写环境变量时，工程仍按 ARCHS_STANDARD 编 arm64 + x86_64 两遍（一轮几小时）；
+#   * MARKETING_VERSION 只写环境变量时，Info.plist 里还是工程硬编码的 0.65.2。
+for _setting in ARCHS ONLY_ACTIVE_ARCH MARKETING_VERSION CURRENT_PROJECT_VERSION COMPILER_INDEX_STORE_ENABLE; do
+  if [[ -n "${!_setting:-}" ]]; then
+    XCODEBUILD_ARGS+=("${_setting}=${!_setting}")
+  fi
+done
+unset _setting
 if [[ -z "$TAG" ]]; then
   XCODEBUILD_ARGS+=(
     INFOPLIST_KEY_CFBundleName="$APP_NAME"

@@ -152,6 +152,12 @@ XCODEBUILD_ARGS=(
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
 fi
+# 架构：CI 通过环境变量传 ARCHS / ONLY_ACTIVE_ARCH，必须显式翻成 xcodebuild 的构建设置——
+# xcodebuild 不读环境变量，只认命令行里的 build settings（2026-11-02 实测：只写环境变量时
+# 仍然按工程默认的 ARCHS_STANDARD 编 arm64 + x86_64 两遍，"只编 arm64" 静默失效）。
+if [[ -n "${ARCHS:-}" ]]; then
+  XCODEBUILD_ARGS+=("ARCHS=${ARCHS}" "ONLY_ACTIVE_ARCH=${ONLY_ACTIVE_ARCH:-NO}")
+fi
 if [[ -z "$TAG" ]]; then
   XCODEBUILD_ARGS+=(
     INFOPLIST_KEY_CFBundleName="$APP_NAME"

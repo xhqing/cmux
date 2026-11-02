@@ -869,7 +869,7 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "tests/fixtures/glaeda-external-request.json",
     "tests/fixtures/glaeda-external-result.json",
     "scripts/generate-cmux-config-schema.py",
-    "web/data/cmux.schema.json",
+    "schemas/config/cmux.schema.json",
     "skills/cmux-settings/scripts/cmux-settings",
     # ci-macos.yml's cli-product-tests restores the compiled product and runs
     # the host-free bundle through these. Without them here, a change to one

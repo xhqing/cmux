@@ -1,0 +1,154 @@
+name: PR Checks
+
+# PR 门禁（main 分支保护的必过检查，job 名固定为 `checks`）。
+#
+# 为什么单独建这个文件、不复用上游的 `.github/workflows/ci.yml`：
+# 那个 ci.yml 是上游给自家 Blacksmith 私有 runner 与 secrets 准备的全量流水线
+# （全套 macOS 编译 + 测试矩阵，一次几小时），在我们这个 fork 里已
+# `disabled_manually`。GitHub 的行为是「被手动 disable 的 workflow 改了文件也还是
+# disable 状态」，改它等于白改；上游那套本身也不适合当门禁。理由详见 DEVELOPMENT.md
+# 「为什么 PR 门禁是轻量门禁」。
+#
+# 定位：**快、但真的会因为问题变红**。重量级 Release 构建仍然只在 `build-macos`
+# （`.github/workflows/build.yml`，tag / dispatch 触发）里跑。
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # 单次最多直接解析多少个 Swift 文件。上游同步这类 PR 一次能改上千个 .swift，
+  # 逐个 `swiftc -parse` 会把门禁拖成十几分钟，所以超过上限就按等距抽样。
+  # 完整编译正确性由 build-macos 兜底，这里只抓语法 / 文件损坏这一层。
+  MAX_SWIFT_PARSE: '1500'
+
+jobs:
+  # job id 与 name 都叫 checks —— main 分支保护的 required status check 就是这个名字。
+  checks:
+    name: checks
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 需要 HEAD^ 来算「这次改动碰了哪些文件」，2 层足够；
+          # 本仓库两万多个文件、上游历史很长，不要全量 fetch。
+          fetch-depth: 2
+          submodules: false
+          persist-credentials: false
+
+      - name: Collect changed files
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/changed.txt"
+          if git rev-parse --verify --quiet HEAD^ >/dev/null; then
+            git diff --name-only --diff-filter=ACMR HEAD^ HEAD > "$out"
+            echo "Collecting changes: $(git rev-parse --short HEAD^)..$(git rev-parse --short HEAD)"
+          else
+            echo "No parent commit in the shallow clone; falling back to all tracked files."
+            git ls-files > "$out"
+          fi
+          total=$(wc -l < "$out" | tr -d ' ')
+          echo "Changed files: $total"
+          head -200 "$out"
+
+      - name: Swift syntax (swiftc -parse)
+        run: |
+          set -euo pipefail
+          # -parse 只做语法解析、不做类型检查，单个文件秒级完成。这是「轻量但真会
+          # 失败」的门禁里最划算的一层：语法错、文件截断、非法字符都能抓到。
+          # 类型检查与真实编译由 build-macos 的 Release 构建兜底。
+          grep -E '\.swift$' "$RUNNER_TEMP/changed.txt" | grep -vE '^(ghostty|vendor)/' > "$RUNNER_TEMP/swift-all.txt" || true
+          total=$(wc -l < "$RUNNER_TEMP/swift-all.txt" | tr -d ' ')
+          if [ "$total" = "0" ]; then
+            echo "No Swift files changed."
+            exit 0
+          fi
+
+          list="$RUNNER_TEMP/swift-all.txt"
+          max="${MAX_SWIFT_PARSE}"
+          if [ "$total" -gt "$max" ]; then
+            step=$(( (total + max - 1) / max ))
+            # 等距抽样：把整份清单均匀覆盖一遍，而不是只看开头一段。
+            awk -v s="$step" 'NR % s == 1' "$list" > "$RUNNER_TEMP/swift-sample.txt"
+            list="$RUNNER_TEMP/swift-sample.txt"
+            echo "::notice::$total Swift files changed; parsing an even sample of $(wc -l < "$list" | tr -d ' ') (MAX_SWIFT_PARSE=$max). Full compile is covered by build-macos."
+          fi
+
+          echo "Parsing $(wc -l < "$list" | tr -d ' ') Swift file(s)."
+          status=0
+          while IFS= read -r file; do
+            [ -f "$file" ] || { echo "skip (not in worktree): $file"; continue; }
+            echo "::group::swiftc -parse $file"
+            # -enable-bare-slash-regex：本仓库用 Swift 5 语言模式，但代码里有
+            # bare-slash 正则字面量（`/^clipboard-...$/`），不显式打开会假红。
+            if ! swiftc -parse -enable-bare-slash-regex "$file"; then
+              status=1
+            fi
+            echo "::endgroup::"
+          done < "$list"
+          exit "$status"
+
+      - name: Config schema (JSON validity + generated Swift in sync)
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import pathlib
+
+          for rel in ("web/data/cmux.schema.json", "web/data/cmux-settings.schema.json"):
+              path = pathlib.Path(rel)
+              json.loads(path.read_text())
+              print(f"{rel}: valid JSON ({path.stat().st_size} bytes)")
+          PY
+          python3 scripts/generate-cmux-config-schema.py --check
+
+      - name: Test files wired into the Xcode project
+        run: |
+          set -euo pipefail
+          # 上游自带的检查：cmuxTests/ 下的 Swift 文件必须已经在 project.pbxproj 里
+          # 注册，否则它在 Xcode 里被静默忽略——测试永远不跑，却一路绿。
+          # 1.5 秒就能跑完，没有理由不进门禁。
+          ./scripts/lint-pbxproj-test-wiring.sh
+
+      - name: Secret scan on changed files (gitleaks)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          # 只扫「这次改动碰到的文件」，不扫全仓库历史：本仓库带着上游两万多文件
+          # 和大量假 token 测试夹具，全量扫既慢又满屏误报。
+          scan="$RUNNER_TEMP/scan"
+          rm -rf "$scan"
+          mkdir -p "$scan"
+          copied=0
+          while IFS= read -r file; do
+            [ -f "$file" ] || continue
+            mkdir -p "$scan/$(dirname "$file")"
+            cp "$file" "$scan/$file"
+            copied=$((copied + 1))
+          done < "$RUNNER_TEMP/changed.txt"
+          echo "Scanning $copied changed file(s)."
+          if [ "$copied" = "0" ]; then
+            exit 0
+          fi
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_darwin_arm64.tar.gz"
+          curl -sSfL "$url" -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" dir "$scan" \
+            --config .github/gitleaks-ci.toml \
+            --redact \
+            --no-banner \
+            --no-color \
+            --verbose

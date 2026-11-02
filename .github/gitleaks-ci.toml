@@ -1,0 +1,19 @@
+# CI 用的 gitleaks 配置（PR 门禁 `checks` 专用）。
+#
+# 原则：**尽量不削弱默认规则**——只补本仓库确实会误报的少数几类。门禁只扫「本次 PR
+# 改到的文件」（见 `.github/workflows/pr-checks.yml`），所以白名单不需要照顾全仓库。
+#
+# 历史背景：上游代码库里有大量假 token 测试夹具、以及 SVG path 数据里成串的数字
+# （会被 `public-ipv4-literal` 这类规则当成公网 IP 误报）。本地全局
+# `~/.gitleaks.toml` 已经给 `^0.` 开头补过白名单，但 CI 跑在干净的 runner 上、读不到
+# 本机配置，所以这里放一份随仓库走的等价配置。
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "SVG path 数据、图标文件里的数字串会被 IP / token 类规则误报"
+paths = [
+  '''\.svg$''',
+  '''\.svg\.txt$''',
+]

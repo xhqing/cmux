@@ -18,17 +18,19 @@ git remote -v
 
 | 分支 | 角色 | 说明 |
 | --- | --- | --- |
-| `main` | **上游镜像** | 只跟踪上游 main，可以随时被快速前进（fast-forward）；我们的改动**不放这里** |
-| `xhqing` | **我们的分叉线** | 上游 release tag + 我们的补丁；**仓库默认分支、CI 与发版都从这条分支走** |
+| `main` | **分叉线（默认分支、受保护）** | 上游 release tag + 我们的补丁；**仓库默认分支，CI 与发版都从这条分支走**，一切改动经 PR 合并进来 |
+| `upstream-main` | **上游 `main` 快照** | 一个只读参照 ref（服务端建好就不动），用来对比「上游 main 到哪了」；我们的代码不放在这里 |
 
-为什么分开：我们的基线钉在 release tag 上，而上游 main 每天几百个提交，两套历史必然分叉（实测：tag `v0.65.2.2` 与上游 main 最新的 GitHub compare 结果是 `diverged`，谁都快进不了谁）。把两者分开，任何一边都能干净地快进，**全程不需要 force**。
+**2026-11-02 起就这么分**：之前（2026-10-31 ~ 2026-11-02）短暂用过「`main` = 上游镜像、`xhqing` = 我们的分叉线」，现在作废——理由是所有 Atlas 子项目都是复杂开发项目，统一要求「默认分支 = `main` + remote main 锁定 + 一切经 PR + CI 门禁」，两套分支名只会让流程分叉。所以：`main` 直接承载我们的分叉线，上游 `main` 留一个 `upstream-main` 快照 ref 作参照。
 
-**注意**：默认分支已经切到 `xhqing`，GitHub 网页上的「Sync fork」按钮对 `main` 可能不再好用（它默认同步默认分支）。上游同步统一按本文下面的本地 `git fetch --depth 1 upstream <tag>` + rebase 流程走，**不依赖网页按钮**。
+**注意**：GitHub 网页上的「Sync fork」按钮对 `main` **不好用、也不要用**——它想直接把 `main` 快进到上游 `main`，而我们的 `main` 是受保护的分叉线（禁止 force push），按钮要么失败、要么把我们的补丁历史搞丢。上游同步统一按本文下面的本地 `git fetch --depth 1 upstream <tag>` + rebase 流程走，**不依赖网页按钮**。
 
-日常推送：
+日常推送（`main` 已开保护，不能直推，必须走分支 + PR）：
 
 ```bash
-git push origin HEAD:refs/heads/xhqing   # 或已设跟踪后直接 git push
+git push origin HEAD:refs/heads/chore/xxx   # 先推到功能/杂事分支
+gh pr create --base main --title "..." --body "..."   # PR 目标 main
+gh pr merge <分支名> --squash --auto --delete-branch   # 等 checks 绿后自动合并
 ```
 
 `gh` 命令一律带 `-R xhqing/cmux`：本仓库有两个 remote，`gh` 在本地 `main` 没设上游跟踪的时候会把它自己解析到 `upstream`（报 `workflow not found` 之类的误报），带上 `-R` 就不会错。
@@ -53,11 +55,21 @@ git rebase --onto v0.65.3.0 v0.65.2.2 main
 #    CHANGELOG.md 顶部加一条
 #    PATCHES.md 里的基线 tag 与 commit 一起更新
 
-# 5. 合并回 main 并推送
-git switch main
-git merge --ff-only sync/v0.65.3.0
-git push origin main
+# 5. 合并进 main —— 走 PR（main 已保护，不能直推）
+#    rebase 出来的线跟旧 main 是两条历史，本地不要 merge 进 main，
+#    直接推同步分支、开 PR、squash 合并：main 上会多出一个「同步到 v0.65.3.0」的
+#    提交，它的树 == 新 tag + 我们的补丁，语义与 rebase 结果完全一致。
+git push -u origin sync/v0.65.3.0
+gh pr create --base main --title "sync: upstream v0.65.3.0" --body "..."
+gh pr merge sync/v0.65.3.0 --squash --auto --delete-branch
+
+# 合并后本地跟上
+git switch main && git pull --ff-only
 ```
+
+为什么同步也走 PR（而不是像以前那样直推 main）：`main` 现在是受保护的分支（必过 checks、禁 force push、只允许 squash），而且让上游同步同样过一遍 CI 门禁是好事——万一手工解冲突解错（比如把 Sparkle 的 `SUFeedURL` 解回官方地址），门禁至少能拦住编译不过、schema 不同步、密钥泄漏这几类硬错。
+
+> 上游同步一次能改上千个文件，`checks` 里的 Swift 语法检查会对超过 `MAX_SWIFT_PARSE`（当前 1500）的文件清单做等距抽样，日志里会打一条 `::notice::` 说明；完整的编译正确性仍然由 `build-macos` 的 Release 构建负责。
 
 ## 如果本地只有浅历史（`--depth 1`）
 

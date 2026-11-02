@@ -5,12 +5,22 @@ All notable changes to cmux are documented here.
 ## [未发布]
 
 ### Changed
+- **仓库脱离 fork network，重建为独立仓库（2026-11-02）**：原 fork 带着上游 20,328 个提交，仓库体积 1.11 GiB，超过 GitHub「Leave fork network」要求的 1 GiB 上限，按钮走不通。做法是把上游 `v0.65.2.2` 的树**剥掉非 macOS 构建内容**后压平成一条基线提交，再把我们自己的 14 个补丁提交逐个重放到上面，得到 15 个提交、约 137 MiB 的新历史；随后删除旧 fork、以同名新建独立仓库并推上去。上游历史需要时按 `SYNC.md` 浅拉 tag，同步流程本身不变（`rebase --onto` 的「旧基线」改为压平后的基线提交）。
+- **剥离非 macOS 内容**：删除 `web/`（官网，含 62 MB 博客视频与字体）、`docs/`、`ios/`（iOS app：只保留 Xcode 工程真正依赖的 6 个 `Packages/iOS/CmuxMobile*` 包）、`cmux-tui/`、`webviews/`、`daemon/`、`coderouter/`、`agent-chat/`、`services/`、`tests/`、`tests_v2/`、`vault/`、`plans/`、`design/`、`dogfood/`、`examples/`、`experiments/`、`Prototypes/`、`KeyboardPinningLab/`、`artifacts/`、上游 24 个语种的翻译 README，以及上游的 `CLA / CODE_OF_CONDUCT / CONTRIBUTING / SECURITY / STYLE / CODEOWNERS` 等社区文件。`workers/` 只留 `cmux-paste-text`（Xcode 构建阶段要用）。剩下的部分全部落在 GPL-3.0-or-later（采用 BUSL 的服务端目录已随 `web/` 等一起删除）。
+- **移除 `homebrew-cmux` 子模块**：那是上游自己的 Homebrew tap，与本 app 构建无关；子模块只剩 `ghostty`（终端内核）与 `vendor/bonsplit`。
+- **删除上游继承来的 145 个 workflow**：`.github/workflows/` 现在只有 `build.yml`（构建）与 `pr-checks.yml`（PR 门禁），不再需要「批量 disable + 清队列」的 housekeeping。
+- `pr-checks.yml` 的配置 schema 检查去掉 `web/data/*.schema.json` 的 JSON 校验（`web/` 已删），只保留「生成的 Swift 与源码同步」这一项。
 - **仓库分支布局改回标准形态**：`main` = 分叉线，同时是默认分支并开启分支保护（禁止直推、禁止 force push、线性历史、只允许 squash 合并；required check `checks` 待仓库 Actions 恢复后补上，见 `TODO.md` T7）；上游 `main` 改为一个只读快照 ref `upstream-main`。原来是「`main` = 上游镜像、`xhqing` = 分叉线、默认分支 `xhqing`」，`xhqing` 与 `atlas-fork-base` 两条分支已删除。
 - **新增 PR 门禁 `checks`**（`.github/workflows/pr-checks.yml`）：Swift 语法解析（`swiftc -parse`）、配置 schema 合法性与生成物同步、测试文件是否已 wire 进 `project.pbxproj`、改动文件的密钥扫描（gitleaks）。门禁只做几分钟内能跑完的检查；完整编译仍由 `build-macos` 兜底（理由见 `DEVELOPMENT.md` 第九节）。
 - **仓库开启 Issues**（dev-workflow 要求 Issue 作需求端），并关掉 merge commit / rebase merge，只留 squash。
 - 上游同步流程改为经 PR + squash 合并（`main` 受保护后不能再直推）。
 
 ### 文档
+- `README.md` 重写为自有的中英双版（`README.md` / `README_cn.md`）：只描述本仓库是什么、和官方版的差别、仓库结构、安装与构建，并保留上游（Manaflow / Ghostty）的版权与许可声明。
+- `DEVELOPMENT.md` 新增「零、本仓库的形态」一节（fork 关系 / 历史 / 内容 / 子模块 / workflow / 许可的现状与理由，附「想恢复某个被删目录」的做法）；第八节改写为「上游继承来的 workflow」的历史遗留说明；第九节第 6 小节改写为新仓库下 `required_status_checks` 的补齐顺序。
+- `SYNC.md` 按压平历史更新：原则新增第 4 条，分支布局只剩 `main`（并说明已无 fork / Sync fork 按钮），跟新 tag 升级时 `rebase --onto` 的旧基线改用 `git rev-list --max-parents=0 main`。
+- `PATCHES.md` 记录压平后的本地基线提交 SHA 与剥离范围。
+- `TODO.md` 更新 T7（新仓库下的 Actions / required check 验证顺序），新增 T8（剥离后首次 CI 构建复验）。
 - `DEVELOPMENT.md` 新增第九节「代码改动流程（dev-workflow）与 PR 门禁 `checks`」：门禁内容、为什么是轻量门禁、以后怎么把测试套件接进门禁、门禁自身坏了的逃生办法。
 - `SYNC.md` 分支布局一节重写（`main` / `upstream-main`），上游同步末尾的合并步骤改为 PR 流程。
 - `DEVELOPMENT.md` 第 9.5 节改正：分支保护的 `PUT` 是整体替换语义，只传单个字段会被 422 拒绝（实测），改成写全字段的写法；补充「Actions 被平台禁用时」的排查与恢复说明。

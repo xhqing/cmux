@@ -1,8 +1,29 @@
-# 开发与构建说明（xhqing 自建分叉）
+# 开发与构建说明（xhqing 自建版）
 
-本仓库是 [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux) 的个人自建分叉，基线固定在**上游 release tag**（当前 `v0.65.2.2`），只在其上叠加少量自有补丁。补丁清单见 [PATCHES.md](PATCHES.md)，同步上游的方法见 [SYNC.md](SYNC.md)。
+本仓库是 [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux) 的个人自建版：基线固定在上游 **release tag**（当前 `v0.65.2.2`），只在其上叠加少量自有补丁。补丁清单见 [PATCHES.md](PATCHES.md)，同步上游的方法见 [SYNC.md](SYNC.md)。
 
-> 上游自己的 `AGENTS.md`（内容是指给上游 agent 的工作守则）与 `CLAUDE.md` 已迁到 [docs/upstream-agent-notes.md](docs/upstream-agent-notes.md) 保存，本文件取代它们在本地的作用。
+**它已经不是 GitHub 上的 fork**（2026-11-02 主动脱离 fork network），而是一个独立仓库；仓库里只保留 macOS app 需要的内容，git 历史也压平成了「一条基线 + 我们的补丁」（原因与取舍见上面表格与第八节）。
+
+## 零、本仓库的形态（2026-11-02 起）
+
+| 项 | 现状 | 为什么 |
+| --- | --- | --- |
+| 与上游的关系 | 独立仓库，不在 fork network 里 | 分叉会带着上游 20,328 个提交、1.1 GiB 体积，且继承上游 145 个 workflow；GitHub 的「Leave fork network」要求仓库小于 1 GiB，所以走的是「重建 + 压平历史」的路子 |
+| git 历史 | 1 个基线提交（上游 `v0.65.2.2` 剥离后的树）+ 我们自己的补丁提交 | 历史体积从 1.1 GiB 降到约 137 MiB；上游历史需要时仍可查上游仓库或本地 shallow fetch |
+| 仓库内容 | 只留 macOS app 的构建闭包 | 官网（`web/`）、文档、iOS app、`cmux-tui`、`webviews/`、服务端目录等都不参与 macOS 构建 |
+| 子模块 | `ghostty`（终端内核）、`vendor/bonsplit` | `homebrew-cmux` 是上游的 Homebrew tap，与本 app 构建无关，已移除 |
+| workflow | 只有 `.github/workflows/build.yml`（构建）与 `pr-checks.yml`（PR 门禁） | 上游那 145 个是给他们自己的私有 runner / secrets 准备的 |
+| 许可 | GPL-3.0-or-later（另含 `THIRD_PARTY_LICENSES.md`） | 采用 BUSL 的服务端目录（`web/`、`workers/iroh-v2` 等）已随剥离删掉 |
+
+### 想恢复某个被删的目录
+
+删掉的都还在上游仓库里，按需取回即可（不要重新变回 fork）：
+
+```bash
+git fetch --depth 1 upstream tag v0.65.2.2
+git checkout v0.65.2.2 -- web/            # 举例：只想看看官网代码
+git switch -c tmp-inspect && git rm -r --cached web/ && git read-tree --reset -u HEAD
+```
 
 ## 一、构建方式：CI 优先，本机作退路
 
@@ -24,7 +45,7 @@ workflow 文件：`.github/workflows/build.yml`（我们自己的，不依赖上
   ```
 - runner：`macos-26`（自带 Xcode 26.x，实测镜像里 26.0.1 ~ 26.6 都有，默认 26.6）。
 - 关键步骤：
-  1. `actions/checkout` 带 `submodules: recursive`（`ghostty`、`homebrew-cmux`、`vendor/bonsplit` 三个子模块必须拉到）；
+  1. `actions/checkout` 带 `submodules: recursive`（`ghostty`、`vendor/bonsplit` 两个子模块必须拉到）；
   2. 选 Xcode 26，`xcodebuild -downloadComponent MetalToolchain` 装 Metal 工具链（上游要求单独下载）；
   3. 装 Zig **0.16.0**（`ghostty/build.zig.zon` 里写的是 `minimum_zig_version = "0.16.0"`，`scripts/setup.sh` 的版本检查要求主次版本完全一致，所以**不能用 `brew install zig` 的 latest**——现在是 0.17.x，会直接报不兼容；workflow 里改成下载 ziglang.org 上固定的 0.16.0 tarball）；
   4. Rust 用 runner 自带的 rustup / cargo（`scripts/setup.sh` 会装固定版本工具链）；Go 用来编译 Cloud 隧道扩展里的 WireGuard 引擎，**Release 构建必须有**（runner 镜像一般自带，没有则 `brew install go`）；
@@ -107,53 +128,13 @@ open "/Applications/cmux STAGING xhqing.app"
 
 见 [SYNC.md](SYNC.md)。核心原则：**基线永远用上游 release tag，不用上游 main**（main 每天在动），我们的补丁保持一两个小提交，这样跟着新 tag rebase 成本很低。
 
-## 八、仓库 housekeeping：继承来的 workflow 要批量关掉
+## 八、上游继承来的 workflow（历史遗留问题，已随脱离 fork 一并解决）
 
-**问题**：GitHub 的 fork 会把上游 `.github/workflows/` 下的全部 workflow 一起继承过来（本仓 146 个），而且 **`schedule`（定时）触发在 fork 里照样生效**。上游那套是给他们的私有 runner 和 secrets 准备的：`Nightly macOS build` 每次是几小时的全量构建，`iOS TestFlight` 上传和公证续做在我们这里没有对应凭据，只会失败刷屏；这些 run 还会跟我们自己的 `build-macos` 抢 macOS runner 队列。
+**过去的麻烦**：GitHub 的 fork 会把上游 `.github/workflows/` 下的全部 workflow 一起继承过来（本仓当时 146 个），而且 `schedule`（定时）触发在 fork 里照样生效。上游那套是给他们的私有 runner 和 secrets 准备的：`Nightly macOS build` 每次是几小时的全量构建，`iOS TestFlight` 上传和公证续做在我们这里没有对应凭据，只会失败刷屏；这些 run 还会抢走我们 `build-macos` 的 macOS runner 队列。2026-11-01 的处理是「除 `build-macos` 外 145 个全部 `disabled_manually`」。
 
-**现状（2026-11-01 处理）**：除 `build-macos` 外，145 个 workflow 已全部 `disabled_manually`，排队中的残留 run 也已取消。
+**现在的状态（2026-11-02 起）**：仓库脱离 fork network 并重建，`.github/workflows/` 里只剩下我们自己的两个文件——`build.yml`（构建）与 `pr-checks.yml`（PR 门禁）。继承来的 145 个 workflow 已不在仓库里，不需要再批量关；也没有上游 cron 偷偷触发。
 
-**恢复某个 workflow**（比如想临时跑一次上游的静态检查）：
-
-```bash
-gh workflow list -R xhqing/cmux                      # 看状态
-gh workflow enable <workflow 名或 id> -R xhqing/cmux  # 开回来
-gh workflow disable <workflow 名或 id> -R xhqing/cmux # 再关掉
-```
-
-**批量复查 / 再关一遍**（上游会持续新增 workflow，跟着默认分支进到 fork）：
-
-```bash
-for id in $(gh api repos/xhqing/cmux/actions/workflows --paginate --jq '.workflows[].id'); do
-  name=$(gh api repos/xhqing/cmux/actions/workflows/$id --jq '.name')
-  [ "$name" = "build-macos" ] && continue
-  gh api -X PUT repos/xhqing/cmux/actions/workflows/$id/disable
-done
-```
-
-**代价（必须知道的）**：关掉之后，**开 PR 时不会再有上游那套 CI 检查**。我们的验证靠 `build-macos` 构建成功 + 用户实测，不靠 PR 门禁。所以本仓库的改动要自己保证质量，不要以为「PR 绿了就是对的」。
-
-**别忘了清理队列里已经排进去的 run**：disable 只阻止**新的**触发，已经进队的 run 还会等着分配 runner（2026-11-01 实测：关完 145 个 workflow 之后队列里还积着 12 条 schedule 进去的 run，其中一条 `Nightly macOS build` 是几小时的全量构建）。清法：
-
-```bash
-# 看一眼还有多少排队/在跑的
-gh api "repos/xhqing/cmux/actions/runs?status=queued&per_page=20" --jq '.workflow_runs[] | "\(.id) \(.name)"'
-
-# 逐条取消（把 <id> 换成上面列出来的）
-gh run cancel <id> -R xhqing/cmux
-```
-
-清完用这四条复查，应该全是 0：
-
-```bash
-for st in in_progress queued waiting pending; do
-  echo "$st: $(gh api "repos/xhqing/cmux/actions/runs?status=$st&per_page=100" --jq '.total_count')"
-done
-```
-
-上游的 cron 随时可能改，所以**每次跟上游同步前后都顺手看一眼队列**。
-
-**边界**：只关继承来的、对我们无意义的 workflow；`build-macos` 永远保持 active。新增自己的 workflow 时，先在 fork 里手动触发验证一次，再决定要不要长期开着。
+**边界**：以后要借上游某个 workflow（比如静态检查），把那个文件单独拷过来、按我们的 runner 改一遍再用，不要整体同步上游的 `.github/`。
 
 ## 九、代码改动流程（dev-workflow）与 PR 门禁 `checks`
 
@@ -248,15 +229,13 @@ JSON
 
 > 另一个更常见的「checks 永远不出结果」原因不是 workflow 本身，而是**仓库的 Actions 被禁用**（`gh workflow run` 会报 `HTTP 422: Actions has been disabled for this repository`）。这时去仓库 Settings → Actions 确认是否开启，或用 `gh api -X PUT repos/xhqing/cmux/actions/permissions -F enabled=true` 打开；API 显示已开启但 dispatch / push / pull_request 都不出 run，说明是平台侧禁用，只能到网页 Actions 页按提示重新启用。
 
-### 6. 当前状态：required check 为什么是空的（2026-11-02）
+### 6. `required_status_checks` 什么时候补齐（2026-11-02）
 
-**`main` 分支保护里 `required_status_checks` 目前是空的，这是刻意留白，不是漏配。**
+**历史情况**：旧仓库（fork）的 Actions 曾被平台禁用——`gh workflow run` 报 `HTTP 422: Actions has been disabled for this repository`，而 `gh api .../actions/permissions` 却返回 `enabled: true`（`PUT enabled=true` 成功但不生效）。在没有 check 能上报的情况下把 `checks` 设成必过，会让 `main` 完全无法合并，所以那时刻意留空。
 
-原因是本仓库的 Actions 被平台侧禁用：`gh workflow run` 报 `HTTP 422: Actions has been disabled for this repository`，`push` / `pull_request` 事件也都不产生 run，而 `gh api repos/xhqing/cmux/actions/permissions` 却返回 `enabled: true`（`PUT enabled=true` 返回成功但不生效）。**在没有任何 check 能上报的情况下，把 `checks` 设成必过会让 `main` 完全无法合并**——连修复门禁的 PR 都进不来，所以先留空、只保留「必须走 PR + 禁止直推 + 线性历史 + squash-only」。
+**现在**：仓库已重建为独立仓库，Actions 状态随之清零（TODO.md T7）。首次验证顺序如下，别反着做：
 
-**恢复顺序（对应 `TODO.md` T7，别反着做）**：
-
-1. 到仓库网页 Actions 页按提示重新启用工作流（fork 仓库的 "I understand my workflows, go ahead and enable them"；这个状态只能网页点，API 改不动）；
-2. 开一个真实 PR，确认 `checks` 真的产生、并且能跑绿（`gh pr checks <N>` 有结果）；
+1. 确认 Actions 可用：`gh workflow list -R xhqing/cmux` 能看到 `build-macos` 与 `PR checks（门禁：checks）`；看不到就先去网页 Actions 页启用；
+2. 开一个真实 PR，确认 `checks` 真的产生并且能跑绿（`gh pr checks <N>` 有结果）；
 3. 这时才把 required check 加上去：`required_status_checks` 设为 `{"strict": true, "contexts": ["checks"]}`（其余字段按 9.1 / 9.5 的完整 payload 写全，`PUT` 是整体替换语义）；
 4. 用一个 PR 复验「PR → checks 绿 → auto-merge → squash 合并 → 合并后 main push 也跑一遍」整条链路，并再试一次直推 `main` 确认仍被拒。

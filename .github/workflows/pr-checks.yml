@@ -100,18 +100,11 @@ jobs:
           done < "$list"
           exit "$status"
 
-      - name: Config schema (JSON validity + generated Swift in sync)
+      - name: Config schema (generated Swift in sync)
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import pathlib
-
-          for rel in ("web/data/cmux.schema.json", "web/data/cmux-settings.schema.json"):
-              path = pathlib.Path(rel)
-              json.loads(path.read_text())
-              print(f"{rel}: valid JSON ({path.stat().st_size} bytes)")
-          PY
+          # 只校验「由配置目录生成的 Swift 与源码一致」。上游原本还顺带校验 web/data
+          # 下两份 JSON schema，但本仓库（2026-11-02 起）已经不含 web/，那一段随之去掉。
           python3 scripts/generate-cmux-config-schema.py --check
 
       - name: Test files wired into the Xcode project

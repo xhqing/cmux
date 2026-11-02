@@ -4,26 +4,26 @@
 
 1. **基线只用上游 release tag，不用上游 `main`**。上游 main 每天在动（分叉时已落后 5000+ 个提交），跟 main 等于每天都在解冲突；跟 tag 等于每次发版跟一次。
 2. **我们的改动尽量少、尽量小**：一个语义一个提交，改完就能跑 `git rebase` 搬到新 tag 上。
-3. **永远不改上游的历史**：本分叉的 `main` 只由「上游基线 + 我们的补丁」组成。
+3. **永远不改上游的历史**：本仓库的 `main` 只由「上游基线 + 我们的补丁」组成。
+4. **本地历史是压平的**（2026-11-02 脱离 fork network 时做的）：`main` 最底下只有一个「上游 `v0.65.2.2` 剥离后的基线」提交，上面是我们的补丁。下游同步**不依赖与上游共享祖先**，用的是 shallow fetch 新 tag + rebase/cherry-pick（见下文）。
 
 ## 远端配置
 
 ```bash
 git remote -v
-# origin    https://github.com/xhqing/cmux.git      ← 我们的分叉，push 这里
-# upstream  https://github.com/manaflow-ai/cmux.git ← 上游，只读，只 fetch
+# origin    https://github.com/xhqing/cmux.git      ← 本仓库（独立仓库，不在 fork network 里），push 这里
+# upstream  https://github.com/manaflow-ai/cmux.git ← 上游，只读，只 fetch（按 tag 浅拉）
 ```
 
-## 分支布局（2026-10-31 定）
+## 分支布局（2026-11-02 重建后）
 
 | 分支 | 角色 | 说明 |
 | --- | --- | --- |
-| `main` | **分叉线（默认分支、受保护）** | 上游 release tag + 我们的补丁；**仓库默认分支，CI 与发版都从这条分支走**，一切改动经 PR 合并进来 |
-| `upstream-main` | **上游 `main` 快照** | 一个只读参照 ref（服务端建好就不动），用来对比「上游 main 到哪了」；我们的代码不放在这里 |
+| `main` | **唯一长期分支（默认分支、受保护）** | 压平后的上游基线 + 我们的补丁；CI 与发版都从这条分支走，一切改动经 PR 合并进来 |
 
-**2026-11-02 起就这么分**：之前（2026-10-31 ~ 2026-11-02）短暂用过「`main` = 上游镜像、`xhqing` = 我们的分叉线」，现在作废——理由是所有 Atlas 子项目都是复杂开发项目，统一要求「默认分支 = `main` + remote main 锁定 + 一切经 PR + CI 门禁」，两套分支名只会让流程分叉。所以：`main` 直接承载我们的分叉线，上游 `main` 留一个 `upstream-main` 快照 ref 作参照。
-
-**注意**：GitHub 网页上的「Sync fork」按钮对 `main` **不好用、也不要用**——它想直接把 `main` 快进到上游 `main`，而我们的 `main` 是受保护的分叉线（禁止 force push），按钮要么失败、要么把我们的补丁历史搞丢。上游同步统一按本文下面的本地 `git fetch --depth 1 upstream <tag>` + rebase 流程走，**不依赖网页按钮**。
+- **没有 fork、也没有「Sync fork」按钮**：本仓库是独立仓库（2026-11-02 主动脱离 fork network），上游只是 `upstream` remote。所以不存在「网页点一下同步」这回事，同步一律按本文下面的本地流程走。
+- 需要对比「上游 `main` 到哪了」时，临时浅拉一下即可，不必在服务端留快照 ref：
+  `git fetch --depth 1 upstream main && git log --oneline FETCH_HEAD -3`。
 
 日常推送（`main` 已开保护，不能直推，必须走分支 + PR）：
 
@@ -33,7 +33,7 @@ gh pr create --base main --title "..." --body "..."   # PR 目标 main
 gh pr merge <分支名> --squash --auto --delete-branch   # 等 checks 绿后自动合并
 ```
 
-`gh` 命令一律带 `-R xhqing/cmux`：本仓库有两个 remote，`gh` 在本地 `main` 没设上游跟踪的时候会把它自己解析到 `upstream`（报 `workflow not found` 之类的误报），带上 `-R` 就不会错。
+`gh` 命令一律带 `-R xhqing/cmux`：本仓库有两个 remote，`gh` 在本地 `main` 没设上游跟踪的时候可能把它自己解析到 `upstream`（报 `workflow not found` 之类的误报），带上 `-R` 就不会错。
 
 ## 跟着新 tag 升级（标准流程）
 
@@ -44,8 +44,11 @@ gh pr merge <分支名> --squash --auto --delete-branch   # 等 checks 绿后自
 git fetch --depth 1 upstream tag v0.65.3.0
 
 # 2. 在基线之上重建我们的补丁
+#    注意：本地历史是压平的，所以「旧基线」要用压平后的那个基线提交，
+#    不是上游的 12023d89f（那个提交本地没有祖先链）。
+#    基线提交 = main 的根提交：git rev-list --max-parents=0 main
 git switch -c sync/v0.65.3.0
-git rebase --onto v0.65.3.0 v0.65.2.2 main
+git rebase --onto v0.65.3.0 $(git rev-list --max-parents=0 main) main
 
 # 3. 解冲突（大概率集中在 PATCHES.md 列出的那几个文件）
 #    解完先本地构建/CI 验证，确认补丁语义没被上游改动吃掉

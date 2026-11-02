@@ -15,6 +15,7 @@ All notable changes to cmux are documented here.
 - `SYNC.md` 分支布局一节重写（`main` / `upstream-main`），上游同步末尾的合并步骤改为 PR 流程。
 - `DEVELOPMENT.md` 第 9.5 节改正：分支保护的 `PUT` 是整体替换语义，只传单个字段会被 422 拒绝（实测），改成写全字段的写法；补充「Actions 被平台禁用时」的排查与恢复说明。
 - `TODO.md` 记 T7：仓库 Actions 目前被平台禁用，恢复后要补上 main 保护的 required check `checks` 并复验 PR 门禁链路。
+- `DEVELOPMENT.md` 第九节补第 6 小节「当前状态：required check 为什么是空的」——记清 Actions 被平台禁用导致 `checks` 刻意留白，以及恢复必须走的四步顺序（网页启用 → 真实 PR 验 checks → 才加 required check → 复验整条链路）。
 
 ## [0.65.2.2-xhqing.1] - 2026-10-31
 

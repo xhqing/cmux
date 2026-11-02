@@ -247,3 +247,16 @@ JSON
 **别偷懒只传一个字段**：这个 PUT 是「整体替换」语义，只传 `enforce_admins=false` 会被直接拒（HTTP 422：`required_pull_request_reviews` / `required_status_checks` / `restrictions` weren't supplied）——实测如此，所以要么照上面写全、要么用 `required_status_checks: null` 显式摘掉。改完一律 `gh api repos/xhqing/cmux/branches/main/protection` 复查一遍。
 
 > 另一个更常见的「checks 永远不出结果」原因不是 workflow 本身，而是**仓库的 Actions 被禁用**（`gh workflow run` 会报 `HTTP 422: Actions has been disabled for this repository`）。这时去仓库 Settings → Actions 确认是否开启，或用 `gh api -X PUT repos/xhqing/cmux/actions/permissions -F enabled=true` 打开；API 显示已开启但 dispatch / push / pull_request 都不出 run，说明是平台侧禁用，只能到网页 Actions 页按提示重新启用。
+
+### 6. 当前状态：required check 为什么是空的（2026-11-02）
+
+**`main` 分支保护里 `required_status_checks` 目前是空的，这是刻意留白，不是漏配。**
+
+原因是本仓库的 Actions 被平台侧禁用：`gh workflow run` 报 `HTTP 422: Actions has been disabled for this repository`，`push` / `pull_request` 事件也都不产生 run，而 `gh api repos/xhqing/cmux/actions/permissions` 却返回 `enabled: true`（`PUT enabled=true` 返回成功但不生效）。**在没有任何 check 能上报的情况下，把 `checks` 设成必过会让 `main` 完全无法合并**——连修复门禁的 PR 都进不来，所以先留空、只保留「必须走 PR + 禁止直推 + 线性历史 + squash-only」。
+
+**恢复顺序（对应 `TODO.md` T7，别反着做）**：
+
+1. 到仓库网页 Actions 页按提示重新启用工作流（fork 仓库的 "I understand my workflows, go ahead and enable them"；这个状态只能网页点，API 改不动）；
+2. 开一个真实 PR，确认 `checks` 真的产生、并且能跑绿（`gh pr checks <N>` 有结果）；
+3. 这时才把 required check 加上去：`required_status_checks` 设为 `{"strict": true, "contexts": ["checks"]}`（其余字段按 9.1 / 9.5 的完整 payload 写全，`PUT` 是整体替换语义）；
+4. 用一个 PR 复验「PR → checks 绿 → auto-merge → squash 合并 → 合并后 main push 也跑一遍」整条链路，并再试一次直推 `main` 确认仍被拒。

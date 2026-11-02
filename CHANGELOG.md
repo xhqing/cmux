@@ -5,7 +5,7 @@ All notable changes to cmux are documented here.
 ## [未发布]
 
 ### Changed
-- **仓库分支布局改回标准形态**：`main` = 分叉线，同时是默认分支并开启分支保护（必过 `checks`、禁止直推、只允许 squash 合并）；上游 `main` 改为一个只读快照 ref `upstream-main`。原来是「`main` = 上游镜像、`xhqing` = 分叉线、默认分支 `xhqing`」，`xhqing` 与 `atlas-fork-base` 两条分支已删除。
+- **仓库分支布局改回标准形态**：`main` = 分叉线，同时是默认分支并开启分支保护（禁止直推、禁止 force push、线性历史、只允许 squash 合并；required check `checks` 待仓库 Actions 恢复后补上，见 `TODO.md` T7）；上游 `main` 改为一个只读快照 ref `upstream-main`。原来是「`main` = 上游镜像、`xhqing` = 分叉线、默认分支 `xhqing`」，`xhqing` 与 `atlas-fork-base` 两条分支已删除。
 - **新增 PR 门禁 `checks`**（`.github/workflows/pr-checks.yml`）：Swift 语法解析（`swiftc -parse`）、配置 schema 合法性与生成物同步、测试文件是否已 wire 进 `project.pbxproj`、改动文件的密钥扫描（gitleaks）。门禁只做几分钟内能跑完的检查；完整编译仍由 `build-macos` 兜底（理由见 `DEVELOPMENT.md` 第九节）。
 - **仓库开启 Issues**（dev-workflow 要求 Issue 作需求端），并关掉 merge commit / rebase merge，只留 squash。
 - 上游同步流程改为经 PR + squash 合并（`main` 受保护后不能再直推）。
@@ -13,6 +13,8 @@ All notable changes to cmux are documented here.
 ### 文档
 - `DEVELOPMENT.md` 新增第九节「代码改动流程（dev-workflow）与 PR 门禁 `checks`」：门禁内容、为什么是轻量门禁、以后怎么把测试套件接进门禁、门禁自身坏了的逃生办法。
 - `SYNC.md` 分支布局一节重写（`main` / `upstream-main`），上游同步末尾的合并步骤改为 PR 流程。
+- `DEVELOPMENT.md` 第 9.5 节改正：分支保护的 `PUT` 是整体替换语义，只传单个字段会被 422 拒绝（实测），改成写全字段的写法；补充「Actions 被平台禁用时」的排查与恢复说明。
+- `TODO.md` 记 T7：仓库 Actions 目前被平台禁用，恢复后要补上 main 保护的 required check `checks` 并复验 PR 门禁链路。
 
 ## [0.65.2.2-xhqing.1] - 2026-10-31
 

@@ -209,19 +209,41 @@ done
 
 ### 5. 门禁自己坏了的逃生办法（少见，但要会）
 
-`enforce_admins` 是开着的，所以管理员不能绕过 checks 直推。万一门禁本身坏了（比如 workflow 文件语法错、导致 `checks` 永远不出结果），按这个顺序救：
+`enforce_admins` 是开着的，所以管理员也不能绕过 checks 直推。万一门禁本身坏了（比如 workflow 文件语法错、`checks` 永远不出结果），按这个顺序救：
 
 ```bash
 # 1. 先看是不是 workflow 自身的问题（Actions 页面会有 workflow 级别的红叉，而不是 job 失败）
 gh run list -R xhqing/cmux --limit 5
 
-# 2. 临时允许管理员绕过（修好立刻改回 true）
-gh api -X PUT repos/xhqing/cmux/branches/main/protection \
-  -F enforce_admins=false
+# 2. 临时把 required checks 摘掉 + 允许管理员绕过（其它保护项照着当前值写全，别少字段）
+gh api -X PUT repos/xhqing/cmux/branches/main/protection --input - <<'JSON'
+{
+  "required_status_checks": null,
+  "enforce_admins": false,
+  "required_pull_request_reviews": {"required_approving_review_count": 0, "dismiss_stale_reviews": false},
+  "restrictions": null,
+  "required_linear_history": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "required_conversation_resolution": false
+}
+JSON
 
-# 3. 推修复、合并，确认 checks 恢复正常后，立刻恢复
-gh api -X PUT repos/xhqing/cmux/branches/main/protection \
-  -F enforce_admins=true
+# 3. 推修复、合并，确认 checks 恢复正常后，用完整设置恢复（把 required_status_checks 加回来）
+gh api -X PUT repos/xhqing/cmux/branches/main/protection --input - <<'JSON'
+{
+  "required_status_checks": {"strict": true, "contexts": ["checks"]},
+  "enforce_admins": true,
+  "required_pull_request_reviews": {"required_approving_review_count": 0, "dismiss_stale_reviews": false},
+  "restrictions": null,
+  "required_linear_history": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "required_conversation_resolution": false
+}
+JSON
 ```
 
-`-F` 只能改单个布尔字段，不会把其它保护项（required checks、linear、force push 禁项）冲掉；但为稳妥，改完用 `gh api repos/xhqing/cmux/branches/main/protection` 复查一遍。
+**别偷懒只传一个字段**：这个 PUT 是「整体替换」语义，只传 `enforce_admins=false` 会被直接拒（HTTP 422：`required_pull_request_reviews` / `required_status_checks` / `restrictions` weren't supplied）——实测如此，所以要么照上面写全、要么用 `required_status_checks: null` 显式摘掉。改完一律 `gh api repos/xhqing/cmux/branches/main/protection` 复查一遍。
+
+> 另一个更常见的「checks 永远不出结果」原因不是 workflow 本身，而是**仓库的 Actions 被禁用**（`gh workflow run` 会报 `HTTP 422: Actions has been disabled for this repository`）。这时去仓库 Settings → Actions 确认是否开启，或用 `gh api -X PUT repos/xhqing/cmux/actions/permissions -F enabled=true` 打开；API 显示已开启但 dispatch / push / pull_request 都不出 run，说明是平台侧禁用，只能到网页 Actions 页按提示重新启用。

@@ -4,6 +4,7 @@
 
 ## 🟠 橙色（边界情况、防护缺口，可能演化为实际问题）
 
+- [ ] **T7** 仓库 Actions 被平台禁用：`gh workflow run` 报 `HTTP 422: Actions has been disabled for this repository`，push / pull_request 事件也不出 run（`gh api .../actions/permissions` 却显示 `enabled: true`，`PUT enabled=true` 无效）；需到网页 Actions 页按提示重新启用。恢复后 main 保护里补上 required status check `checks`（strict），并用一个真实 PR 复验「PR 触发 checks → 绿 → auto-merge」链路（记录：2026-11-02 16:20）
 - [ ] **T2** 自建版并行安装后验证 P1 的真实行为：关掉跑着 pi 的工作区不再弹窗、设置页开关打开后能恢复提示、"Don't ask again" 勾选真的生效（记录：2026-10-31 22:30）
 
 ## 🟡 黄色（不影响正确性的优化、覆盖缺口）

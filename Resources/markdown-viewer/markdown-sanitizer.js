@@ -200,7 +200,10 @@
     return /^#[^\s'"()<>\\]*$/.test(String(value == null ? '' : value).trim());
   }
 
-  var MARKDOWN_CLASS_TOKEN = /^(?:hljs(?:-[\w-]+)?|[a-z][a-z0-9]*_|language-[\w+#.-]+|cmux-(?:mermaid|vega|source|frontmatter))$/;
+  // `cmux-math*` classes mark the math placeholders the shell's marked
+  // extensions emit before the lazily loaded KaTeX swap them for rendered
+  // output (the swap writes DOM directly and never re-enters this profile).
+  var MARKDOWN_CLASS_TOKEN = /^(?:hljs(?:-[\w-]+)?|[a-z][a-z0-9]*_|language-[\w+#.-]+|cmux-(?:mermaid|vega|source|frontmatter|math(?:-display|-inline|-error)?))$/;
   var DIAGRAM_CLASS_TOKEN = /^[A-Za-z_][\w-]*$/;
 
   function filterClassTokens(value, pattern) {

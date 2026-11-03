@@ -20,7 +20,11 @@ import zlib
 root = pathlib.Path(sys.argv[1])
 
 for path in sorted(root.rglob("*")):
-    if path.suffix not in {".js", ".mjs"}:
+    # JS/MJS are injected as source text; CSS (e.g. katex-fonts.min.css with the
+    # fonts inlined as data URIs) is injected into a <style> element. Both load
+    # through MarkdownViewerAssets.loadAsset, which prefers the .deflate variant,
+    # so deflating them shrinks the bundle without changing runtime behavior.
+    if path.suffix not in {".js", ".mjs", ".css"}:
         continue
     if path.name.endswith(".deflate"):
         continue

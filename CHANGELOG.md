@@ -4,6 +4,9 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### Added
+- **Markdown 阅读器支持数学公式渲染（KaTeX）**：` ```math ` 围栏、独占一行的 `$$...$$`、行内 `$...$` 三种写法都会渲染成公式。KaTeX 按需懒加载（文档里没有数学时不请求、纯文本阅读零开销），KaTeX 的样式表连同 woff2 字体以 data URI 内联后随库一起注入（`loadHTMLString` 的 baseURL 是用户文档所在目录，相对字体路径根本取不到 app bundle，见 `scripts/embed-katex-fonts.py`）。实现取自上游 issue manaflow-ai/cmux#6749 的未合并 PR manaflow-ai/cmux#6844，按本仓库当前代码结构（allowlist sanitizer、`cmuxLib` 懒加载桥）重写适配：sanitizer 的 class 白名单放行 `cmux-math*`，渲染走 `output: 'html'`（不产出被拦的 MathML）+ `trust: false` + `maxSize`/`maxExpand` 限制，畸形公式降级成一条本地化提示、不波及正文。在原始实现上额外加固了两处误判：闭合 `$` 后面不跟数字（Pandoc 规则，`$10~$20` 这类价格区间保持原文）、两侧带空格的纯单词 `$$`（shell 的 `echo $$ and $$`）不当公式。新增 `cmuxTests/MarkdownKaTeXTests.swift`（已 wire 进 `project.pbxproj`），资产的构建期压缩脚本改为同时压 `.css`。
+
 ### Changed
 - **关闭最后一个标签页 / 工作区后保留空窗口（Issue #2，P2）**：以前窗口只剩一个 workspace、其中只有一个标签页时，点标签页 X 会弹确认、确认后整个 cmux 窗口关闭并退出应用。现在关闭最后一个标签页（X / Cmd+W / 中键）只关闭标签页，workspace 随之一并移除，窗口保留并进入空状态（没有任何 workspace、没有任何标签页），侧栏 + 号 / Cmd+T / 命令面板可新建；启动时若会话快照为空也恢复成空窗口，不再自动补一个 `Terminal 1`。保留项：侧栏 workspace 关闭确认、pinned / agent mid-turn / 未保存内容确认、窗口 Dock 进程确认、「Keep Workspace Open」开启时保留 workspace 的现有行为；窗口级关闭（红点 / Close Window / Cmd+Q）仍退出应用。
 - **切换完成（2026-11-03）**：新仓库以 `xhqing/cmux` 名义接管（`isFork=false`，GitHub 侧算下来 36.5 MiB），旧 fork 让位改名为 `xhqing/cmux-upstream-fork-archive` 待删（本机 gh token 无 `delete_repo` 权限，见 `TODO.md` T9）。`main` 保护按旧仓库存档重设：禁直推、禁 force push、禁删除、线性历史、squash-only、enforce admins，并加上 required status check `checks`（strict）；PR 门禁与 `build-macos` 在新仓库均已实跑通过（后者 run 41469693363 全绿，产物 107MB）。

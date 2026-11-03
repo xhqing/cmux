@@ -241682,6 +241682,29 @@
         }
       }
     },
+    "markdown.web.mathRenderFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to render math"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数式を表示できませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法渲染数学公式"
+          }
+        }
+      }
+    },
     "markdown.web.remoteImageBlocked": {
       "extractionState": "manual",
       "localizations": {

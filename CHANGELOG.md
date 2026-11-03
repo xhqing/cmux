@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [未发布]
+## [0.65.2.2-xhqing.2] - 2026-11-03
 
 ### Changed
 - **关闭最后一个标签页 / 工作区后保留空窗口（Issue #2，P2）**：以前窗口只剩一个 workspace、其中只有一个标签页时，点标签页 X 会弹确认、确认后整个 cmux 窗口关闭并退出应用。现在关闭最后一个标签页（X / Cmd+W / 中键）只关闭标签页，workspace 随之一并移除，窗口保留并进入空状态（没有任何 workspace、没有任何标签页），侧栏 + 号 / Cmd+T / 命令面板可新建；启动时若会话快照为空也恢复成空窗口，不再自动补一个 `Terminal 1`。保留项：侧栏 workspace 关闭确认、pinned / agent mid-turn / 未保存内容确认、窗口 Dock 进程确认、「Keep Workspace Open」开启时保留 workspace 的现有行为；窗口级关闭（红点 / Close Window / Cmd+Q）仍退出应用。

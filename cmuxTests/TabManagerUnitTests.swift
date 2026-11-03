@@ -903,7 +903,10 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
     }
 
-    func testChildExitWindowCloseRequestsNoClosedWindowHistory() throws {
+    /// A child exit on the last panel of the last workspace collapses the
+    /// workspace but keeps the window open: the app must not quit just because
+    /// the last shell exited (cmux Issue #2). Only a window-level close quits.
+    func testChildExitOnLastPanelEmptiesWorkspaceWithoutClosingWindow() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -911,13 +914,9 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        var closeRequest: (tabId: UUID, recordHistory: Bool)?
-        var closeRequestSawRegisteredOwner = false
-        appDelegate.closeMainWindowContainingTabIdObserverForTesting = { tabId, recordHistory in
-            closeRequest = (tabId, recordHistory)
-            closeRequestSawRegisteredOwner = appDelegate.mainWindowContexts.values.contains {
-                $0.windowId == windowId && $0.tabManager === manager
-            }
+        var windowCloseRequestCount = 0
+        appDelegate.closeMainWindowContainingTabIdObserverForTesting = { _, _ in
+            windowCloseRequestCount += 1
         }
         defer {
             appDelegate.closeMainWindowContainingTabIdObserverForTesting = nil
@@ -926,25 +925,21 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             AppDelegate.shared = originalAppDelegate
         }
 
-        appDelegate.recordClosedWindowHistoryForTesting(windowId: windowId)
-        XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
-        ClosedItemHistoryStore.shared.removeAll()
-
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
 
-        XCTAssertEqual(closeRequest?.tabId, workspace.id)
-        XCTAssertEqual(closeRequest?.recordHistory, false)
-        XCTAssertTrue(closeRequestSawRegisteredOwner)
-
-        // Assert the production close consumed suppression while committing
-        // the owner; its context no longer exists for a later history probe.
-        XCTAssertTrue(manager.isFinalizedForWindowClose)
+        XCTAssertEqual(windowCloseRequestCount, 0, "A child exit must not close the window")
+        XCTAssertFalse(manager.isFinalizedForWindowClose)
         XCTAssertTrue(manager.tabs.isEmpty)
-        XCTAssertFalse(appDelegate.mainWindowContexts.values.contains { $0.windowId == windowId })
+        XCTAssertNil(manager.selectedTabId)
+        XCTAssertTrue(
+            appDelegate.mainWindowContexts.values.contains {
+                $0.windowId == windowId && $0.tabManager === manager
+            },
+            "The window registration must survive an empty workspace list"
+        )
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
-        XCTAssertFalse(appDelegate.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
     }
 
     /// A window whose only workspace is not restorable has nothing to replay,
@@ -1555,8 +1550,8 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
 
         let expectedMessage = String(
             format: String(
-                localized: "dialog.closeWorkspacesWindow.message",
-                defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
+                localized: "dialog.closeWorkspaces.message",
+                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
             ),
             locale: .current,
             Int64(2),
@@ -1565,10 +1560,14 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         XCTAssertEqual(prompts.count, 1)
         XCTAssertEqual(
             prompts.first?.title,
-            String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
+            String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
         )
         XCTAssertEqual(prompts.first?.message, expectedMessage)
-        XCTAssertEqual(prompts.first?.acceptCmdD, true)
+        XCTAssertEqual(
+            prompts.first?.acceptCmdD,
+            false,
+            "Closing every workspace keeps the window, so the dialog must not confirm a window close"
+        )
         XCTAssertEqual(manager.tabs.map(\.title), ["Alpha", "Beta"])
     }
 
@@ -1603,31 +1602,39 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.title), ["Gamma"])
     }
 
-    func testCloseWorkspacesWithConfirmationKeepsWindowWarningWhenTabWarningDisabled() {
+    /// Closing every workspace no longer closes the window, so the window
+    /// warning must not gate the batch: only the workspace warning does. With
+    /// the workspace warning off the batch closes silently and the window is
+    /// left empty (cmux Issue #2).
+    func testCloseWorkspacesWithConfirmationIgnoresWindowWarningWhenWindowStaysOpen() {
         let defaults = UserDefaults.standard
         let tabKey = AppCatalogSection().warnBeforeClosingTab.userDefaultsKey
+        let workspaceKey = AppCatalogSection().warnBeforeClosingWorkspace.userDefaultsKey
         let windowKey = AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey
         let originalTab = defaults.object(forKey: tabKey)
+        let originalWorkspace = defaults.object(forKey: workspaceKey)
         let originalWindow = defaults.object(forKey: windowKey)
         defaults.set(false, forKey: tabKey)
+        defaults.set(false, forKey: workspaceKey)
         defaults.set(true, forKey: windowKey)
         defer {
             if let originalTab { defaults.set(originalTab, forKey: tabKey) } else { defaults.removeObject(forKey: tabKey) }
+            if let originalWorkspace { defaults.set(originalWorkspace, forKey: workspaceKey) } else { defaults.removeObject(forKey: workspaceKey) }
             if let originalWindow { defaults.set(originalWindow, forKey: windowKey) } else { defaults.removeObject(forKey: windowKey) }
         }
 
         let manager = TabManager()
-        let second = manager.addWorkspace()
+        _ = manager.addWorkspace()
         var promptCount = 0
         manager.confirmCloseHandler = { _, _, _ in
             promptCount += 1
             return false
         }
 
-        manager.closeWorkspacesWithConfirmation([manager.tabs[0].id, second.id], allowPinned: true)
+        manager.closeWorkspacesWithConfirmation(manager.tabs.map(\.id), allowPinned: true)
 
-        XCTAssertEqual(promptCount, 1)
-        XCTAssertEqual(manager.tabs.count, 2)
+        XCTAssertEqual(promptCount, 0, "The window warning must not gate a close that keeps the window")
+        XCTAssertTrue(manager.tabs.isEmpty)
     }
 
     func testCloseCurrentWorkspaceWithConfirmationUsesSidebarMultiSelection() {
@@ -1793,7 +1800,10 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: true))
     }
 
-    func testClosingEveryWorkspaceFollowsTheWindowSetting() {
+    /// Closing every workspace now leaves the window open, so the window
+    /// warning no longer gates the batch: the workspace warning does, and
+    /// turning it off closes the batch silently (cmux Issue #2).
+    func testClosingEveryWorkspaceFollowsTheWorkspaceSettingNotTheWindowSetting() {
         let manager = makeManager(warnBeforeClosingWorkspace: nil)
         var promptCount = 0
         manager.confirmCloseHandler = { _, _, _ in
@@ -1807,14 +1817,14 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         drainMainQueue()
 
         manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWorkspace.userDefaultsKey)
+        manager.closeTabWarningDefaults.set(true, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
         manager.closeWorkspacesWithConfirmation(manager.tabs.map(\.id), allowPinned: true)
-        XCTAssertEqual(promptCount, 2, "Closing every workspace is a window close, so the workspace setting alone does not skip it")
-        drainMainQueue()
-
-        manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
-        manager.closeTabWarningDefaults.set(true, forKey: AppCatalogSection().warnBeforeClosingWorkspace.userDefaultsKey)
-        manager.closeWorkspacesWithConfirmation(manager.tabs.map(\.id), allowPinned: true)
-        XCTAssertEqual(promptCount, 2, "With the window setting off, closing every workspace does not ask")
+        XCTAssertEqual(
+            promptCount,
+            1,
+            "With the workspace setting off, the window setting must not bring the prompt back"
+        )
+        XCTAssertTrue(manager.tabs.isEmpty)
     }
 
     func testPinnedWorkspaceCloseStillWarnsWhenSettingDisabled() {

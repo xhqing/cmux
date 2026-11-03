@@ -8,6 +8,7 @@ All notable changes to cmux are documented here.
 - **Markdown 阅读器支持数学公式渲染（KaTeX）**：` ```math ` 围栏、独占一行的 `$$...$$`、行内 `$...$` 三种写法都会渲染成公式。KaTeX 按需懒加载（文档里没有数学时不请求、纯文本阅读零开销），KaTeX 的样式表连同 woff2 字体以 data URI 内联后随库一起注入（`loadHTMLString` 的 baseURL 是用户文档所在目录，相对字体路径根本取不到 app bundle，见 `scripts/embed-katex-fonts.py`）。实现取自上游 issue manaflow-ai/cmux#6749 的未合并 PR manaflow-ai/cmux#6844，按本仓库当前代码结构（allowlist sanitizer、`cmuxLib` 懒加载桥）重写适配：sanitizer 的 class 白名单放行 `cmux-math*`，渲染走 `output: 'html'`（不产出被拦的 MathML）+ `trust: false` + `maxSize`/`maxExpand` 限制，畸形公式降级成一条本地化提示、不波及正文。在原始实现上额外加固了两处误判：闭合 `$` 后面不跟数字（Pandoc 规则，`$10~$20` 这类价格区间保持原文）、两侧带空格的纯单词 `$$`（shell 的 `echo $$ and $$`）不当公式。新增 `cmuxTests/MarkdownKaTeXTests.swift`（已 wire 进 `project.pbxproj`），资产的构建期压缩脚本改为同时压 `.css`。
 
 ### Changed
+- **关闭最后一个标签页 / 工作区后保留空窗口（Issue #2，P2）**：以前窗口只剩一个 workspace、其中只有一个标签页时，点标签页 X 会弹确认、确认后整个 cmux 窗口关闭并退出应用。现在关闭最后一个标签页（X / Cmd+W / 中键）只关闭标签页，workspace 随之一并移除，窗口保留并进入空状态（没有任何 workspace、没有任何标签页），侧栏 + 号 / Cmd+T / 命令面板可新建；启动时若会话快照为空也恢复成空窗口，不再自动补一个 `Terminal 1`。保留项：侧栏 workspace 关闭确认、pinned / agent mid-turn / 未保存内容确认、窗口 Dock 进程确认、「Keep Workspace Open」开启时保留 workspace 的现有行为；窗口级关闭（红点 / Close Window / Cmd+Q）仍退出应用。
 - **切换完成（2026-11-03）**：新仓库以 `xhqing/cmux` 名义接管（`isFork=false`，GitHub 侧算下来 36.5 MiB），旧 fork 让位改名为 `xhqing/cmux-upstream-fork-archive` 待删（本机 gh token 无 `delete_repo` 权限，见 `TODO.md` T9）。`main` 保护按旧仓库存档重设：禁直推、禁 force push、禁删除、线性历史、squash-only、enforce admins，并加上 required status check `checks`（strict）；PR 门禁与 `build-macos` 在新仓库均已实跑通过（后者 run 41469693363 全绿，产物 107MB）。
 - **修掉构建设置转发缺失（同时解决 T6）**：`build.yml` 把 `ARCHS` / `ONLY_ACTIVE_ARCH` / `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` 写进环境变量，但 `scripts/reloads.sh` 从未把它们转成 `xcodebuild` 的构建设置——xcodebuild 不读环境变量，于是「只编 arm64」静默失效（实测 arm64 构建里仍有 4662 次 x86_64 编译调用，等于每次都编通用二进制、耗时数小时），`MARKETING_VERSION` 注入也一直不生效（Info.plist 里始终是工程硬编码的 `0.65.2`，即 T6）。现在 `reloads.sh` 统一把这几项转发为构建设置；本地不设这些环境变量时行为不变。
 - **仓库脱离 fork network，重建为独立仓库（2026-11-02）**：原 fork 带着上游 20,328 个提交，仓库体积 1.11 GiB，超过 GitHub「Leave fork network」要求的 1 GiB 上限，按钮走不通。做法是把上游 `v0.65.2.2` 的树**剥掉非 macOS 构建内容**后压平成一条基线提交，再把我们自己的 14 个补丁提交逐个重放到上面，得到 15 个提交、约 137 MiB 的新历史；随后删除旧 fork、以同名新建独立仓库并推上去。上游历史需要时按 `SYNC.md` 浅拉 tag，同步流程本身不变（`rebase --onto` 的「旧基线」改为压平后的基线提交）。
@@ -19,6 +20,9 @@ All notable changes to cmux are documented here.
 - **新增 PR 门禁 `checks`**（`.github/workflows/pr-checks.yml`）：Swift 语法解析（`swiftc -parse`）、配置 schema 合法性与生成物同步、测试文件是否已 wire 进 `project.pbxproj`、改动文件的密钥扫描（gitleaks）。门禁只做几分钟内能跑完的检查；完整编译仍由 `build-macos` 兜底（理由见 `DEVELOPMENT.md` 第九节）。
 - **仓库开启 Issues**（dev-workflow 要求 Issue 作需求端），并关掉 merge commit / rebase merge，只留 squash。
 - 上游同步流程改为经 PR + squash 合并（`main` 受保护后不能再直推）。
+
+### Tests
+- 新增 `cmuxTests/EmptyWindowStateTests.swift`（五条新契约 + 四类回归），并更新锁定旧行为的存量用例（`AppDelegateShortcutRoutingTests` / `TabManagerUnitTests` / `TabManagerSessionSnapshotTests`）。⚠️ 本机与 macmini 均未装 Xcode，`cmuxTests` 尚未接入 CI，本批测试只做了 `swiftc -parse` 与 `lint-pbxproj-test-wiring.sh` 静态检查，尚未实际跑红 / 绿。`TODO.md` 新增 T10（把测试接入 CI）。
 
 ### 文档
 - `README.md` 重写为自有的中英双版（`README.md` / `README_cn.md`）：只描述本仓库是什么、和官方版的差别、仓库结构、安装与构建，并保留上游（Manaflow / Ghostty）的版权与许可声明。

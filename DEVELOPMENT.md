@@ -8,6 +8,7 @@
 
 | 项 | 现状 | 为什么 |
 | --- | --- | --- |
+| 仓库 | `xhqing/cmux`（独立仓库，`isFork=false`，2026-11-03 接管该名字；旧 fork 已改名为 `xhqing/cmux-upstream-fork-archive` 待删，见 TODO T9） |
 | 与上游的关系 | 独立仓库，不在 fork network 里 | 分叉会带着上游 20,328 个提交、1.1 GiB 体积，且继承上游 145 个 workflow；GitHub 的「Leave fork network」要求仓库小于 1 GiB，所以走的是「重建 + 压平历史」的路子 |
 | git 历史 | 1 个基线提交（上游 `v0.65.2.2` 剥离后的树）+ 我们自己的补丁提交 | 历史体积从 1.1 GiB 降到约 137 MiB；上游历史需要时仍可查上游仓库或本地 shallow fetch |
 | 仓库内容 | 只留 macOS app 的构建闭包 | 官网（`web/`）、文档、iOS app、`cmux-tui`、`webviews/`、服务端目录等都不参与 macOS 构建 |

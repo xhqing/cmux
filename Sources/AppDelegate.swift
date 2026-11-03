@@ -10672,6 +10672,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
+            // A window that restores a session must not create (and immediately
+            // discard) a throwaway initial workspace: the restore fills `tabs`
+            // itself, and an empty snapshot keeps the window empty (Issue #2).
+            createInitialWorkspace: sessionWindowSnapshot == nil,
             tabDragTransferRegistry: tabDragTransferRegistry,
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore

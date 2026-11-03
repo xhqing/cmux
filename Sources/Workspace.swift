@@ -14638,11 +14638,13 @@ extension Workspace: BonsplitDelegate {
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id, tabStripClose: tabStripClose) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
-            if tabCloseButtonClose == true {
-                owningTabManager?.closeWorkspaceFromTabCloseButton(self)
-            } else {
-                owningTabManager?.closeWorkspaceFromCloseTabGesture(self)
-            }
+            // Closing the last tab/surface removes the workspace; when it was
+            // the window's last workspace the window stays open in an empty
+            // state (Issue #2). The close helper applies the tab-level warning
+            // policy (unsaved content / agent / running process / X warning)
+            // because this branch runs before the delegate's own checks.
+            let closeSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
+            owningTabManager?.closeWorkspaceAfterLastTabClose(self, source: closeSource)
             return false
         }
 

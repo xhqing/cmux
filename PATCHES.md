@@ -80,6 +80,56 @@
 
 ---
 
+## P2 — 关闭最后一个标签页 / 工作区后保留空窗口，而不是退出应用
+
+**状态**：已实现（Issue #2）
+
+### 要解决的问题
+
+窗口里只剩一个 workspace、其中只有一个标签页时，点标签页的 X（或按 Cmd+W、中键关闭这个标签页），会弹确认；确认后整个 cmux 窗口关闭、应用退出。期望：关闭最后一个标签页后 workspace 一并移除，但窗口保留、进入空状态（没有任何 workspace、没有任何标签页）；启动时若没有可恢复的会话，同样是空窗口；只有窗口级动作（红点 / Close Window / Cmd+Q）才退出应用。
+
+### 根因（读代码确认）
+
+1. `TabManager.closeWorkspace` 开头 `guard tabs.count > 1 else { return }`——最后一个 workspace 不允许被移除。
+2. 关闭最后一个 workspace 的三条路径都走「关窗口」：
+   - `closeWorkspaceIfRunningProcess`：`tabs.count <= 1` → `closeWindowForLastWorkspace`；
+   - `closeWorkspacesWithConfirmation`：批量关全部 → `closeWindowForLastWorkspace`；
+   - `closePanelAfterChildExited`：最后一个 panel 子进程退出且 `tabs.count <= 1` → `AppDelegate.closeMainWindowContainingTabId`。
+3. 窗口关闭后，`handleMainTerminalWindowShouldClose` 认定这是最后一个主窗口 → `requestApplicationTermination()`，于是应用退出。
+4. `restoreSessionSnapshot` 在 `newTabs.isEmpty` 时无条件造一个 `Terminal 1` fallback——空快照无法恢复成空窗口。
+5. `ContentView` 的启动恢复（#399）在 onAppear 0.5s 后调 `recoverEmptyWorkspaceAfterStartupIfNeeded()`，会把空窗口补满。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `Sources/TabManager.swift` | `closeWorkspace` 允许关闭最后一个 workspace；关闭后若 `tabs` 为空置 `hasEmptiedAllWorkspaces`，并把 `selectedTabId` 置 nil（`selectionTargetAfterClose` 返回 nil）。 |
+| 同上 | 删除 `closeWindowForLastWorkspace`；`closeWorkspaceIfRunningProcess` 对最后一个 workspace 改为直接 `closeWorkspace`（`acceptCmdD` 改 false，仍保留窗口 Dock 的进程确认）。 |
+| 同上 | `closeWorkspacesWithConfirmation`：批量关全部不再走窗口关闭；文案统一为「Close workspaces?」，警告改用 workspace 策略（`dontAskAgain = .workspace`）。 |
+| 同上 | `closePanelAfterChildExited`：最后一个 workspace 的最后一个 panel 退出 → `closeWorkspace`（不再调 `closeMainWindowContainingTabId`）。 |
+| 同上 | 新增 `closeWorkspaceAfterLastTabClose(_:source:)`：供标签页 X / Cmd+W / 中键关闭最后一个标签页时调用——不弹 workspace 级（`warnBeforeClosingWorkspace`）确认，但完整跑一遍标签页级警告策略（未保存内容、agent mid-turn、X 按钮警告、`confirmCloseRunningProcess` 设置、workspace 与窗口 Dock 的进程保护），并保留 pinned 确认。 |
+| 同上 | `recoverEmptyWorkspaceAfterStartupIfNeeded` 增加 `!hasEmptiedAllWorkspaces` 守卫：用户主动清空的窗口不会在启动恢复时被补满；`workspaceTabsWillChange` 在 tabs 非空时清除该标志。 |
+| 同上 | `restoreSessionSnapshot`：`newTabs.isEmpty` 时只有「快照本来有 workspace 但全部恢复失败」才造 fallback；快照明确为空则保持空窗口。恢复时清除 `hasEmptiedAllWorkspaces`。 |
+| `Sources/Workspace.swift` | `BonsplitDelegate` 的「关闭最后一个 surface → 关闭 workspace」分支改为调用 `closeWorkspaceAfterLastTabClose`（标签页 X / Cmd+W / 中键统一走它）。 |
+| `Sources/AppDelegate.swift` | 创建主窗口时 `createInitialWorkspace: sessionWindowSnapshot == nil`：有会话快照时不先造一个随后丢弃的初始 workspace；空快照恢复后窗口保持空。 |
+
+### 保留的保护（没被削弱）
+
+- 侧栏 workspace 的 X / Close Workspace：仍走原有 workspace 关闭确认（`warnBeforeClosingWorkspace`），只是关闭后窗口不退出；
+- 标签页 X / Cmd+W / 中键关最后一个标签页：保留完整的标签页级保护——未保存内容（`panel.isDirty`）、agent mid-turn（`warnBeforeClosingAgentSession`）、X 按钮警告（`warnBeforeClosingTabXButton`）、`confirmCloseRunningProcess` 开启时的进程确认、pinned 确认、workspace / 窗口 Dock 的进程确认；
+- pinned workspace 关闭确认、agent mid-turn 确认、未保存内容确认、X 按钮警告：不变；
+- 「Keep Workspace Open」开启（`closeWorkspaceOnLastSurfaceShortcut` = false）：关闭最后一个标签页时保留 workspace 并补一个替代终端，行为不变；
+- 窗口 Dock 里跑着进程时关闭最后一个 workspace：仍弹进程确认；
+- 窗口级关闭（红点 / Close Window / Cmd+Q）：仍按退出策略退出应用。
+
+### 已知未覆盖 / 风险
+
+- 空窗口里没有额外的空白提示 UI（侧栏 + 号、命令面板 `New Workspace`、Cmd+T 均可新建）——先按最小改动实现，实机验收后再决定是否需要空状态引导。
+- 空窗口的会话快照保存依赖 `isEligibleForSessionPersistence` 对空 workspaces 返回 true（已核实）；以后上游若改这条判定，要回头检查。
+- 上游若合并「关闭最后一个 workspace 就关窗口」相关改动，rebase 时注意 `closeWorkspace` / `closeWorkspaceIfRunningProcess` / `closeWorkspacesWithConfirmation` / `closePanelAfterChildExited` / `BonsplitDelegate` 的冲突。
+
+---
+
 ## 与上游 PR / issue 的对应关系
 
 | 上游 | 状态 | 我们的处理 |

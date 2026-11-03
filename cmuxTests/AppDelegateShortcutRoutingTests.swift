@@ -2410,13 +2410,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace() {
+    /// Cmd+W on the last surface of the last workspace now empties the window
+    /// instead of closing it: only a window-level close (red button, Close
+    /// Window, Cmd+Q) may quit (cmux Issue #2).
+    func testCmdWEmptiesWindowWhenClosingLastSurfaceInLastWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        // Auto-confirm window close to avoid a modal dialog that blocks the RunLoop.
+        // Auto-confirm window close so a regression that still routes through
+        // the window-close path cannot block the RunLoop with a modal dialog.
         appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
         defer { appDelegate.debugCloseMainWindowConfirmationHandler = nil }
 
@@ -2467,12 +2471,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
 
         waitUntil(timeout: 1.0) {
-            self.window(withId: windowId)?.isVisible != true
+            manager.tabs.isEmpty
         }
 
-        XCTAssertFalse(
+        XCTAssertTrue(
+            manager.tabs.isEmpty,
+            "Cmd+W on the last surface in the last workspace should empty the window"
+        )
+        XCTAssertNil(manager.selectedTabId)
+        XCTAssertTrue(
             self.window(withId: windowId)?.isVisible == true,
-            "Cmd+W on the last surface in the last workspace should close the window"
+            "Cmd+W on the last surface must keep the window open"
         )
     }
 
@@ -3344,8 +3353,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(appDelegate.sidebarVisibility(windowId: windowId), false)
 
-        guard let sourceWorkspace = manager.selectedWorkspace else {
-            XCTFail("Expected selected workspace")
+        guard let sourceWorkspace = manager.selectedWorkspace ?? manager.addWorkspaceIfActive() else {
+            XCTFail("Expected a workspace in the restored window")
             return
         }
 
@@ -3390,9 +3399,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         // Simulate the new-window flow: createMainWindow with a snapshot that forces
-        // sidebar collapsed. The initial workspace is created inside TabManager.init,
-        // before ContentView.onAppear can run syncTrafficLightInset — so the seed in
-        // createMainWindow is what protects the first render.
+        // sidebar collapsed. An empty session snapshot now restores an empty window
+        // (cmux Issue #2), so the first workspace is created on demand; the seed in
+        // createMainWindow must still cover it before the first render.
         let snapshot = SessionWindowSnapshot(
             frame: nil,
             display: nil,
@@ -3409,13 +3418,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(appDelegate.sidebarVisibility(windowId: windowId), false)
 
-        guard let initialWorkspace = manager.selectedWorkspace else {
-            XCTFail("Expected selected workspace in fresh window")
+        guard let initialWorkspace = manager.addWorkspaceIfActive() else {
+            XCTFail("Expected workspace creation in the fresh window")
             return
         }
 
         // No RunLoop spin before reading the inset — the seed must be applied by the
-        // time createMainWindow returns, not lazily after onAppear runs.
+        // time the workspace is created, not lazily after onAppear runs.
         XCTAssertEqual(
             initialWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
             80,

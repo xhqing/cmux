@@ -273,12 +273,21 @@ class TabManager: ObservableObject {
         set { workspaces.selectedTabId = newValue }
     }
 
+    /// True after the user closed the window's last workspace. The window stays
+    /// open with no workspaces (Issue #2), and the startup recovery must not
+    /// refill it behind the user's back. Cleared as soon as a workspace exists
+    /// again, and by session restore.
+    private(set) var hasEmptiedAllWorkspaces = false
+
     // MARK: - WorkspacesHosting hooks (legacy @Published property observers)
 
     /// Legacy `@Published tabs` willSet: objectWillChange plus the Combine
     /// bridge fire before storage changes, matching @Published timing.
     func workspaceTabsWillChange(to newValue: [Workspace]) {
         objectWillChange.send()
+        if !newValue.isEmpty {
+            hasEmptiedAllWorkspaces = false
+        }
         tabsPublisher.send(newValue)
         if newValue.count != tabs.count, ProductAnalytics.app.isEnabled {
             // A window that already had a workspace gaining one, outside
@@ -1766,7 +1775,9 @@ class TabManager: ObservableObject {
     /// Restores the startup invariant when the workspace collection is empty.
     @discardableResult
     func recoverEmptyWorkspaceAfterStartupIfNeeded() -> Bool {
-        guard !isFinalizedForWindowClose, tabs.isEmpty else { return false }
+        // An intentionally emptied window (user closed the last workspace)
+        // stays empty; only a broken startup state gets a replacement.
+        guard !isFinalizedForWindowClose, tabs.isEmpty, !hasEmptiedAllWorkspaces else { return false }
         return addWorkspaceIfActive() != nil
     }
 
@@ -2613,7 +2624,8 @@ class TabManager: ObservableObject {
     }
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
-        guard tabs.count > 1 else { return }
+        // The last workspace is allowed to close: the window stays open in an
+        // empty state (Issue #2) instead of closing the window and quitting.
         // Teardown SIGHUPs child processes and publishes a closed event. Only this
         // manager may close its own live workspaces; stale or foreign objects must
         // never tear down terminals or publish a second close.
@@ -2657,6 +2669,9 @@ class TabManager: ObservableObject {
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
+            if tabs.isEmpty {
+                hasEmptiedAllWorkspaces = true
+            }
             let closedWorkspaceGroupId = workspace.groupId
             let closedWorkspaceWasGroupAnchor = closedWorkspaceGroupId.flatMap { groupId in
                 workspaces.workspaceGroups.first(where: { $0.id == groupId })?.liveAnchorWorkspaceId
@@ -2679,11 +2694,12 @@ class TabManager: ObservableObject {
                 )
             }
 
-            if selectedTabId == workspace.id,
-               let nextSelectedId = workspaces.selectionTargetAfterClose(closedIndex: index) {
+            if selectedTabId == workspace.id {
                 // Keep the "focused row position" stable when possible; see
-                // WorkspacesModel.selectionTargetAfterClose for the rule.
-                selectedTabId = nextSelectedId
+                // WorkspacesModel.selectionTargetAfterClose for the rule. When
+                // this was the last workspace the target is nil, so the empty
+                // window has no selection.
+                selectedTabId = workspaces.selectionTargetAfterClose(closedIndex: index)
             }
 
             // A promoted anchor's resolved display title switches from its own
@@ -2986,13 +3002,12 @@ class TabManager: ObservableObject {
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
-        var closeAlreadyConfirmed = false
         // Members close below without their own prompts, so a batch holding a
         // pinned workspace keeps the pinned gate instead of the workspace one.
-        // Closing every workspace closes the window, so that "Close window?"
-        // variant follows the window setting. Pinned workspaces never offer
-        // "Don't ask again": no setting may silence the protection pinning
-        // asked for.
+        // Closing every workspace now leaves an empty window (Issue #2) instead
+        // of closing the window, so it follows the workspace warning policy.
+        // Pinned workspaces never offer "Don't ask again": no setting may
+        // silence the protection pinning asked for.
         let containsPinned = plan.workspaces.contains(where: \.isPinned)
         let windowDockNeedsConfirmation = plan.willCloseWindow
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
@@ -3004,13 +3019,6 @@ class TabManager: ObservableObject {
             showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults)
                 .shouldConfirmCloseIncludingSafety(requiresConfirmation: true, source: .shortcut)
             dontAskAgain = []
-        } else if plan.willCloseWindow {
-            // A batch that closes the whole window follows the window warning
-            // policy. The tab warning must not suppress this prompt.
-            showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
-                || hasActiveProcess
-            dontAskAgain = .window
-            if hasActiveProcess { dontAskAgain.insert(.safety) }
         } else {
             showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
                 || hasActiveProcess
@@ -3022,24 +3030,18 @@ class TabManager: ObservableObject {
                 title: plan.title,
                 message: plan.message,
                 scrollableDetails: plan.details,
-                acceptCmdD: plan.willCloseWindow,
+                acceptCmdD: false,
                 dontAskAgain: dontAskAgain
             ) else { return }
-            closeAlreadyConfirmed = true
         }
 
-        if plan.workspaces.count == tabs.count,
-           let firstWorkspace = plan.workspaces.first {
-            // Closing every tab routes through the window-close path, which DETACHES
-            // the remote-tmux session(s) (kept alive on the server for resume); the
-            // mark seam is a retained no-op (see markRemoteTmuxKillOnWindowCloseIfNeeded).
+        if plan.workspaces.count == tabs.count {
+            // Closing every workspace leaves an empty window (Issue #2); the
+            // per-workspace loop below performs the teardown. Closing a
+            // remote-tmux mirror DETACHES from the remote session (kept alive
+            // for resume); the mark seam is a retained no-op (see
+            // markRemoteTmuxKillOnWindowCloseIfNeeded).
             markRemoteTmuxKillOnWindowCloseIfNeeded(for: plan.workspaces)
-            if closeWindowForLastWorkspace(
-                workspaceId: firstWorkspace.id,
-                closeAlreadyConfirmed: closeAlreadyConfirmed
-            ) {
-                return
-            }
         }
 
         // Drain non-anchor members before group anchors (see anchorLastCloseOrder):
@@ -3249,10 +3251,10 @@ class TabManager: ObservableObject {
     }
 
     private func closeWorkspacesPlan(for workspaces: [Workspace]) -> CloseWorkspacesPlan {
+        // Closing every workspace no longer closes the window (Issue #2), so the
+        // batch dialog uses the workspace wording in both cases.
         let willCloseWindow = workspaces.count == tabs.count
-        let title = willCloseWindow
-            ? String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
-            : String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
+        let title = String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
         // Use the resolved display title so a group anchor is listed by the
         // header name the user sees (the group name), not its underlying
         // Workspace.title. This matters for a promoted anchor, whose own title
@@ -3260,15 +3262,10 @@ class TabManager: ObservableObject {
         let titleLines = workspaces
             .map { "• \(closeWorkspaceDisplayTitle(resolvedWorkspaceDisplayTitle(for: $0)))" }
             .joined(separator: "\n")
-        let format = willCloseWindow
-            ? String(
-                localized: "dialog.closeWorkspacesWindow.message",
-                defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
-            )
-            : String(
-                localized: "dialog.closeWorkspaces.message",
-                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
-            )
+        let format = String(
+            localized: "dialog.closeWorkspaces.message",
+            defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
+        )
         let message = String(format: format, locale: .current, Int64(workspaces.count), titleLines)
         return CloseWorkspacesPlan(
             workspaces: workspaces,
@@ -3300,6 +3297,8 @@ class TabManager: ObservableObject {
         // member is promoted to anchor in closeWorkspace, so the members stay
         // grouped instead of scattering to root. No special anchor prompt is
         // needed; the normal running-process confirmation below still applies.
+        // `willCloseWindow` only gates the window-Dock process check now: the
+        // last workspace no longer closes the window (Issue #2).
         let willCloseWindow = tabs.count <= 1
         let windowDockNeedsConfirmation = willCloseWindow
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
@@ -3317,27 +3316,18 @@ class TabManager: ObservableObject {
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
-               acceptCmdD: willCloseWindow,
+               acceptCmdD: false,
                dontAskAgain: dontAskAgain
            ) {
             return false
         }
         // Reaching here after a shown dialog means the user accepted it.
-        let closeConfirmed = closeAlreadyConfirmed || showsCloseConfirmation
-        if tabs.count <= 1 {
-            // Last workspace in this window closes via the window-close path. For a
-            // remote-tmux mirror this DETACHES from the remote session (kept alive for
-            // resume); the mark seam is a retained no-op (see
-            // markRemoteTmuxKillOnWindowCloseIfNeeded). Non-last workspaces also detach
-            // via closeWorkspace.
-            markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
-            closeWindowForLastWorkspace(
-                workspaceId: workspace.id,
-                closeAlreadyConfirmed: closeConfirmed
-            )
-        } else {
-            closeWorkspace(workspace)
-        }
+        // Closing the last workspace keeps the window open in an empty state
+        // (Issue #2). For a remote-tmux mirror this DETACHES from the remote
+        // session (kept alive for resume); the mark seam is a retained no-op
+        // (see markRemoteTmuxKillOnWindowCloseIfNeeded).
+        markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
+        closeWorkspace(workspace)
         return true
     }
 
@@ -3420,27 +3410,69 @@ class TabManager: ObservableObject {
                 localized: "dialog.closePinnedWorkspace.message",
                 defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
             ),
-            acceptCmdD: tabs.count <= 1
+            acceptCmdD: false
         )
         return accepted ? .confirmed : .cancelled
     }
 
-    /// Closes this manager's window after its last workspace goes. When the user
-    /// already accepted a close dialog, the window close carries that answer so
-    /// the last-window path does not ask again. Returns false when there is no
-    /// window route to close.
+    /// Closes `workspace` after its last tab/surface was closed through the
+    /// tab-strip X, Cmd+W, or middle click. Unlike the sidebar workspace close
+    /// this does not ask the workspace-level confirmation: the user's intent was
+    /// closing the tab, and the tab-level warning policy already ran inside
+    /// `Workspace`. The window stays open when this was the last workspace
+    /// (Issue #2).
     @discardableResult
-    private func closeWindowForLastWorkspace(workspaceId: UUID, closeAlreadyConfirmed: Bool) -> Bool {
-        if let window {
-            if closeAlreadyConfirmed, let app = AppDelegate.shared {
-                app.performPreconfirmedMainWindowClose(window)
-            } else {
-                window.performClose(nil)
-            }
-            return true
+    func closeWorkspaceAfterLastTabClose(
+        _ workspace: Workspace,
+        source: CloseTabCloseSource
+    ) -> Bool {
+        guard tabs.contains(where: { $0.id == workspace.id }) else { return false }
+        if workspace.isPinned {
+            let pinnedSource: CloseConfirmationSource = source == .tabCloseButton ? .tabCloseButton : .tabClose
+            let pinnedConfirmation = confirmPinnedWorkspaceClose(source: pinnedSource)
+            guard pinnedConfirmation != .cancelled else { return false }
         }
-        guard let app = AppDelegate.shared else { return false }
-        app.closeMainWindowContainingTabId(workspaceId, closeAlreadyConfirmed: closeAlreadyConfirmed)
+        // Closing the workspace with its last tab must keep the protections the
+        // normal tab-close path would have applied: unsaved content, an agent
+        // session that is still working, the X-button warning, and the
+        // running-process setting (P1). The window Dock is shared by the whole
+        // window and is torn down with its last workspace, so it joins the same
+        // check.
+        let agentNames = workspace.panels.keys.compactMap {
+            workspace.activeAgentCloseWarningInfo(panelId: $0)
+        }
+        let windowDockNeedsConfirmation =
+            AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
+        let requiresConfirmation = workspace.needsConfirmClose()
+            || !agentNames.isEmpty
+            || windowDockNeedsConfirmation
+        let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults)
+            .warningKindsIncludingSafety(
+                requiresConfirmation: requiresConfirmation,
+                source: source,
+                isAgentSession: !agentNames.isEmpty
+            )
+        if !warningKinds.isEmpty {
+            let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
+            let message: String = {
+                if let agentName = agentNames.first {
+                    let format = String(
+                        localized: "dialog.closeTab.agentWorking",
+                        defaultValue: "%@ is still working. This will close the current tab."
+                    )
+                    return String(format: format, locale: .current, agentName)
+                }
+                return String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+            }()
+            guard confirmClose(
+                title: title,
+                message: message,
+                acceptCmdD: false,
+                dontAskAgain: warningKinds
+            ) else { return false }
+        }
+        markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
+        closeWorkspace(workspace)
         return true
     }
 
@@ -3661,34 +3693,11 @@ class TabManager: ObservableObject {
             return
         }
 
-        // Child-exit on the last panel should collapse the workspace, matching explicit close
-        // semantics (and close the window when it was the last workspace).
+        // Child-exit on the last panel collapses the workspace, matching explicit close
+        // semantics. Closing the last workspace keeps the window open in an empty
+        // state (Issue #2) instead of closing the window and quitting.
         if tab.panels.count <= 1 {
-            if tabs.count <= 1 {
-                if let app = AppDelegate.shared {
-                    // Notification cleanup belongs to the committed outcome:
-                    // unregisterMainWindow handles a closed window and
-                    // applicationWillTerminate clears the store on Quit.
-                    let exitedSurface = runtimeSurface ?? tab.terminalPanel(for: surfaceId)?.surface
-                    let onCancelled = exitedSurface.flatMap {
-                        lastTerminalChildExitRecoveryAction(
-                            tabId: tabId,
-                            surfaceId: surfaceId,
-                            runtimeSurface: $0
-                        )
-                    }
-                    app.closeMainWindowContainingTabId(
-                        tabId,
-                        recordHistory: false,
-                        onCancelled: onCancelled
-                    )
-                } else {
-                    // Headless/test fallback when no AppDelegate window context exists.
-                    closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
-                }
-            } else {
-                closeWorkspace(tab, recordHistory: false)
-            }
+            closeWorkspace(tab, recordHistory: false)
             return
         }
 
@@ -7040,6 +7049,10 @@ extension TabManager {
 
         isRestoringSessionSnapshot = true
         defer { isRestoringSessionSnapshot = false }
+        // A snapshot that explicitly has no workspaces restores the
+        // user-intended empty window (Issue #2); keep the startup recovery
+        // (#399) from refilling it. Any other restore is a fresh start.
+        hasEmptiedAllWorkspaces = snapshot.workspaces.isEmpty
         let previousTabs = tabs
         for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)
@@ -7118,7 +7131,10 @@ extension TabManager {
             restoredOriginalWorkspaceIds.append(workspaceSnapshot.workspaceId)
         }
 
-        if newTabs.isEmpty {
+        // A snapshot that explicitly has no workspaces is a user-intended empty
+        // window (Issue #2): keep it empty instead of fabricating a fallback.
+        // Only a snapshot that had workspaces but restored none falls back.
+        if newTabs.isEmpty, !snapshot.workspaces.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let fallbackWorkspaceId = identitySelector.freshWorkspaceId(

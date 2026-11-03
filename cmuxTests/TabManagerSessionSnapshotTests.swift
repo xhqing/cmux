@@ -1774,7 +1774,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ))
     }
 
-    func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
+    /// An empty session snapshot (no restorable workspaces) now restores an
+    /// empty window instead of fabricating a fallback workspace; the window
+    /// stays open and the user creates the first workspace on demand
+    /// (cmux Issue #2).
+    func testRestoreSessionSnapshotWithNoWorkspacesLeavesWindowEmpty() {
         let manager = makeTabManager()
         let emptySnapshot = SessionTabManagerSnapshot(
             selectedWorkspaceIndex: nil,
@@ -1783,8 +1787,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         manager.restoreSessionSnapshot(emptySnapshot)
 
-        XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertNotNil(manager.selectedTabId)
+        XCTAssertTrue(
+            manager.tabs.isEmpty,
+            "An empty snapshot must restore an empty window, not a fallback workspace"
+        )
+        XCTAssertNil(manager.selectedTabId)
     }
 
     func testRestoredPersistentSSHBrowserOnlyWorkspaceAutoConnectsWithoutForegroundAuthTerminal() {

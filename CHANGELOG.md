@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [未发布]
+
+### 文档
+- `TODO.md`：T2（P1 并行安装后的真机验收）归档进 `TODO-archive.md`——用户已确认第 1 条通过，其余两条明确不需要验收（记录：2026-11-04 14:45）。
+
 ## [0.65.2.2-xhqing.2] - 2026-11-04
 
 ### Added

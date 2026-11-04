@@ -709,6 +709,11 @@ class TabManager: ObservableObject {
                 initialTerminalInput: initialTerminalInput,
                 autoWelcomeIfNeeded: autoWelcomeIfNeeded
             )
+        } else {
+            // A manager created without an initial workspace starts in the
+            // intentional empty state (plain launch / New Window, Issue #2):
+            // the startup recovery (#399) must not refill it.
+            hasEmptiedAllWorkspaces = true
         }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,

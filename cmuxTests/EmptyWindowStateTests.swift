@@ -318,6 +318,81 @@ struct EmptyWindowStateTests {
         }
     }
 
+    @Test("A manager created for a plain launch starts empty and stays empty")
+    func managerWithoutInitialWorkspaceStartsEmptyForPlainLaunch() throws {
+        try withManager(createInitialWorkspace: false) { manager in
+            #expect(manager.tabs.isEmpty, "A plain launch must not fabricate a workspace")
+            #expect(manager.selectedTabId == nil)
+            #expect(
+                manager.hasEmptiedAllWorkspaces,
+                "Startup recovery (#399) must not refill an intentionally empty window"
+            )
+        }
+    }
+
+    @Test("A plain New Window starts as an empty window")
+    func plainMainWindowStartsEmpty() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeMainWindowForEmptyStateTest(appDelegate, windowId: windowId) }
+
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        #expect(manager.tabs.isEmpty, "A plain New Window must not fabricate a workspace")
+        #expect(manager.selectedTabId == nil)
+        #expect(
+            manager.hasEmptiedAllWorkspaces,
+            "Startup recovery (#399) must not refill an intentionally empty window"
+        )
+    }
+
+    @Test("An explicit working directory still creates its initial workspace")
+    func explicitWorkingDirectoryCreatesTheInitialWorkspace() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow(
+            initialWorkingDirectory: NSTemporaryDirectory()
+        )
+        defer { closeMainWindowForEmptyStateTest(appDelegate, windowId: windowId) }
+
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        #expect(
+            manager.tabs.count == 1,
+            "An explicitly requested working directory must keep its initial workspace"
+        )
+        #expect(manager.selectedTabId == manager.tabs.first?.id)
+    }
+
+    @Test("An explicit terminal input still creates its initial workspace")
+    func explicitTerminalInputCreatesTheInitialWorkspace() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow(initialTerminalInput: "echo hi")
+        defer { closeMainWindowForEmptyStateTest(appDelegate, windowId: windowId) }
+
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        #expect(
+            manager.tabs.count == 1,
+            "An explicitly requested terminal input must keep its initial workspace"
+        )
+        #expect(manager.selectedTabId == manager.tabs.first?.id)
+    }
+
+    /// Retires a main window created by ``createMainWindow`` and waits for its
+    /// `MainWindowContext` to go away. A half-closed window would otherwise
+    /// leak its manager and workspaces into the next test in this suite.
+    private func closeMainWindowForEmptyStateTest(_ appDelegate: AppDelegate, windowId: UUID) {
+        guard let window = appDelegate.windowForMainWindowId(windowId) else { return }
+        let previousConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = previousConfirmationHandler }
+        window.animationBehavior = .none
+        window.orderOut(nil)
+        window.close()
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline,
+              appDelegate.mainWindowContexts.values.contains(where: { $0.windowId == windowId }) {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+    }
+
     // MARK: - Regressions
 
     @Test("Closing one of several workspaces keeps the survivors and their selection")

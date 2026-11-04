@@ -111,7 +111,7 @@
 | 同上 | `recoverEmptyWorkspaceAfterStartupIfNeeded` 增加 `!hasEmptiedAllWorkspaces` 守卫：用户主动清空的窗口不会在启动恢复时被补满；`workspaceTabsWillChange` 在 tabs 非空时清除该标志。 |
 | 同上 | `restoreSessionSnapshot`：`newTabs.isEmpty` 时只有「快照本来有 workspace 但全部恢复失败」才造 fallback；快照明确为空则保持空窗口。恢复时清除 `hasEmptiedAllWorkspaces`。 |
 | `Sources/Workspace.swift` | `BonsplitDelegate` 的「关闭最后一个 surface → 关闭 workspace」分支改为调用 `closeWorkspaceAfterLastTabClose`（标签页 X / Cmd+W / 中键统一走它）。 |
-| `Sources/AppDelegate.swift` | 创建主窗口时 `createInitialWorkspace: sessionWindowSnapshot == nil`：有会话快照时不先造一个随后丢弃的初始 workspace；空快照恢复后窗口保持空。 |
+| `Sources/AppDelegate.swift` | 创建主窗口时 `createInitialWorkspace` 只在「无会话快照**且**显式带了工作目录 / 终端输入 / 标题」时为 true：普通启动与 New Window 默认是空窗口（Issue #2），`cmux <目录>` 这类显式用法照常创建 workspace。 |
 
 ### 保留的保护（没被削弱）
 

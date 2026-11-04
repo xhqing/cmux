@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [未发布]
+## [0.65.2.2-xhqing.2] - 2026-11-04
 
 ### Added
 - **Markdown 阅读器支持数学公式渲染（KaTeX）**：` ```math ` 围栏、独占一行的 `$$...$$`、行内 `$...$` 三种写法都会渲染成公式。KaTeX 按需懒加载（文档里没有数学时不请求、纯文本阅读零开销），KaTeX 的样式表连同 woff2 字体以 data URI 内联后随库一起注入（`loadHTMLString` 的 baseURL 是用户文档所在目录，相对字体路径根本取不到 app bundle，见 `scripts/embed-katex-fonts.py`）。实现取自上游 issue manaflow-ai/cmux#6749 的未合并 PR manaflow-ai/cmux#6844，按本仓库当前代码结构（allowlist sanitizer、`cmuxLib` 懒加载桥）重写适配：sanitizer 的 class 白名单放行 `cmux-math*`，渲染走 `output: 'html'`（不产出被拦的 MathML）+ `trust: false` + `maxSize`/`maxExpand` 限制，畸形公式降级成一条本地化提示、不波及正文。在原始实现上额外加固了两处误判：闭合 `$` 后面不跟数字（Pandoc 规则，`$10~$20` 这类价格区间保持原文）、两侧带空格的纯单词 `$$`（shell 的 `echo $$ and $$`）不当公式。新增 `cmuxTests/MarkdownKaTeXTests.swift`（已 wire 进 `project.pbxproj`），资产的构建期压缩脚本改为同时压 `.css`。

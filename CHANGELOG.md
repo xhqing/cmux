@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-xhqing.8] - 2026-11-06
+
+### Fixed
+- **限制 xcodebuild 并行 job 数，避免 runner OOM（PR #32）**：`.5` / `.6` / `.7` 三次 Release 构建都在没有 `error:` / `BUILD FAILED` 的情况下中断（20 / 20 / 78 分钟），而 `.4` 的 tag 复跑成功（76 分钟）——说明是 7 GB macos-26 runner 在满并行度下的内存压力把构建杀掉，不是代码错误。现在固定 `-jobs 2`（可用 `CMUX_BUILD_JOBS` 覆盖），构建更慢但可预期。
+
 ## [0.65.2.2-xhqing.7] - 2026-11-06
 
 ### Fixed

@@ -10,45 +10,6 @@ import CmuxTerminalCore
 import CmuxSidebar
 import CmuxSettings
 import CmuxWorkspaces
-
-/// Release-safe key latency probe. Off by default; enable with
-/// `CMUX_KEY_LATENCY_PROBE=1` or `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true`.
-/// Writes one line per key event to `~/.local/state/cmux/key-latency.log`: the
-/// delay between the system event timestamp and the moment the terminal view
-/// handles it. This is the segment an out-of-process CLI probe cannot measure
-/// (physical key / IME / event routing -> app), so it complements
-/// `scripts/measure-input-latency.py`. When disabled it costs one static check.
-enum KeyLatencyProbe {
-    static let isEnabled: Bool = {
-        if ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1" { return true }
-        return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
-    }()
-
-    private static let queue = DispatchQueue(label: "com.cmuxterm.key-latency-probe")
-    private static let logURL: URL = {
-        let base = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/state/cmux", isDirectory: true)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        return base.appendingPathComponent("key-latency.log", isDirectory: false)
-    }()
-
-    @inline(__always)
-    static func record(event: NSEvent, phase: String) {
-        guard isEnabled, event.timestamp > 0 else { return }
-        let delayMs = max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000.0)
-        let line = "\(String(format: "%.3f", Date().timeIntervalSince1970)) phase=\(phase) delayMs=\(String(format: "%.2f", delayMs)) keyCode=\(event.keyCode) repeat=\(event.isARepeat ? 1 : 0)\n"
-        queue.async {
-            guard let data = line.data(using: .utf8) else { return }
-            if let handle = try? FileHandle(forWritingTo: logURL) {
-                defer { try? handle.close() }
-                _ = try? handle.seekToEnd()
-                try? handle.write(contentsOf: data)
-            } else {
-                try? data.write(to: logURL, options: .atomic)
-            }
-        }
-    }
-}
 import CmuxTestSupport
 import SwiftUI
 import AppKit
@@ -7354,7 +7315,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
-        KeyLatencyProbe.record(event: event, phase: "keyDown")
         // A fresh press invalidates the gesture's alternate-screen answer before
         // any early return, so a later repeat never reuses one from another key.
         if !event.isARepeat { textEditingGestureAlternateScreenAtPress = nil }
@@ -7881,7 +7841,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let handled = withPotentialClipboardPasteIntent {
             ghostty_surface_key(surface, keyEvent)
         }
-        KeyLatencyProbe.record(event: event, phase: "ghosttySent")
         if handled, keyEvent.action != GHOSTTY_ACTION_RELEASE {
             terminalSurface?.didAcceptExplicitInput()
             recordPredictedEchoInput(

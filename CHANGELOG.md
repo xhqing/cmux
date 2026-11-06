@@ -4,6 +4,9 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### Fixed
+- **修复 `cmux diff` 的 Dock 路由冲突**：`CLI/cmux_open.swift` 的 `runDiffCommand` 原来把 `CMUX_WORKSPACE_ID` / `CMUX_SURFACE_ID` 解析出的 handle 无条件塞进 `browser.open_split` 的 `workspace_id` / `surface_id`；当终端在 Dock 里、或这两个值与当前窗口对不上时，服务端 `v2DockBrowserSelectorsConflict` 判定两个选择器互相矛盾，直接回 `invalid_params: Conflicting Dock routing selectors`，diff 面板一个也开不出来（`--last-turn` 尤其容易踩到）。现在只把用户显式指定的 `--window` / `--workspace` / `--surface` 当作面板路由，环境变量注入的 caller context 只用于定位 diff 内容来源（last-turn 的基线本来就按这两个值记录），默认不传任何路由选择器，由 cmux 按调用者所在窗口解析目标。`swiftc -parse CLI/cmux_open.swift` 语法检查通过；完整编译与运行时行为交由 CI 和构建后的 app 验证（本机与 macmini 都只有 CommandLineTools，没有完整 Xcode）。
+
 ### Added
 - **输入延迟防护的回归守卫**：新增 `scripts/check-latency-guardrails.py`，并在 PR 门禁 `checks` 里加一步 `Input latency guardrails`。基线 `v0.65.2.2` 已经包含上游多条仍 OPEN 的输入延迟问题的等价修复（打字静默期推迟 Git 探测、进程级探测限流、无分配索引十六进制编码、标题变更合并、预测性本地回显的 alternate screen 排除、TextBox 设置、shell 集成双开守卫、输入时间戳）；以后按 `SYNC.md` 同步新上游 tag 时若被静默覆盖，PR 会直接变红。脚本只做静态存在性检查，不测毫秒数；已自测「删掉守卫只剩注释」会精确报红。
 

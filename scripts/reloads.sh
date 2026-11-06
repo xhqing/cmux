@@ -158,13 +158,12 @@ for _setting in ARCHS ONLY_ACTIVE_ARCH MARKETING_VERSION CURRENT_PROJECT_VERSION
   fi
 done
 unset _setting
-if [[ -z "$TAG" ]]; then
-  XCODEBUILD_ARGS+=(
-    INFOPLIST_KEY_CFBundleName="$APP_NAME"
-    INFOPLIST_KEY_CFBundleDisplayName="$APP_NAME"
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
-  )
-fi
+# Identity is applied after the build: the product is copied and its Info.plist
+# is rewritten below (CFBundleIdentifier, display name, LSEnvironment) and
+# re-signed. Never pass PRODUCT_BUNDLE_IDENTIFIER to xcodebuild: it applies to
+# every target, so the app, its extensions and the Dock tile plugin would all
+# end up with the same bundle id and the embed/sign stage dies without a
+# compiler error (2026-11-06: two Release builds failed ~20-27 min in).
 XCODEBUILD_ARGS+=(build)
 
 xcodebuild "${XCODEBUILD_ARGS[@]}"

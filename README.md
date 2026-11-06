@@ -83,6 +83,7 @@ couple of hours of downloads on a slow link — see [DEVELOPMENT.md](DEVELOPMENT
 | --- | --- |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Build, install, versioning, workflow, PR gates |
 | [PATCHES.md](PATCHES.md) | Every patch on top of upstream, with root-cause notes |
+| [LATENCY.md](LATENCY.md) | How upstream's open typing-latency issues map to this baseline (with source evidence) |
 | [SYNC.md](SYNC.md) | How to move to a new upstream release tag |
 | [CHANGELOG.md](CHANGELOG.md) | Changelog |
 | [TODO.md](TODO.md) | Open work |

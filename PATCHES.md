@@ -137,3 +137,4 @@
 | #20517（勾选框误导）、#20520（隐藏误导的勾选框） | open | P1 从根上解决：开关关掉时根本不弹，勾选也真的能关掉进程保护 |
 | #20215（新增 `app.closeRunningTabsWithoutConfirmation`） | open、停滞 | 我们用自己的键名 `app.confirmCloseRunningProcess`，语义相反、默认不提示 |
 | #9865（空闲 coding agent 不算 running process） | open | **暂未实现**，见 TODO.md：P1 默认关闭进程保护后这条不紧急 |
+| #1519 / #2195 / #4705 / #17136 / #20778 / #25089、PR #5665 / #20529（上游输入延迟一组） | 上游仍 OPEN，或 PR 未合并 | 本仓库 Issue #10 ~ #18 的逐条核实与处置见 [LATENCY.md](LATENCY.md)：大部分根因已由基线 `v0.65.2.2` 以别的 PR 修复，Cloud 服务端代码已剥离，剩余精确实现登记 TODO T11 |

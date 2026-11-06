@@ -4,6 +4,9 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### Added
+- **Release 按键延迟探针（2026-11-06）**：`GhosttyTerminalView.swift` 新增 `KeyLatencyProbe`，记录 `NSEvent.timestamp`（系统排队按键的时刻）到 `keyDown` 处理、以及交给 Ghostty（`ghosttySent`）的延迟，逐行写 `~/.local/state/cmux/key-latency.log`。默认关闭：`CMUX_KEY_LATENCY_PROBE=1` 或 `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true` 开启；关闭时每个按键只多一次静态 bool 检查。它补的是 `scripts/measure-input-latency.py` 测不到的「键盘 / 输入法 → app」这一段。
+
 ### Changed
 - **app 身份改为本项目自己的正式身份（2026-11-06）**：`scripts/reloads.sh` 的默认产物从 `cmux STAGING` / `com.cmuxterm.app.staging` 改为 `cmux` / `com.xhqing.cmux`；socket 从 `/tmp/cmux-staging-*.sock` 改为 `~/Library/Application Support/cmux/cmux-xhqing.sock`，并通过 `LSEnvironment` 注入 `CMUX_ALLOW_SOCKET_OVERRIDE=1`（非 staging 的 bundle id 也能用自定义 socket）。`build.yml` 不再传 `--tag`，产物路径改为 `/tmp/cmux-build/Build/Products/Release/cmux.app`，Sparkle 校验步骤额外断言 bundle id 为 `com.xhqing.cmux`。`--tag` 仍保留给并行测试构建（`cmux <tag>` / `com.xhqing.cmux.<tag>`）。README 双语与 `DEVELOPMENT.md` 的安装说明同步。
 

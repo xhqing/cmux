@@ -31,11 +31,13 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
     init(
         probing directory: String,
         reader: any WorkspaceGitMetadataReading,
-        trackedPathEventGeneration: GitTrackedPathEventGeneration? = nil
+        trackedPathEventGeneration: GitTrackedPathEventGeneration? = nil,
+        readOptions: GitMetadataReadOptions = .full
     ) async {
         let metadata = await reader.workspaceMetadata(
             for: directory,
-            trackedPathEventGeneration: trackedPathEventGeneration
+            trackedPathEventGeneration: trackedPathEventGeneration,
+            options: readOptions
         )
         guard metadata.isRepository else {
             self.init(

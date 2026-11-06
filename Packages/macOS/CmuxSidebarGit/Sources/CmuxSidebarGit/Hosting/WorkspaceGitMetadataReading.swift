@@ -14,6 +14,14 @@ public protocol WorkspaceGitMetadataReading: Sendable {
         for directory: String,
         trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitWorkspaceMetadata
+
+    /// Returns git metadata using an explicit work budget. Readers that predate
+    /// read options fall back to the full read below.
+    func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?,
+        options: GitMetadataReadOptions
+    ) async -> GitWorkspaceMetadata
 }
 
 /// Default cache-generation behavior for readers that only implement a full
@@ -28,6 +36,17 @@ public extension WorkspaceGitMetadataReading {
         trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitWorkspaceMetadata {
         await workspaceMetadata(for: directory)
+    }
+
+    func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?,
+        options: GitMetadataReadOptions
+    ) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(
+            for: directory,
+            trackedPathEventGeneration: trackedPathEventGeneration
+        )
     }
 }
 

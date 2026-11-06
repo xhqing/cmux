@@ -130,6 +130,45 @@
 
 ---
 
+## P3 — 本地后台 Git 探测改走 cheap 读取，不再和打字争 CPU
+
+**状态**：已实现（功能分支 `feat/local-input-latency`）
+
+### 要解决的问题
+
+用户只在本地使用 cmux，打字时仍感觉延迟。上游 #4705 的现场采样把根因之一指向工作区 Git 元数据探测：cmux 约 138% CPU，`gitIndexSnapshot` 热点会读 `.git/index`、对每个被跟踪文件 `lstat`。基线 `v0.65.2.2` 已经有「打字静默期推迟探测」（`SidebarGitMetadataService+Probe.swift`）与进程级限流（`WorkspaceGitMetadataProbeLimiter`），但探测一旦被放行，本身仍然是全量扫描；多工作区 / 大仓库时，这批后台工作会和输入路径抢 CPU。上游 PR #5665 提出 cheap 模式，至今未合并。
+
+### 改法（按本仓库结构重写，不是 cherry-pick）
+
+上游 PR 的路径是 `Packages/CmuxGit/`，本仓库已重构成 `Packages/macOS/CmuxGit/`，且读取链已下沉到 `CmuxSidebarGit` 包，所以按现有结构实现同一语义：
+
+| 文件 | 改动 |
+| --- | --- |
+| `Packages/macOS/CmuxGit/.../Model/GitMetadataReadOptions.swift` | 新增：`.full`（精确）/ `.sidebar`（只读分支与 HEAD）两种读取预算 |
+| `.../GitMetadataService.swift` | `workspaceMetadata(for:trackedPathEventGeneration:options:)`：cheap 时跳过 `gitTrackedChangesSnapshot` 与 HEAD 二次校验，直接返回干净快照；旧 API 默认 `.full` 转发，行为不变 |
+| `Packages/macOS/CmuxSidebarGit/.../Hosting/WorkspaceGitMetadataReading.swift` | 协议加带 `options` 的方法，默认实现转发到旧方法（测试替身无需改动） |
+| `.../Model/InitialWorkspaceGitMetadataSnapshot.swift` | 探测时把 `readOptions` 传给 reader |
+| `.../Model/WorkspaceGitSnapshotTaskContext.swift` | 快照任务按目录携带读取预算，预算不同的请求照旧触发 rerun |
+| `.../Service/SidebarGitMetadataService+Probe.swift` | `readOptions(forProbeReason:)`：文件系统事件 / 分支变化 / 目录变化用 `.full`，其余常规探测（启动、新建、打字静默期重试、周期刷新）用 `.sidebar` |
+
+### 保留的行为（没被削弱）
+
+- 需要精确 dirty / index 签名的调用方全部保持 `.full`：文件一变、分支一变、目录一变，侧栏仍会拿到精确的脏状态；
+- 默认参数 `.full` 让所有既有调用（含 `GitMetadataService.workspaceMetadata(for:)`）语义不变；
+- 打字静默期推迟、进程级并发限流、无分配十六进制编码等基线守卫原样保留（由 `scripts/check-latency-guardrails.py` 盯着）。
+
+### 已知取舍
+
+- `.sidebar` 探测**刻意不报告 dirty**（`isDirty: false`、签名为 nil），这是上游 PR #5665 明写的取舍：常规探测优先响应速度，精确状态交给下一次 watcher 驱动的 `.full` 刷新。如果某个工作区从不产生文件系统事件，侧栏的脏指示会保持上一次的值，直到下一次 `.full` 刷新。
+- 减少 watch 监听路径（`includeWorkTreeRootWatchPath` 等）是上游 PR 的另一半，本次未做：它会改变「什么时候刷新」，需要单独评估，别和读取预算混在一起。
+
+### 验证
+
+- 新增 `Packages/macOS/CmuxGit/Tests/CmuxGitTests/GitMetadataReadOptionsTests.swift`：用计数替身证明 `.full` 确实 stat 了被跟踪文件、而 `.sidebar` 对 `fileStatusReader` 调用次数为 0，同时断言分支 / HEAD 仍精确；
+- `swift build --package-path Packages/macOS/CmuxGit` 与 `.../CmuxSidebarGit` 本机通过（类型检查）；`swift test` 由带完整 Xcode 的 CI runner 执行，本机 CommandLineTools 无 `Testing` 模块。
+
+---
+
 ## 与上游 PR / issue 的对应关系
 
 | 上游 | 状态 | 我们的处理 |

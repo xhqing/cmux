@@ -100,6 +100,13 @@ jobs:
           done < "$list"
           exit "$status"
 
+      - name: Swift package type check + tests
+        # `swiftc -parse` above only checks syntax. A package-level type error
+        # used to merge green and show up only in the Release build. The
+        # macos-26 runner has full Xcode, so `swift test` works here;
+        # CommandLineTools machines must use --build-only (no Testing module).
+        run: python3 scripts/check-swift-packages.py --changed-file "$RUNNER_TEMP/changed.txt"
+
       - name: Config schema (generated Swift in sync)
         run: |
           set -euo pipefail

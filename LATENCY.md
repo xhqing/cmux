@@ -6,11 +6,29 @@
 
 ---
 
-## 一句话结论
+## 一句话结论（2026-11-06 修订）
 
-这 9 条 Issue 记录的是「上游 [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux) 仍然 OPEN 的输入延迟问题，以及官方尚未接收的修复 PR」。逐条读本仓库基线 `v0.65.2.2` 的源码后确认：**上游 Issue 开着，不等于本仓库缺这些修复**——上游那几条「未合并 PR」要达到的效果，绝大多数已经以别的 PR、别的实现方式进了基线；Cloud VM 镜像侧的代码在本仓库剥离非 macOS 内容时已经删掉；真正剩下的，是「Cloud 上 agent TUI 每键等一次往返」这个场景缺一个只针对远程 agent 的自动化动作，以及几项必须靠实机才能完成的测量与定位。
+这 9 条 Issue 是「上游 [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux) 仍 OPEN 的输入延迟问题 / 未合并 PR」的调研记录。逐条读基线 `v0.65.2.2` 源码后能确认的只有一件事：**基线里存在若干缓解机制**（打字静默期推迟 Git 探测、并发限流、无分配十六进制编码、标题合并、预测性本地回显等），它们不等于「输入延迟已解决」。用户实际只在本地使用 cmux，没有 Cloud 每键往返这一环，因此 #14 / #15 / #17 从主线移除；真正要解决的是本地路径：后台 Git 元数据探测与输入争 CPU、每键路径上的固定开销，以及 #13 的内核 URL 检测。
 
-所以这 9 条 Issue 的「解决」分三类：**已由基线解决**（给源码证据）、**本仓库范围内不适用**（说明代码边界）、**剩余缺口**（给出可立即使用的缓解配置 + 明确的后续待办）。本文是这三类结论的权威出处，[PATCHES.md](PATCHES.md) 末尾的对照表指向这里。
+本文件现在是**修复工作台**：上游状态与基线证据留作历史参照，下面「本地延迟修复进展」一节记录已落地的代码改动、测量口径与下一步。之前「9 条 Issue 已收口」的说法已撤回——收口的是调研记录，不是延迟问题。
+
+---
+
+## 本地延迟修复进展（2026-11-06）
+
+用户确认延迟体感全部来自**本地**使用，没有 Cloud / 远程终端，所以 #14（Cloud 用户报告）、#15（Cloud agent TUI 每键往返）、#17（Cloud 镜像 `ble.sh`）整条从主线移除；`showTextBoxForAgents`、`ghost.bash`、Cloud 服务端目录取回都不再做，TODO 里的 T11 相应归档。
+
+### 已落地
+
+- **P3 — 后台 Git 探测改走 cheap 读取**（对应 #12 / #16）：`Packages/macOS/CmuxGit` 新增 `GitMetadataReadOptions`，`.sidebar` 跳过 `.git/index` 解析与逐文件 `lstat`，只读分支 / HEAD；侧栏的常规探测（启动、新建工作区 / 标签页、打字静默期后的重试、周期刷新）走 cheap，文件系统事件、分支变化、目录变化仍走 `.full` 以保留精确 dirty 状态。取舍与文件清单见 [PATCHES.md](PATCHES.md) P3。包级单测 `GitMetadataReadOptionsTests` 断言 cheap 读取对 `fileStatusReader` 的调用次数为 0。
+- **包级类型检查进 PR 门禁**：`scripts/check-swift-packages.py` + `pr-checks.yml` 新 step，对改动涉及的 SwiftPM 包跑 `swift build`，CI（带完整 Xcode）再跑 `swift test`。此前门禁只做 `swiftc -parse`，包里的类型错误能一路绿到 Release 构建才暴露。本机 CommandLineTools 没有 `Testing` 模块，本地用 `--build-only`。
+- **端到端延迟探针**：`scripts/measure-input-latency.py` 用 `cmux send` + `cmux read-screen` 测「发键 → 字符可见」的 p50 / p99，扣掉只读屏幕的基线耗时。它是相对 A/B 工具（改前 / 改后、自建版 / 官方版、空闲 / 忙碌），数字包含 CLI 进程、socket、PTY 回显与读屏，**不能**与高帧率录屏量到的物理按键延迟直接比较。脚本不抢焦点，用户正常打字即可采集。
+
+### 还没有做（按依赖顺序）
+
+1. 装自建版跑一轮探针，拿到本地延迟的数字；在此之前不再凭读代码猜每键热点（上一轮把 `isAlternateScreenActive()` 的视口序列化当热点，核对后发现已有按事件 / 按键缓存，推断不成立）。
+2. 按数字改 #10 的每键路径；#13 需先拉 `ghostty/` 子模块源码定位 URL 检测是否落在每键路径；#11 改两个 shell 集成的加载 / hook 时序并补回归用例。
+3. 每步走 worktree + 功能分支 + PR，包级单测与 CI 门禁全绿后合并；最后跑完整 Release 构建、发正式版、装到本机实际使用验收。
 
 ---
 

@@ -7490,11 +7490,12 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsSimulator, panelContext.panel.panelType == .simulator)
             if let browserPanel = panelContext.panel as? BrowserPanel { Self.setCommandPaletteBrowserToggleContext(for: browserPanel, in: &snapshot) }
-            // Markdown zoom only affects the rendered preview, so don't surface
+            // Markdown zoom only affects the rendered surface, so don't surface
             // the zoom commands when the panel is in raw text-edit mode.
+            let markdownDisplayMode = (panelContext.panel as? MarkdownPanel)?.displayMode
             snapshot.setBool(
                 CommandPaletteContextKeys.panelIsMarkdown,
-                (panelContext.panel as? MarkdownPanel)?.displayMode == .preview
+                markdownDisplayMode == .preview || markdownDisplayMode == .editor
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.panelIsFilePreviewTextEditor,

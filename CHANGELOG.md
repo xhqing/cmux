@@ -10,6 +10,7 @@ All notable changes to cmux are documented here.
 ## [未发布]
 
 ### Added
+- **Markdown 面板新增「就地编辑」模式（预览态直接编辑，2026-11-06）**：预览面板头部加一个铅笔按钮进入该模式；面板右上角是 VS Code Markdown Editor 同款的「锁 / 笔」滑动开关，锁定时点击内容只会让开关闪一道镜面光泽提醒当前只读，解锁后点任意块即把**这一块的 Markdown 原文**展开在原地编辑。设计要点是**永远不把渲染后的 HTML 反序列化成 Markdown**：每个块在渲染时就记录了它在源文件里的 `[start, end)` 区间，提交时只替换这一段字节，所以没动过的块（表格、代码块、frontmatter、手工换行）一个字节都不会变。这是本机验证过的取舍：上游那份「整篇 contenteditable + DOM→Markdown 序列化」的 PR（manaflow-ai/cmux#12479）自己承认保存会归一化整个文档；而 VS Code 真正在用的 `@vscode/markdown-editor` 依赖 Chromium 专有的 `EditContext`，在 WKWebView 里直接 `ReferenceError: Can't find variable: EditContext`（已实测），搬不进来。Cmd+S 会先提交正在编辑的块再落盘；切到其它模式前也会先提交。取舍与边界见 `PATCHES.md` P4。
 - **Release 按键延迟探针（2026-11-06）**：`GhosttyTerminalView.swift` 新增 `KeyLatencyProbe`，记录 `NSEvent.timestamp`（系统排队按键的时刻）到 `keyDown` 处理、以及交给 Ghostty（`ghosttySent`）的延迟，逐行写 `~/.local/state/cmux/key-latency.log`。默认关闭：`CMUX_KEY_LATENCY_PROBE=1` 或 `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true` 开启；关闭时每个按键只多一次静态 bool 检查。它补的是 `scripts/measure-input-latency.py` 测不到的「键盘 / 输入法 → app」这一段。
 
 ### Changed

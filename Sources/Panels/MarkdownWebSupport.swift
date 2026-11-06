@@ -191,6 +191,9 @@ final class MarkdownWebView: CmuxUndoableWebView {
     /// out of the window (e.g. a pane drag re-parented the hosting views).
     var onReenterWindow: (() -> Void)?
 
+    /// Invoked when the panel's save shortcut is pressed while this view is
+    /// the first responder (the in-place editor has no NSTextView to own it).
+    var onSaveShortcut: (() -> Void)?
     /// The coordinator is the only owner of deferred WebKit lifecycle work.
     private var renderingCoordinator: MarkdownWebRenderingCoordinator?
     private var editableFocusStateConfirmed = false
@@ -273,7 +276,14 @@ final class MarkdownWebView: CmuxUndoableWebView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        handleViewerNavigationKey(event) || super.performKeyEquivalent(with: event)
+        if let onSaveShortcut {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
+            if !shortcut.isUnbound, shortcut.matches(event: event) {
+                onSaveShortcut()
+                return true
+            }
+        }
+        return handleViewerNavigationKey(event) || super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -470,6 +480,16 @@ final class MarkdownRendererSession {
 
     func readSurfaceSelection(filePath: String) async -> SurfaceSelectionReadResult {
         await ownedCoordinator.readSurfaceSelection(filePath: filePath)
+    }
+
+    /// Commits an in-progress block edit in the page before the panel switches
+    /// away from the editor mode, so switching to raw text never drops work.
+    func commitActiveBlockEdit() {
+        guard let webView = ownedCoordinator.webView else { return }
+        webView.evaluateJavaScript(
+            "window.CmuxMarkdownEditor && window.CmuxMarkdownEditor.closeActiveBlock(true);",
+            completionHandler: nil
+        )
     }
 }
 

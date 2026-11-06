@@ -15,6 +15,7 @@ final class MarkdownViewerAssets {
     private let githubMarkdownCSS: String
     private let viewerNavigationJS: String
     private let markdownSanitizerJS: String
+    private let markdownEditorJS: String
     private let shellTemplate: String
     private let localizedStringsJSON: String
 
@@ -28,6 +29,7 @@ final class MarkdownViewerAssets {
         githubMarkdownCSS = MarkdownViewerAssets.loadAsset(name: "github-markdown", ext: "css")
         viewerNavigationJS = MarkdownViewerAssets.loadAsset(name: "viewer-navigation", ext: "js")
         markdownSanitizerJS = MarkdownViewerAssets.loadAsset(name: "markdown-sanitizer", ext: "js")
+        markdownEditorJS = MarkdownViewerAssets.loadAsset(name: "markdown-editor", ext: "js")
         shellTemplate = MarkdownViewerAssets.loadAsset(name: "shell", ext: "html")
         localizedStringsJSON = MarkdownViewerAssets.localizedStringsJSON()
     }
@@ -42,6 +44,7 @@ final class MarkdownViewerAssets {
             .replacingOccurrences(of: "{{highlightJS}}", with: highlightJS)
             .replacingOccurrences(of: "{{viewerNavigationJS}}", with: viewerNavigationJS)
             .replacingOccurrences(of: "{{markdownSanitizerJS}}", with: markdownSanitizerJS)
+            .replacingOccurrences(of: "{{markdownEditorJS}}", with: markdownEditorJS)
             .replacingOccurrences(of: "{{localizedStringsJSON}}", with: localizedStringsJSON)
     }
 

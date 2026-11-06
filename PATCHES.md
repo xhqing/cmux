@@ -177,3 +177,55 @@
 | #20215（新增 `app.closeRunningTabsWithoutConfirmation`） | open、停滞 | 我们用自己的键名 `app.confirmCloseRunningProcess`，语义相反、默认不提示 |
 | #9865（空闲 coding agent 不算 running process） | open | **暂未实现**，见 TODO.md：P1 默认关闭进程保护后这条不紧急 |
 | #1519 / #2195 / #4705 / #17136 / #20778 / #25089、PR #5665 / #20529（上游输入延迟一组） | 上游仍 OPEN，或 PR 未合并 | 本仓库 Issue #10 ~ #18 的逐条核实与处置见 [LATENCY.md](LATENCY.md)：大部分根因已由基线 `v0.65.2.2` 以别的 PR 修复，Cloud 服务端代码已剥离，剩余精确实现登记 TODO T11 |
+
+---
+
+## P4 — Markdown 面板：预览态就地编辑（锁 / 笔滑钮，VS Code 式）
+
+**状态**：已实现（自建版 `0.65.2.2-xhqing.5` 起）
+
+### 要解决的问题
+
+cmux 的 Markdown 面板只有两种形态：只读渲染（`preview`）和整篇源码的 NSTextView（`text`）。想在渲染结果里改一句话，得整体切到源码模式，再在几千行里找那一段。想要的体验是 Typora / VS Code 新版 Markdown Editor 那样：**看着渲染结果直接改内容**。
+
+### 为什么不是「搬 VS Code 的实现」
+
+VS Code 的 Markdown Editor 由一个 npm 包 `@vscode/markdown-editor`（MIT，0.0.2-175）驱动。本机实测（离屏 WKWebView 加载真实包）：
+
+- 包本身能在 WebKit 里解析、CSS 正常，但 `EditorView` 构造时无条件执行 `new EditContext({...})`，而 `EditContext` 是 Chromium 专有 API（配合 `element.editContext` 做文本输入）。WebKit 至今没有实现，于是启动即 `ReferenceError: Can't find variable: EditContext`。
+- 它的面板适配层还依赖 VS Code 的 webview RPC（`@vscode/hubrpc`）、页面宿主和语言特性服务，搬进 cmux 等于顺带搬半个产品。
+
+另外两条也不走：上游 PR #12479 是「整篇 contenteditable + 自己写 DOM→Markdown 序列化」，它自己的 Limits 里写着保存会归一化整个文档（表格分隔行、行内代码、手工换行都会被改写），而且该 PR 至今 OPEN + CONFLICTING；Milkdown（上游 NEXT 分支用的引擎）能在 WebKit 里跑，但 `getMarkdown()` 的往返同样会改写未编辑的块——实测把 `| --- | --- |` 写成 `| -- | -- |`、把 `$$ 块公式 $$` 变成行内 `$…$`。
+
+### 改法（按本仓库结构实现）
+
+**核心：每个块记录它在源文件里的字节区间，编辑只回写这一段。**
+
+| 文件 | 改动 |
+| --- | --- |
+| `Resources/markdown-viewer/markdown-editor.js` | 新增。渲染后把 `marked` 的顶层 token 与渲染出的 DOM 子节点并行走一遍，给每个块打上 `data-cmux-block-start/end`；点块时用这段区间取出原文放进浮层 textarea，提交时把 textarea 的字节替换回该区间。锁/笔滑钮、闪光泽提示也在这里。 |
+| `Resources/markdown-viewer/shell.html` | 渲染函数末尾加一行 `CmuxMarkdownEditor.markRendered(md)` 钩子；新增 `{{markdownEditorJS}}` 占位与滑钮 / 浮层的样式。只读渲染路径本身没动。 |
+| `Sources/Panels/MarkdownPanel.swift` | `MarkdownPanelDisplayMode` 增加 `.editor`；`editorDidCommitText` 复用现有的 `textContent` / `isDirty` 通道；`commitEditorAndSave` 先 `flush()` 页面里未提交的块再保存；锁状态用 `markdown.editor.locked` 记住（和 VS Code 一样，下一个文档沿用）。 |
+| `Sources/Panels/MarkdownWebRenderer.swift` | 新增 `cmuxMarkdownEditor` 消息桥（`change` / `readonly`），安装 / 卸载页面编辑层，`didFinish` 后重装（崩溃恢复重载也能编辑）。 |
+| `Sources/Panels/MarkdownWebSupport.swift` | `MarkdownWebView.performKeyEquivalent` 现在也能把 `saveFilePreview` 快捷键交给面板（就地编辑模式没有 NSTextView 拥有它）。 |
+| `Sources/Panels/MarkdownPanelView.swift` | 第三模式的分支与头部按钮（铅笔进入、眼睛回只读、`doc.plaintext` 回整篇源码）。 |
+| `Sources/Panels/MarkdownViewerAssets.swift` | 注入 `markdown-editor.js`（和 viewer-navigation / sanitizer 一样的加载路径，构建期自动 deflate）。 |
+
+### 保留的行为（没被削弱）
+
+- **只读渲染路径完全没动**：`preview` 仍然走原来的整篇 `marked.parse` + sanitizer，Mermaid / Vega / KaTeX 照旧；就地编辑层只在 `.editor` 模式安装，切回去就卸载。
+- **不归一化未编辑的内容**：提交只替换被编辑块的那段字节，其它块（包含 frontmatter、表格、代码块、手工换行）逐字节不动。
+- **脏 / 保存语义沿用面板**：脏标记、Cmd+S、Revert、外部文件变更合并、会话恢复都还是 `MarkdownPanel` 说了算，编辑层只上报文本。
+- **安全边界不变**：编辑面只是 textarea 覆盖层，渲染仍走原有 allowlist sanitizer；本地图片仍走 `cmux-local-image://` 而不能读 `file://`。
+
+### 已知边界
+
+- 一次只能编辑一个块；提交后整篇重渲染（滚动位置由现有逻辑保持）。块内的**结构**要手写 Markdown（表格仍是表格语法），不是 Typora 那种表格网格。
+- 编辑浮层按打开时的位置定位，编辑期间滚动窗口不会跟随（v1 取舍）。
+- 就地编辑模式下没有查找条（Cmd+F 仍只在 `preview` 里工作），需要查找时切回预览或整篇源码模式。
+- 大文件（如 431 KB 的 `CHANGELOG.md`）打开就地编辑会偏慢：每次渲染都要算一遍块区间；预览模式不受影响。
+
+### 验证
+
+- 离屏 WKWebView 冒烟（本机 `swiftc` + WebKit，不抢焦点）：块区间覆盖校验——`README.md` 24 块 / 4804 字节、`CHANGELOG.md` 前 120 行 42 块 / 14362 字节，**非空白字节全部落在某个块的区间内、无重叠**；点击开块、textarea 取到该块原文、提交后消息里的文档结构完整；锁定时点击只触发滑钮光泽、不开编辑层。
+- `swiftc -parse` 通过（6 个改动文件 + 2 个新增测试）；完整编译与运行时行为交由 CI / Release 构建验证（本机只有 CommandLineTools）。

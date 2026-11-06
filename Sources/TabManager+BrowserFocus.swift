@@ -50,7 +50,7 @@ extension TabManager {
         guard let tab = selectedWorkspace,
               let panelId = tab.focusedPanelId,
               let panel = tab.panels[panelId] as? MarkdownPanel,
-              panel.displayMode == .preview else { return nil }
+              panel.displayMode == .preview || panel.displayMode == .editor else { return nil }
         return panel
     }
 

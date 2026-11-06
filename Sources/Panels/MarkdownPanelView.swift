@@ -72,18 +72,30 @@ struct MarkdownPanelView: View {
 
     @ViewBuilder
     private var markdownBody: some View {
+        let renderedVisible = panel.displayMode == .preview || panel.displayMode == .editor
         ZStack {
             MarkdownWebRenderer(
                 markdown: panel.content,
                 theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
                 backgroundColor: appearance.contentBackgroundColor,
-                isVisibleInUI: isVisibleInUI && panel.displayMode == .preview,
+                isVisibleInUI: isVisibleInUI && renderedVisible,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
                 fontSize: panel.fontSize,
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,
+                isEditingEnabled: panel.displayMode == .editor,
+                isEditorLocked: panel.isEditorLocked,
+                onEditorTextChange: { [weak panel] text in
+                    panel?.editorDidCommitText(text)
+                },
+                onEditorLockChange: { [weak panel] locked in
+                    panel?.setEditorLocked(locked)
+                },
+                onSaveShortcut: { [weak panel] in
+                    panel?.commitEditorAndSave()
+                },
                 session: panel.rendererSession,
                 onRequestPanelFocus: onRequestPanelFocus,
                 onViewAttachedToWindow: { [weak panel] in
@@ -91,9 +103,9 @@ struct MarkdownPanelView: View {
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .opacity(panel.displayMode == .preview ? 1 : 0)
-            .allowsHitTesting(panel.displayMode == .preview)
-            .accessibilityHidden(panel.displayMode != .preview)
+            .opacity(renderedVisible ? 1 : 0)
+            .allowsHitTesting(renderedVisible)
+            .accessibilityHidden(!renderedVisible)
 
             if panel.displayMode == .text {
                 FilePreviewTextEditor(
@@ -109,7 +121,7 @@ struct MarkdownPanelView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            if panel.displayMode == .preview, let searchState = panel.searchState {
+            if panel.displayMode == .preview || panel.displayMode == .editor, let searchState = panel.searchState {
                 BrowserSearchOverlay(
                     panelId: panel.id,
                     searchState: searchState,
@@ -132,7 +144,7 @@ struct MarkdownPanelView: View {
             filePath: panel.filePath,
             foregroundColor: themeForegroundColor
         ) {
-            if panel.displayMode == .text {
+            if panel.displayMode == .text || panel.displayMode == .editor {
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
                     label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
@@ -147,7 +159,7 @@ struct MarkdownPanelView: View {
                     action: { panel.saveTextContent() }
                 )
             }
-            if panel.displayMode == .preview {
+            if panel.displayMode == .preview || panel.displayMode == .editor {
                 MarkdownTypographyControl(panel: panel)
                 PanelHeaderIconButton(
                     systemName: "arrow.clockwise",
@@ -169,19 +181,42 @@ struct MarkdownPanelView: View {
     }
 
     private var markdownModeButton: some View {
-        switch panel.displayMode {
-        case .preview:
-            PanelHeaderIconButton(
-                systemName: "doc.plaintext",
-                label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
-                action: { panel.setDisplayMode(.text) }
-            )
-        case .text:
-            PanelHeaderIconButton(
-                systemName: "eye",
-                label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
-                action: { panel.setDisplayMode(.preview) }
-            )
+        HStack(spacing: 2) {
+            switch panel.displayMode {
+            case .preview:
+                PanelHeaderIconButton(
+                    systemName: "pencil",
+                    label: String(localized: "markdown.mode.showEditor", defaultValue: "Edit in Place"),
+                    action: { panel.setDisplayMode(.editor) }
+                )
+                PanelHeaderIconButton(
+                    systemName: "doc.plaintext",
+                    label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
+                    action: { panel.setDisplayMode(.text) }
+                )
+            case .editor:
+                PanelHeaderIconButton(
+                    systemName: "eye",
+                    label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
+                    action: { panel.setDisplayMode(.preview) }
+                )
+                PanelHeaderIconButton(
+                    systemName: "doc.plaintext",
+                    label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
+                    action: { panel.setDisplayMode(.text) }
+                )
+            case .text:
+                PanelHeaderIconButton(
+                    systemName: "eye",
+                    label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
+                    action: { panel.setDisplayMode(.preview) }
+                )
+                PanelHeaderIconButton(
+                    systemName: "pencil",
+                    label: String(localized: "markdown.mode.showEditor", defaultValue: "Edit in Place"),
+                    action: { panel.setDisplayMode(.editor) }
+                )
+            }
         }
     }
 

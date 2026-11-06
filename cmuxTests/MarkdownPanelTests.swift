@@ -415,6 +415,64 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(panel.isDirty)
     }
 
+    func testMarkdownEditorModeAcceptsCommittedBlockText() async throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-editor-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appendingPathComponent("notes.md")
+        let originalContent = "# Title\n\nFirst paragraph.\n"
+        try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        if let initialLoad = panel.loadTextContent() {
+            await initialLoad.value
+        }
+
+        XCTAssertEqual(panel.displayMode, .preview)
+        XCTAssertFalse(panel.isDirty)
+
+        panel.setDisplayMode(.editor)
+        XCTAssertEqual(panel.displayMode, .editor)
+
+        // A committed block replaces that block's bytes and marks the panel dirty.
+        let edited = "# Title\n\nFirst paragraph, edited.\n"
+        XCTAssertTrue(panel.editorDidCommitText(edited))
+        XCTAssertEqual(panel.textContent, edited)
+        XCTAssertEqual(panel.content, edited)
+        XCTAssertTrue(panel.isDirty)
+
+        // Committing the same text again is a no-op, not a second dirtying edit.
+        XCTAssertFalse(panel.editorDidCommitText(edited))
+        XCTAssertTrue(panel.isDirty)
+    }
+
+    func testMarkdownEditorLockStatePersistsAcrossPanels() throws {
+        let saved = UserDefaults.standard.object(forKey: "markdown.editor.locked")
+        defer {
+            if let saved {
+                UserDefaults.standard.set(saved, forKey: "markdown.editor.locked")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "markdown.editor.locked")
+            }
+        }
+
+        MarkdownEditorLockSettings.setLocked(false)
+        let unlockedPanel = MarkdownPanel(workspaceId: UUID(), filePath: "/tmp/does-not-matter.md")
+        defer { unlockedPanel.close() }
+        XCTAssertFalse(unlockedPanel.isEditorLocked)
+
+        unlockedPanel.setEditorLocked(true)
+        XCTAssertTrue(unlockedPanel.isEditorLocked)
+
+        let nextPanel = MarkdownPanel(workspaceId: UUID(), filePath: "/tmp/does-not-matter.md")
+        defer { nextPanel.close() }
+        XCTAssertTrue(nextPanel.isEditorLocked, "the next markdown editor opens in the last used lock state")
+    }
+
     func testMarkdownRendererSessionReusesCoordinatorAcrossViewRecreation() {
         let session = MarkdownRendererSession()
         let panelId = UUID()

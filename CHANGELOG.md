@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-xhqing.9] - 2026-11-06
+
+### Fixed
+- **失败时上传完整构建日志（PR #34）**：`.5`~`.8` 四次 Release 构建的 step 日志都停在完全相同的一行（`SwiftExplicitDependencyGeneratePcm ... CmuxControlSocketAtomicsC.pcm`），且没有 `error:` / `BUILD FAILED` / `Killed`——这是 GitHub 实时日志截断，真实错误不在日志里。现在构建输出用 `tee` 落盘，失败时上传 `build-log-<run>` artifact，下一次失败可以直接分析。
+
 ## [0.65.2.2-xhqing.8] - 2026-11-06
 
 ### Fixed

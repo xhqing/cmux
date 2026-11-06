@@ -2,6 +2,17 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-xhqing.4] - 2026-11-06
+
+### Added
+- **本地输入延迟第一刀（PR #22）**：侧栏常规 Git 探测改走 cheap 读取，只读分支 / HEAD、跳过 `.git/index` 解析与逐文件 `lstat`；文件系统事件、分支变化、目录变化仍走精确读取，保留 dirty 状态。细节与取舍见 `PATCHES.md` P3。
+- **包级类型检查与单测进 PR 门禁**：`scripts/check-swift-packages.py` 对改动涉及的 SwiftPM 包跑 `swift build` / `swift test`，补上此前只有 `swiftc -parse` 的类型检查缺口；本机 CommandLineTools 无 `Testing` 模块时用 `--build-only`。
+- **端到端延迟探针**：`scripts/measure-input-latency.py` 用 `cmux send` + `cmux read-screen` 测「发键 → 字符可见」的 p50 / p99，扣除读屏基线；属相对 A/B 工具，数字含 CLI / socket / PTY 回显 / 读屏开销。
+
+### 文档
+- `LATENCY.md` 改为修复工作台，撤回「9 条 Issue 已收口」的结论；用户只用本地 cmux，#14 / #15 / #17 移出主线；`TODO.md` 把 T11 归档为已放弃、新增 T12（按实测数字改本地每键路径）。
+- 说明：上一版 `0.65.2.2-xhqing.3` 的 CHANGELOG 条目因并行 bump 提前收录了 PR #22 的改动描述，但对应代码是在本版才合并进 main 的；已发布条目保持原样不动，实际发布内容以本条为准。
+
 ## [0.65.2.2-xhqing.3] - 2026-11-06
 
 ### Fixed

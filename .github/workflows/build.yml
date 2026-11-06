@@ -167,7 +167,11 @@ jobs:
         run: |
           set -euo pipefail
           echo "构建身份：cmux（bundle id com.xhqing.cmux）"
-          ./scripts/reloads.sh --derived-data /tmp/cmux-build
+          # Keep the full xcodebuild output. GitHub truncates the live step log,
+          # so a killed/failed build loses the real error; the artifact from the
+          # next step is the only complete record.
+          set -o pipefail
+          ./scripts/reloads.sh --derived-data /tmp/cmux-build 2>&1 | tee /tmp/cmux-build-raw.log
 
       - name: 校验 Sparkle 已被关掉
         run: |
@@ -222,6 +226,15 @@ jobs:
             cmux-*.zip.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: 上传完整构建日志（仅失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: /tmp/cmux-build-raw.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: 收尾（关掉构建脚本顺手拉起的实例）
         if: always()

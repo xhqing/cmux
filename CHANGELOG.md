@@ -2,6 +2,14 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-xhqing.6] - 2026-11-06
+
+### Fixed
+- **修掉 Release 构建的身份覆盖（PR #28）**：`reloads.sh` 在不带 `--tag` 时把 `PRODUCT_BUNDLE_IDENTIFIER` 传给 xcodebuild，导致主 app、extension 和 `CmuxDockTilePlugin` 全部使用同一个 bundle id；`build-macos` 在构建 20-27 分钟时无编译错误地中断（两次重现）。现在只走「构建后复制产物 + 改写 Info.plist + 重签」，不再全局传 bundle id。
+
+### Added
+- **Release 按键延迟探针（PR #25）**：`KeyLatencyProbe` 记录系统排队按键（`NSEvent.timestamp`）到 `keyDown` 处理、以及交给 Ghostty 的延迟，写入 `~/.local/state/cmux/key-latency.log`。默认关闭，用 `CMUX_KEY_LATENCY_PROBE=1` 或 `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true` 开启。
+
 ## [0.65.2.2-xhqing.5] - 2026-11-06
 
 ### Added

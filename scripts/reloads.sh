@@ -148,6 +148,11 @@ XCODEBUILD_ARGS=(
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
 fi
+# Cap parallel compile jobs. The Release build of this project OOM-kills
+# xcodebuild on the 7 GB macos-26 runner at full parallelism, and the kill
+# leaves no compiler error in the log (2026-11-06: three Release builds died
+# mid-build with no `error:`/`BUILD FAILED` line). Override with CMUX_BUILD_JOBS.
+XCODEBUILD_ARGS+=(-jobs "${CMUX_BUILD_JOBS:-2}")
 # 架构与版本：CI 通过环境变量传这些构建设置，必须显式翻成 xcodebuild 的构建设置——
 # xcodebuild 不读环境变量，只认命令行里的 build settings（2026-11-02 实测两例）：
 #   * ARCHS 只写环境变量时，工程仍按 ARCHS_STANDARD 编 arm64 + x86_64 两遍（一轮几小时）；

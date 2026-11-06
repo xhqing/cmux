@@ -163,18 +163,16 @@ jobs:
       - name: setup（子模块 / Rust 工具链 / 预编译 GhosttyKit）
         run: ./scripts/setup.sh
 
-      - name: 构建 Release（隔离身份，不碰用户正在跑的 cmux）
+      - name: 构建 Release（本项目正式身份）
         run: |
           set -euo pipefail
-          TAG="${{ github.event.inputs.tag || 'xhqing' }}"
-          echo "构建标签：${TAG}"
-          ./scripts/reloads.sh --tag "${TAG}"
+          echo "构建身份：cmux（bundle id com.xhqing.cmux）"
+          ./scripts/reloads.sh --derived-data /tmp/cmux-build
 
       - name: 校验 Sparkle 已被关掉
         run: |
           set -euo pipefail
-          TAG="${{ github.event.inputs.tag || 'xhqing' }}"
-          APP="/tmp/cmux-staging-${TAG}/Build/Products/Release/cmux STAGING ${TAG}.app"
+          APP="/tmp/cmux-build/Build/Products/Release/cmux.app"
           PLIST="${APP}/Contents/Info.plist"
           FEED="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "${PLIST}" || true)"
           AUTO="$(/usr/libexec/PlistBuddy -c 'Print :SUEnableAutomaticChecks' "${PLIST}" || true)"
@@ -185,6 +183,10 @@ jobs:
           echo "version   : ${VER} (build ${BUILD})"
           echo "feed      : ${FEED}"
           echo "auto check: ${AUTO}"
+          if [ "${BID}" != "com.xhqing.cmux" ]; then
+            echo "::error::CFBundleIdentifier=${BID}，应为 com.xhqing.cmux"
+            exit 1
+          fi
           if [ "${VER}" != "${MARKETING_VERSION}" ]; then
             echo "::error::CFBundleShortVersionString=${VER}，应为 ${MARKETING_VERSION}（VERSION 去后缀）"
             exit 1
@@ -200,8 +202,7 @@ jobs:
       - name: 打包
         run: |
           set -euo pipefail
-          TAG="${{ github.event.inputs.tag || 'xhqing' }}"
-          APP="/tmp/cmux-staging-${TAG}/Build/Products/Release/cmux STAGING ${TAG}.app"
+          APP="/tmp/cmux-build/Build/Products/Release/cmux.app"
           VERSION="$(cat VERSION)"
           # 产物名带上真实架构（从二进制里读，不猜输入参数）
           BIN="${APP}/Contents/MacOS/cmux"
@@ -225,6 +226,5 @@ jobs:
       - name: 收尾（关掉构建脚本顺手拉起的实例）
         if: always()
         run: |
-          TAG="${{ github.event.inputs.tag || 'xhqing' }}"
-          pkill -f "cmux STAGING ${TAG}.app/Contents/MacOS/cmux" || true
+          pkill -f "/tmp/cmux-build/Build/Products/Release/cmux.app/Contents/MacOS/cmux" || true
           exit 0

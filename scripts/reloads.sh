@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="cmux STAGING"
-BUNDLE_ID="com.cmuxterm.app.staging"
+APP_NAME="cmux"
+BUNDLE_ID="com.xhqing.cmux"
 BASE_APP_NAME="cmux"
 DERIVED_DATA=""
 NAME_SET=0
@@ -22,22 +22,18 @@ LAST_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/.local/state/cmux"
 
 write_last_socket_path() {
   local socket_path="$1"
-  local marker_name="staging-last-socket-path"
-  local tmp_marker="/tmp/cmux-staging-last-socket-path"
-  if [[ -n "${STAGING_SLUG:-}" ]]; then
-    marker_name="staging-${STAGING_SLUG}-last-socket-path"
-    tmp_marker="/tmp/cmux-staging-${STAGING_SLUG}-last-socket-path"
-  fi
+  local marker_name="${BUNDLE_ID}-last-socket-path"
+  local tmp_marker="/tmp/cmux-${IDENTITY_SLUG:-xhqing}-last-socket-path"
   mkdir -p "$LAST_SOCKET_PATH_DIR"
   echo "$socket_path" > "${LAST_SOCKET_PATH_DIR}/${marker_name}" || true
   echo "$socket_path" > "$tmp_marker" || true
 }
 
-staging_slug_from_bundle_id() {
+identity_slug_from_bundle_id() {
   local bundle_id="$1"
   local suffix=""
-  if [[ "$bundle_id" == "com.cmuxterm.app.staging."* ]]; then
-    suffix="${bundle_id#com.cmuxterm.app.staging.}"
+  if [[ "$bundle_id" == "com.xhqing.cmux."* ]]; then
+    suffix="${bundle_id#com.xhqing.cmux.}"
   fi
   sanitize_path "$suffix"
 }
@@ -46,8 +42,8 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/reloads.sh [options]
 
-Release build with isolated "cmux STAGING" identity. Runs side-by-side with
-the production cmux app.
+Release build with this project's own "cmux" identity (bundle id
+com.xhqing.cmux), isolated from the official cmux app.
 
 Options:
   --tag <name>           Short tag for parallel builds (e.g., feature-xyz-lol).
@@ -133,13 +129,13 @@ if [[ -n "$TAG" ]]; then
     exit 1
   fi
   if [[ "$NAME_SET" -eq 0 ]]; then
-    APP_NAME="cmux STAGING ${TAG}"
+    APP_NAME="cmux ${TAG}"
   fi
   if [[ "$BUNDLE_SET" -eq 0 ]]; then
-    BUNDLE_ID="com.cmuxterm.app.staging.${TAG_ID}"
+    BUNDLE_ID="com.xhqing.cmux.${TAG_ID}"
   fi
   if [[ "$DERIVED_SET" -eq 0 ]]; then
-    DERIVED_DATA="/tmp/cmux-staging-${TAG_SLUG}"
+    DERIVED_DATA="/tmp/cmux-build-${TAG_SLUG}"
   fi
 fi
 
@@ -213,13 +209,13 @@ if [[ -z "${APP_PATH:-}" || ! -d "${APP_PATH}" ]]; then
   exit 1
 fi
 
-# Staging always copies the built app and patches the plist to set an isolated
-# socket path, bundle id, and display name. This prevents conflicts with the
-# production cmux app.
-STAGING_APP_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
-rm -rf "$STAGING_APP_PATH"
-cp -R "$APP_PATH" "$STAGING_APP_PATH"
-INFO_PLIST="$STAGING_APP_PATH/Contents/Info.plist"
+# Copy the built app and rewrite its identity: display name, bundle id and an
+# isolated socket path. This keeps this build's Preferences domain and sockets
+# separate from the official cmux app.
+IDENTITY_APP_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
+rm -rf "$IDENTITY_APP_PATH"
+cp -R "$APP_PATH" "$IDENTITY_APP_PATH"
+INFO_PLIST="$IDENTITY_APP_PATH/Contents/Info.plist"
 if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleName string $APP_NAME" "$INFO_PLIST"
@@ -228,17 +224,15 @@ if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
 
-  # Inject staging socket paths via LSEnvironment so the Release binary
-  # (which defaults to the per-user stable socket) uses isolated sockets instead.
-  STAGING_SLUG="$(staging_slug_from_bundle_id "$BUNDLE_ID")"
+  # Inject this identity's socket paths via LSEnvironment. The Release binary
+  # would otherwise fall back to the per-user stable socket shared with the
+  # official app; CMUX_ALLOW_SOCKET_OVERRIDE lets a non-staging bundle id keep
+  # the override.
+  IDENTITY_SLUG="$(identity_slug_from_bundle_id "$BUNDLE_ID")"
   APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
-  if [[ -n "$STAGING_SLUG" ]]; then
-    CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${STAGING_SLUG}.sock"
-    CMUX_SOCKET_PATH_VALUE="/tmp/cmux-staging-${STAGING_SLUG}.sock"
-  else
-    CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-staging.sock"
-    CMUX_SOCKET_PATH_VALUE="/tmp/cmux-staging.sock"
-  fi
+  SOCKET_SLUG="${IDENTITY_SLUG:-xhqing}"
+  CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${SOCKET_SLUG}.sock"
+  CMUX_SOCKET_PATH_VALUE="${APP_SUPPORT_DIR}/cmux-${SOCKET_SLUG}.sock"
   write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_BUNDLE_ID \"${BUNDLE_ID}\"" "$INFO_PLIST" 2>/dev/null \
@@ -247,6 +241,8 @@ if [[ -f "$INFO_PLIST" ]]; then
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_PATH \"${CMUX_SOCKET_PATH_VALUE}\"" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_PATH string \"${CMUX_SOCKET_PATH_VALUE}\"" "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_ALLOW_SOCKET_OVERRIDE 1" "$INFO_PLIST" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_ALLOW_SOCKET_OVERRIDE string 1" "$INFO_PLIST"
   if [[ -S "$CMUXD_SOCKET" ]]; then
     for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
       kill "$PID" 2>/dev/null || true
@@ -256,15 +252,16 @@ if [[ -f "$INFO_PLIST" ]]; then
   if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
     rm -f "$CMUX_SOCKET_PATH_VALUE"
   fi
-  /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$STAGING_APP_PATH" >/dev/null 2>&1 || true
+  /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH" >/dev/null 2>&1 || true
 fi
-APP_PATH="$STAGING_APP_PATH"
+APP_PATH="$IDENTITY_APP_PATH"
 
 # Ensure any running instance is fully terminated, regardless of DerivedData path.
 /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
 sleep 0.3
-# Kill any running staging instance; allow side-by-side with the main and dev apps.
-pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
+# Restart any instance launched from this build product. Never touch an
+# installed /Applications copy the user may be running.
+pkill -f "${IDENTITY_APP_PATH}/Contents/MacOS/${BASE_APP_NAME}" || true
 sleep 0.3
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then

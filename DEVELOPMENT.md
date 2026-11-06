@@ -51,9 +51,9 @@ workflow 文件：`.github/workflows/build.yml`（我们自己的，不依赖上
   3. 装 Zig **0.16.0**（`ghostty/build.zig.zon` 里写的是 `minimum_zig_version = "0.16.0"`，`scripts/setup.sh` 的版本检查要求主次版本完全一致，所以**不能用 `brew install zig` 的 latest**——现在是 0.17.x，会直接报不兼容；workflow 里改成下载 ziglang.org 上固定的 0.16.0 tarball）；
   4. Rust 用 runner 自带的 rustup / cargo（`scripts/setup.sh` 会装固定版本工具链）；Go 用来编译 Cloud 隧道扩展里的 WireGuard 引擎，**Release 构建必须有**（runner 镜像一般自带，没有则 `brew install go`）；
   5. `./scripts/setup.sh`（初始化子模块、拉 checksum 固定的预编译 `GhosttyKit.xcframework`）；
-  6. `./scripts/reloads.sh --tag xhqing`（Release 配置 + 隔离 bundle id 构建）；
+  6. `./scripts/reloads.sh --derived-data /tmp/cmux-build`（Release 配置 + 本项目正式身份构建）；
   7. 打包 `.app` 为 zip 上传为 artifact。
-- 产物：`cmux-<版本>-macos-arm64.zip`，解压得到 `cmux STAGING xhqing.app`，bundle id `com.cmuxterm.app.staging.xhqing` —— 和系统里装着的官方 cmux（`com.cmuxterm.app`）**完全隔离**，可以并行安装、并行运行。
+- 产物：`cmux-<版本>-macos-arm64.zip`，解压得到 `cmux.app`，bundle id `com.xhqing.cmux`，socket 走 `~/Library/Application Support/cmux/cmux-xhqing.sock` —— 这是本项目自己的正式身份，与官方 cmux（`com.cmuxterm.app`）不共用偏好设置域、socket 或更新通道。
 
 ### 2. 本机构建（退路）
 
@@ -78,13 +78,13 @@ CMUX_DEV_BACKEND_MODE=local ./scripts/reloads.sh --tag xhqing
 ```bash
 # 从 Release 下载 zip 后
 unzip cmux-<版本>-macos-arm64.zip -d /tmp/cmux-xhqing
-xattr -dr com.apple.quarantine "/tmp/cmux-xhqing/cmux STAGING xhqing.app"
-cp -R "/tmp/cmux-xhqing/cmux STAGING xhqing.app" /Applications/
-open "/Applications/cmux STAGING xhqing.app"
+xattr -dr com.apple.quarantine "/tmp/cmux-xhqing/cmux.app"
+cp -R "/tmp/cmux-xhqing/cmux.app" /Applications/
+open "/Applications/cmux.app"
 ```
 
 - 自建版是 **ad-hoc 签名**，没有 Developer ID 也没有公证，所以**必须先去掉隔离属性**（`xattr -dr com.apple.quarantine`），否则系统会报「已损坏」或「无法验证开发者」。
-- 自建版与官方版**可以同时开**（bundle id 不同、socket 路径不同）。
+- 本项目用独立 bundle id（`com.xhqing.cmux`）与独立 socket，和官方版互不干扰；从旧的 `com.cmuxterm.app.staging.xhqing` 身份切换过来时，偏好设置域和会话快照需要一次性迁移。
 
 ### 绝对不要做的事
 

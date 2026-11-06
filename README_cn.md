@@ -27,7 +27,7 @@
 
 - **关掉工作区 / 标签页 / 窗口时，不再因为「里面有进程在跑」就弹确认框**（设置键 `app.confirmCloseRunningProcess`，默认关闭）。未保存内容、pinned 工作区、进行中的 agent 会话的保护照旧生效。
 - **关掉了 Sparkle 自动更新**，更新源指向本仓库，官方版不可能悄悄把我这个版本覆盖掉。
-- 用的是 ad-hoc 签名、独立 bundle id（`com.cmuxterm.app.staging.xhqing`），可以和官方版**并行安装**。
+- 用的是 ad-hoc 签名，并采用本项目自己的正式身份：bundle id `com.xhqing.cmux`、独立 socket、独立偏好设置域，不再与官方版共用任何状态。
 
 每个补丁要解决什么问题、根因是什么，都写在 [PATCHES.md](PATCHES.md) 里。
 
@@ -55,8 +55,8 @@
 
 ```bash
 unzip cmux-<版本>-macos-arm64.zip -d /tmp/cmux-xhqing
-xattr -dr com.apple.quarantine "/tmp/cmux-xhqing/cmux STAGING xhqing.app"
-cp -R "/tmp/cmux-xhqing/cmux STAGING xhqing.app" /Applications/
+xattr -dr com.apple.quarantine "/tmp/cmux-xhqing/cmux.app"
+cp -R "/tmp/cmux-xhqing/cmux.app" /Applications/
 ```
 
 这份构建是 ad-hoc 签名、没有公证，所以**必须**去掉隔离属性，否则系统会报「已损坏」。

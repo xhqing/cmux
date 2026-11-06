@@ -6,6 +6,9 @@ import Foundation
 
 enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
     case preview
+    /// Rendered document with in-place block editing (VS Code Markdown Editor
+    /// style lock/pencil toggle).
+    case editor
     case text
 
     var id: String { rawValue }
@@ -36,6 +39,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Whether TextEdit mode is saving to disk.
     @Published private(set) var isSaving: Bool = false
+
+    /// Whether the in-place editor is locked (read-only). Persisted across
+    /// panels the way VS Code remembers its Markdown Editor lock state.
+    @Published private(set) var isEditorLocked: Bool = MarkdownEditorLockSettings.isLocked()
 
     /// The current view mode for this markdown panel. New panels default to preview.
     @Published private(set) var displayMode: MarkdownPanelDisplayMode = .preview
@@ -399,7 +406,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// attached to its window. The callback is event-driven, so it cannot
     /// steal focus after this panel has been unfocused in the meantime.
     func replayPendingPreviewFocusAfterWindowAttach() {
-        guard pendingPreviewFocus, displayMode == .preview else { return }
+        guard pendingPreviewFocus, displayMode == .preview || displayMode == .editor else { return }
         focus()
     }
 
@@ -448,6 +455,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
         guard displayMode != mode else { return }
+        // Leaving the in-place editor commits any open block first: a mode
+        // switch must never silently discard the text the user is editing.
+        if displayMode == .editor {
+            rendererSession.commitActiveBlockEdit()
+        }
         displayMode = mode
         if mode == .text {
             // The find bar and its highlights belong to the preview surface;
@@ -455,6 +467,49 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             hideFind()
             focus()
         }
+        if mode == .editor {
+            hideFind()
+            focus()
+        }
+    }
+
+    /// Applies a committed block edit coming from the page's in-place editor.
+    /// Accepts the text even when the mode already moved on: the commit is the
+    /// same document, and a mode switch asks the page to commit first.
+    @discardableResult
+    func editorDidCommitText(_ nextContent: String) -> Bool {
+        guard textContent != nextContent else { return false }
+        updateTextContent(nextContent)
+        return true
+    }
+
+    /// Save path for the in-place editor: flushes the block the user is
+    /// editing (it lives in a page overlay, not in `textContent`) and then
+    /// writes to disk.
+    func commitEditorAndSave() {
+        guard displayMode == .editor, let webView = rendererSession.webView else {
+            _ = saveTextContent()
+            return
+        }
+        webView.evaluateJavaScript(
+            "window.CmuxMarkdownEditor ? window.CmuxMarkdownEditor.flush() : null"
+        ) { [weak self] value, _ in
+            Task { @MainActor in
+                guard let self else { return }
+                if let text = value as? String, text != self.textContent {
+                    self.updateTextContent(text)
+                }
+                _ = self.saveTextContent()
+            }
+        }
+    }
+
+    /// Mirrors the page's lock toggle into the panel and remembers it for the
+    /// next markdown editor the user opens.
+    func setEditorLocked(_ locked: Bool) {
+        guard isEditorLocked != locked else { return }
+        isEditorLocked = locked
+        MarkdownEditorLockSettings.setLocked(locked)
     }
 
     func readSurfaceSelection() async -> SurfaceSelectionReadResult {
@@ -465,7 +520,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 kind: .markdown,
                 filePath: filePath
             ))
-        case .preview:
+        case .preview, .editor:
             return await rendererSession.readSurfaceSelection(filePath: filePath)
         }
     }
@@ -704,3 +759,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 }
 
 extension MarkdownPanel: FileContentChangeObservingPanel {}
+
+/// Remembers whether the in-place editor opens locked, the way VS Code's
+/// Markdown Editor carries its lock state over to the next document.
+enum MarkdownEditorLockSettings {
+    private static let key = "markdown.editor.locked"
+
+    static func isLocked() -> Bool {
+        UserDefaults.standard.bool(forKey: key)
+    }
+
+    static func setLocked(_ locked: Bool) {
+        UserDefaults.standard.set(locked, forKey: key)
+    }
+}

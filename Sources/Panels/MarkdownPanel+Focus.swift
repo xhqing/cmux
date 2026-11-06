@@ -5,10 +5,10 @@ import Foundation
 extension MarkdownPanel {
     // MARK: - Find in preview focus
 
-    /// Shows (or refocuses) the preview find bar. Preview-only: text mode uses
-    /// the NSTextView's native find panel via the responder chain.
+    /// Shows (or refocuses) the rendered-surface find bar. Text mode uses the
+    /// NSTextView's native find panel via the responder chain instead.
     func startFind() {
-        guard displayMode == .preview else { return }
+        guard displayMode == .preview || displayMode == .editor else { return }
         let created = searchState == nil
         let recoveredNeedle = created ? lastSearchNeedle : ""
         if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
@@ -37,7 +37,7 @@ extension MarkdownPanel {
         self.searchState = nil
         if shouldRestorePreviewFocus {
             pendingPreviewFocus = false
-            if displayMode == .preview,
+            if displayMode == .preview || displayMode == .editor,
                let webView = rendererSession.webView,
                webView.window === window {
                 _ = window?.makeFirstResponder(webView)

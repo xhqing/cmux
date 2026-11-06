@@ -22,6 +22,18 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let fontFamily: String
     /// Maximum content column width, in CSS pixels.
     let maxContentWidth: Double
+    /// Whether the in-place block editor layer is installed. The viewer keeps
+    /// rendering exactly as before; the layer only adds block activation.
+    var isEditingEnabled: Bool = false
+    /// Whether the editor starts locked (read-only). Mirrors VS Code's
+    /// Markdown Editor lock/pencil toggle, which the user can flip in the page.
+    var isEditorLocked: Bool = false
+    /// Fired when a block edit is committed in the page.
+    var onEditorTextChange: (String) -> Void = { _ in }
+    /// Fired when the page's lock toggle flips.
+    var onEditorLockChange: (Bool) -> Void = { _ in }
+    /// Invoked when the panel's save shortcut is pressed inside the editor.
+    var onSaveShortcut: () -> Void = {}
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
     /// Called after the renderer view is attached to a window. A panel can
@@ -40,6 +52,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
             webView.onPointerDown = onRequestPanelFocus
             webView.onAttachToWindow = onViewAttachedToWindow
+            webView.onSaveShortcut = onSaveShortcut
             webView.setVisibleInUI(isVisibleInUI)
             webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
                 coordinator?.handleViewLeftWindow()
@@ -64,6 +77,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // (mermaid / vega-lite). Swift fetches the bundled source from the
         // app bundle and injects it via evaluateJavaScript.
         config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
+        // Bridge for the in-place block editor: commits, lock toggles and link
+        // activations raised by the page.
+        config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxMarkdownEditor")
         config.setURLSchemeHandler(
             context.coordinator,
             forURLScheme: Self.localImageURLScheme
@@ -75,6 +91,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
         webView.onAttachToWindow = onViewAttachedToWindow
+        webView.onSaveShortcut = onSaveShortcut
         webView.setVisibleInUI(isVisibleInUI)
         webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
             coordinator?.handleViewLeftWindow()
@@ -101,6 +118,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.configureEditing(
+            enabled: isEditingEnabled,
+            locked: isEditorLocked,
+            onTextChange: onEditorTextChange,
+            onLockChange: onEditorLockChange
+        )
         context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
         return webView
     }
@@ -110,12 +133,19 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
+        (nsView as? MarkdownWebView)?.onSaveShortcut = onSaveShortcut
         (nsView as? MarkdownWebView)?.setVisibleInUI(isVisibleInUI)
         applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.configureEditing(
+            enabled: isEditingEnabled,
+            locked: isEditorLocked,
+            onTextChange: onEditorTextChange,
+            onLockChange: onEditorLockChange
+        )
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
@@ -124,9 +154,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             return
         }
         nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
+        nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxMarkdownEditor")
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        (nsView as? MarkdownWebView)?.onSaveShortcut = nil
         (nsView as? MarkdownWebView)?.onAttachToWindow = nil
         (nsView as? MarkdownWebView)?.onLeaveWindow = nil
         (nsView as? MarkdownWebView)?.onReenterWindow = nil
@@ -170,6 +202,77 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
         private var isLoaded = false
         private var isShellLoading = false
+
+        // MARK: In-place editing
+
+        private var isEditingEnabled = false
+        private var isEditorLocked = false
+        private var onEditorTextChange: (String) -> Void = { _ in }
+        private var onEditorLockChange: (Bool) -> Void = { _ in }
+
+        func configureEditing(
+            enabled: Bool,
+            locked: Bool,
+            onTextChange: @escaping (String) -> Void,
+            onLockChange: @escaping (Bool) -> Void
+        ) {
+            isEditingEnabled = enabled
+            isEditorLocked = locked
+            onEditorTextChange = onTextChange
+            onEditorLockChange = onLockChange
+            applyEditingState()
+        }
+
+        /// Installs (or removes) the page-side editing layer. Safe to call
+        /// before the shell finishes loading: `didFinish` re-applies it.
+        private func applyEditingState() {
+            guard isLoaded, let webView else { return }
+
+            guard isEditingEnabled else {
+                guard appliedEditingEnabled == true else { return }
+                appliedEditingEnabled = false
+                appliedEditingLocked = nil
+                webView.evaluateJavaScript(
+                    "window.CmuxMarkdownEditor && window.CmuxMarkdownEditor.uninstall();",
+                    completionHandler: nil
+                )
+                return
+            }
+
+            if appliedEditingEnabled == true {
+                guard appliedEditingLocked != isEditorLocked else { return }
+                appliedEditingLocked = isEditorLocked
+                webView.evaluateJavaScript(
+                    "window.CmuxMarkdownEditor && window.CmuxMarkdownEditor.setLocked(\(isEditorLocked ? "true" : "false"));",
+                    completionHandler: nil
+                )
+                return
+            }
+
+            appliedEditingEnabled = true
+            appliedEditingLocked = isEditorLocked
+            let locked = isEditorLocked ? "true" : "false"
+            let js = """
+            (function(locked) {
+              if (!window.CmuxMarkdownEditor) { return; }
+              window.CmuxMarkdownEditor.install({
+                contentElement: document.getElementById('content'),
+                locked: locked,
+                postToHost: function(payload) {
+                  var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cmuxMarkdownEditor;
+                  if (handler) { handler.postMessage(payload); }
+                }
+              });
+            })(\(locked));
+            """
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        /// Whether the page currently holds the editing layer, and with which
+        /// lock state, so `updateNSView` does not re-evaluate JavaScript on
+        /// every SwiftUI layout pass.
+        private var appliedEditingEnabled: Bool?
+        private var appliedEditingLocked: Bool?
         private var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
         /// Whether the shell was confirmed loaded at the moment the host view
@@ -282,13 +385,17 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             if let webView {
                 webView.stopLoading()
                 webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
+                webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxMarkdownEditor")
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
                 webView.onAttachToWindow = nil
+                webView.onSaveShortcut = nil
                 webView.onLeaveWindow = nil
                 webView.onReenterWindow = nil
             }
+            appliedEditingEnabled = nil
+            appliedEditingLocked = nil
             self.webView = nil
             isLoaded = false
             isShellLoading = false
@@ -482,8 +589,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard message.name == "cmuxLib",
+            guard message.name == "cmuxLib" || message.name == "cmuxMarkdownEditor",
                   let body = message.body as? [String: Any] else { return }
+            if message.name == "cmuxMarkdownEditor" {
+                handleEditorMessage(body)
+                return
+            }
             if let lib = body["lib"] as? String {
                 handleLibRequest(lib)
                 return
@@ -516,6 +627,22 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private var requestedLibs: Set<String> = []
+
+        /// Messages raised by the in-place editor layer (markdown-editor.js).
+        private func handleEditorMessage(_ body: [String: Any]) {
+            guard let type = body["type"] as? String else { return }
+            switch type {
+            case "change":
+                guard let text = body["text"] as? String else { return }
+                onEditorTextChange(text)
+            case "readonly":
+                let locked = body["value"] as? Bool ?? false
+                isEditorLocked = locked
+                onEditorLockChange(locked)
+            default:
+                break
+            }
+        }
 
         /// Records the reader's "Load this image" choice for exactly `rawURL`
         /// and tells the shell whether it may now request that image.
@@ -800,6 +927,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
             isShellLoading = false
             isLoaded = true
+            // A shell reload wipes the page-side editing layer.
+            appliedEditingEnabled = nil
+            appliedEditingLocked = nil
             // pageZoom is a WKWebView-level property that survives loadHTMLString,
             // but re-apply defensively after a shell reload so a crash-recovery
             // path can never drop the configured zoom.
@@ -816,6 +946,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             let md = lastMarkdown ?? pendingMarkdown
             lastMarkdown = md
             pushMarkdown(md)
+            // The page-side editor layer is installed after every shell load so
+            // a crash-recovery reload comes back editable.
+            applyEditingState()
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

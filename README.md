@@ -32,8 +32,9 @@ Behaviour differences from the official cmux build:
   workspaces and in-progress agent sessions stay protected.
 - **Sparkle auto-update is disabled**, and the feed points at this repository, so the official
   build can never silently replace this one.
-- The app is ad-hoc signed and lives under its own bundle id
-  (`com.cmuxterm.app.staging.xhqing`), so it installs **next to** the official app.
+- The app is ad-hoc signed and uses this project's own identity — bundle id
+  `com.xhqing.cmux`, a dedicated socket and its own Preferences domain — so it never
+  shares state with the official cmux build.
 
 The patch list with the reasoning behind each change is in [PATCHES.md](PATCHES.md).
 
@@ -64,8 +65,8 @@ Grab the zip from the [latest release](https://github.com/xhqing/cmux/releases/l
 
 ```bash
 unzip cmux-<version>-macos-arm64.zip -d /tmp/cmux-xhqing
-xattr -dr com.apple.quarantine "/tmp/cmux-xhqing/cmux STAGING xhqing.app"
-cp -R "/tmp/cmux-xhqing/cmux STAGING xhqing.app" /Applications/
+xattr -dr com.apple.quarantine "/tmp/cmux-xhqing/cmux.app"
+cp -R "/tmp/cmux-xhqing/cmux.app" /Applications/
 ```
 
 The build is ad-hoc signed (no notarization), so removing the quarantine attribute is

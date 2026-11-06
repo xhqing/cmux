@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [未发布]
+## [0.65.2.2-xhqing.3] - 2026-11-06
 
 ### Fixed
 - **修复 `cmux diff` 的 Dock 路由冲突**：`CLI/cmux_open.swift` 的 `runDiffCommand` 原来把 `CMUX_WORKSPACE_ID` / `CMUX_SURFACE_ID` 解析出的 handle 无条件塞进 `browser.open_split` 的 `workspace_id` / `surface_id`；当终端在 Dock 里、或这两个值与当前窗口对不上时，服务端 `v2DockBrowserSelectorsConflict` 判定两个选择器互相矛盾，直接回 `invalid_params: Conflicting Dock routing selectors`，diff 面板一个也开不出来（`--last-turn` 尤其容易踩到）。现在只把用户显式指定的 `--window` / `--workspace` / `--surface` 当作面板路由，环境变量注入的 caller context 只用于定位 diff 内容来源（last-turn 的基线本来就按这两个值记录），默认不传任何路由选择器，由 cmux 按调用者所在窗口解析目标。`swiftc -parse CLI/cmux_open.swift` 语法检查通过；完整编译与运行时行为交由 CI 和构建后的 app 验证（本机与 macmini 都只有 CommandLineTools，没有完整 Xcode）。

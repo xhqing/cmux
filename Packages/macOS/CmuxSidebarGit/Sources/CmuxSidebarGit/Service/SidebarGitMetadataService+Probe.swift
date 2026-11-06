@@ -154,6 +154,23 @@ extension SidebarGitMetadataService {
         )
     }
 
+    /// Chooses the read budget for a sidebar probe.
+    ///
+    /// Events that can change what the sidebar must show exactly (a filesystem
+    /// write, a branch switch, a directory change) keep the full index scan.
+    /// Routine probes (startup, workspace / surface creation, typing-deferred
+    /// retries, periodic refresh) only need branch and HEAD, so they skip the
+    /// index parse and the per-entry `lstat` scan that contends with terminal
+    /// input on large repositories.
+    private static func readOptions(forProbeReason reason: String) -> GitMetadataReadOptions {
+        switch reason {
+        case "filesystemEvent", "branchChange", "branchCleared", "directoryChange":
+            return .full
+        default:
+            return .sidebar
+        }
+    }
+
     private func enqueueWorkspaceGitMetadataSnapshotRequest(
         probeKey: WorkspaceGitProbeKey,
         expectedDirectory: String,
@@ -174,7 +191,8 @@ extension SidebarGitMetadataService {
             trackedPathEventGeneration: trackedPathEventGenerationForSnapshot(
                 directory: expectedDirectory,
                 reason: reason
-            )
+            ),
+            readOptions: Self.readOptions(forProbeReason: reason)
         )
         guard workspaceGitSnapshotTasksByDirectory[expectedDirectory] == nil else {
             if workspaceGitSnapshotTaskContextByDirectory[expectedDirectory] != taskContext {
@@ -205,7 +223,8 @@ extension SidebarGitMetadataService {
             let snapshot = await InitialWorkspaceGitMetadataSnapshot(
                 probing: expectedDirectory,
                 reader: reader,
-                trackedPathEventGeneration: taskContext.trackedPathEventGeneration
+                trackedPathEventGeneration: taskContext.trackedPathEventGeneration,
+                readOptions: taskContext.readOptions
             )
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in

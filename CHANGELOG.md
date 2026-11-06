@@ -8,9 +8,14 @@ All notable changes to cmux are documented here.
 - **修复 `cmux diff` 的 Dock 路由冲突**：`CLI/cmux_open.swift` 的 `runDiffCommand` 原来把 `CMUX_WORKSPACE_ID` / `CMUX_SURFACE_ID` 解析出的 handle 无条件塞进 `browser.open_split` 的 `workspace_id` / `surface_id`；当终端在 Dock 里、或这两个值与当前窗口对不上时，服务端 `v2DockBrowserSelectorsConflict` 判定两个选择器互相矛盾，直接回 `invalid_params: Conflicting Dock routing selectors`，diff 面板一个也开不出来（`--last-turn` 尤其容易踩到）。现在只把用户显式指定的 `--window` / `--workspace` / `--surface` 当作面板路由，环境变量注入的 caller context 只用于定位 diff 内容来源（last-turn 的基线本来就按这两个值记录），默认不传任何路由选择器，由 cmux 按调用者所在窗口解析目标。`swiftc -parse CLI/cmux_open.swift` 语法检查通过；完整编译与运行时行为交由 CI 和构建后的 app 验证（本机与 macmini 都只有 CommandLineTools，没有完整 Xcode）。
 
 ### Added
+- **本地后台 Git 探测改走 cheap 读取（P3，对应上游 #4705 / PR #5665）**：新增 `GitMetadataReadOptions`，侧栏常规探测只读分支 / HEAD、跳过 `.git/index` 解析与逐文件 `lstat`；文件系统事件 / 分支变化 / 目录变化仍走精确读取，保留 dirty 状态。改动落在 `CmuxGit` / `CmuxSidebarGit` 两个 SwiftPM 包，新增包级单测证明 cheap 读取不碰 `fileStatusReader`。取舍与文件清单见 `PATCHES.md` P3。
+- **包级类型检查与单测进 PR 门禁**：新增 `scripts/check-swift-packages.py`，`pr-checks.yml` 对改动涉及的 SwiftPM 包跑 `swift build` + `swift test`（本机 CommandLineTools 无 `Testing` 模块，本地用 `--build-only`）。此前门禁只做 `swiftc -parse`，包里的类型错误能一路绿到 Release 构建才暴露。
+- **端到端延迟探针**：新增 `scripts/measure-input-latency.py`，用 `cmux send` + `cmux read-screen` 测「发键 → 字符可见」的 p50 / p99 并扣除读屏基线。它是相对 A/B 工具，数字含 CLI / socket / PTY 回显 / 读屏开销，不与物理按键录屏的绝对数字比较。
 - **输入延迟防护的回归守卫**：新增 `scripts/check-latency-guardrails.py`，并在 PR 门禁 `checks` 里加一步 `Input latency guardrails`。基线 `v0.65.2.2` 已经包含上游多条仍 OPEN 的输入延迟问题的等价修复（打字静默期推迟 Git 探测、进程级探测限流、无分配索引十六进制编码、标题变更合并、预测性本地回显的 alternate screen 排除、TextBox 设置、shell 集成双开守卫、输入时间戳）；以后按 `SYNC.md` 同步新上游 tag 时若被静默覆盖，PR 会直接变红。脚本只做静态存在性检查，不测毫秒数；已自测「删掉守卫只剩注释」会精确报红。
 
 ### 文档
+- `LATENCY.md` 改为修复工作台：撤回「9 条 Issue 已收口」的结论，明确基线里的缓解机制不等于延迟已解决；用户只用本地 cmux，#14 / #15 / #17 从主线移除；新增「本地延迟修复进展」一节记录已落地改动、测量口径与下一步。`PATCHES.md` 新增 P3 节。
+- `TODO.md`：T11（Cloud TextBox 精确版）因场景不存在归档为「已放弃」，新增 T12（按实测数字改本地每键路径），T10 背景同步包级类型检查已接入的现状。
 - 新增 `LATENCY.md`：把本仓库 Issue #10 ~ #18（上游输入延迟问题的调研记录）逐条核实并给出处置——上游状态与基线源码证据分开列，明确「上游 Issue 开着 ≠ 本仓库缺修复」，写清已解决 / 不适用 / 剩余缺口三类结论、立即可用的远程打字配置、实机复测方法，以及为什么不在当前构建验证条件下新增 Swift 逻辑。
 - `PATCHES.md` 的「与上游 PR / issue 的对应关系」表补上这批输入延迟条目并指向 `LATENCY.md`；`README.md` / `README_cn.md` 的文档表各加一行指向 `LATENCY.md`（中英双版同步）。
 - `TODO.md` 新增 T11（实现「agent 空闲时自动显示 TextBox」的精确版，上游 #25089 方案 2）。

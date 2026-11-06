@@ -115,13 +115,34 @@ public struct GitMetadataService: Sendable {
         for directory: String,
         trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(
+            for: directory,
+            trackedPathEventGeneration: trackedPathEventGeneration,
+            options: .full
+        )
+    }
+
+    /// Reads a point-in-time git snapshot with an explicit work budget.
+    ///
+    /// A `.sidebar` read skips the index parse and the per-entry `lstat` scan
+    /// entirely: background sidebar probes only need branch and HEAD, and on
+    /// large repositories that scan competes with terminal input for CPU. Dirty
+    /// state is intentionally reported as clean for those probes; a
+    /// watcher-driven `.full` refresh restores the exact state.
+    @concurrent
+    public nonisolated func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?,
+        options: GitMetadataReadOptions
+    ) async -> GitWorkspaceMetadata {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
         async let initialReferencesTask = gitReferenceSnapshot(repository: repository)
-        async let initialTrackedChangesTask = gitTrackedChangesSnapshot(
+        async let initialTrackedChangesTask = trackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: trackedPathEventGeneration
+            trackedPathEventGeneration: trackedPathEventGeneration,
+            options: options
         )
         let initialReferences = await initialReferencesTask
         var trackedChanges = await initialTrackedChangesTask
@@ -129,24 +150,30 @@ public struct GitMetadataService: Sendable {
         // the reference signature after the index scan for every backend; the
         // files implementation uses a cheap bounded direct revalidation.
         let resolvedReferences: GitReferenceSnapshot
-        let latestReferences: GitReferenceSnapshot
-        if initialReferences.usesGitPlumbing {
-            // Plumbing snapshots already perform a stable symbolic-ref/commit
-            // read under the shared limiter. Repeating that full probe after
-            // the index scan doubles process work for reftable repositories;
-            // the watcher will schedule a new snapshot when ref metadata
-            // changes.
-            latestReferences = initialReferences
+        if options.checksWorkingTreeDirty {
+            let latestReferences: GitReferenceSnapshot
+            if initialReferences.usesGitPlumbing {
+                // Plumbing snapshots already perform a stable symbolic-ref/commit
+                // read under the shared limiter. Repeating that full probe after
+                // the index scan doubles process work for reftable repositories;
+                // the watcher will schedule a new snapshot when ref metadata
+                // changes.
+                latestReferences = initialReferences
+            } else {
+                latestReferences = await gitReferenceSnapshot(
+                    repository: repository,
+                    revalidateFileBackedHead: true
+                )
+            }
+            if latestReferences.headSignature != initialReferences.headSignature {
+                trackedChanges = await gitTrackedChangesSnapshot(repository: repository)
+            }
+            resolvedReferences = latestReferences
         } else {
-            latestReferences = await gitReferenceSnapshot(
-                repository: repository,
-                revalidateFileBackedHead: true
-            )
+            // No index scan happened, so there is nothing to reconcile and no
+            // reason to pay for a second reference probe.
+            resolvedReferences = initialReferences
         }
-        if latestReferences.headSignature != initialReferences.headSignature {
-            trackedChanges = await gitTrackedChangesSnapshot(repository: repository)
-        }
-        resolvedReferences = latestReferences
         return GitWorkspaceMetadata(
             isRepository: true,
             branch: resolvedReferences.branchName,
@@ -154,6 +181,25 @@ public struct GitMetadataService: Sendable {
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
             headSignature: resolvedReferences.headSignature
+        )
+    }
+
+    /// Applies the read budget to the expensive tracked-change scan.
+    private nonisolated func trackedChangesSnapshot(
+        repository: ResolvedGitRepository,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?,
+        options: GitMetadataReadOptions
+    ) async -> GitTrackedChangesSnapshot {
+        guard options.checksWorkingTreeDirty else {
+            return GitTrackedChangesSnapshot(
+                isDirty: false,
+                indexSignature: nil,
+                indexContentSignature: nil
+            )
+        }
+        return await gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: trackedPathEventGeneration
         )
     }
 

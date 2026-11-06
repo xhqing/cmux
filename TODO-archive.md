@@ -3,6 +3,13 @@
 已处理的条目按完成时间倒序归档。编号不复用。
 
 
+## 已放弃
+
+- ✅ **已放弃** **T11** 实现「agent 空闲时自动显示 / 聚焦 TextBox」的精确版（上游 #25089 方案 2，对应本仓库 Issue #15 / #18）：新增一个只在「远程 / Cloud 终端 + agent hook 报告 idle / needsInput」时生效的设置，避免现有 `terminal.showTextBoxOnNewTerminals` 连本地终端一起打开的副作用（记录：2026-11-06 16:32）（放弃：2026-11-06 18:46）
+  **放弃理由**：用户确认延迟体感全部来自本地使用 cmux，没有用 Cloud 版，不存在「Cloud 上 agent TUI 每键等一次完整往返」这个场景；#14 / #15 / #17 已从主线移除，精确版 TextBox 自动化随之失去目标。原条目正文、已核实的代码挂点保留在这里，以备将来真的接 Cloud 时复用。另注：原「开工条件」里写的「PR 门禁只做语法解析、不做类型检查」已于 2026-11-06 由包级 `swift build` / `swift test` 门禁改变，该理由不再成立，但不影响本条的放弃结论。
+  **背景（原条目）**：Cloud 上 agent TUI 每键等一次完整往返，预测性本地回显按设计不覆盖 alternate screen；本仓库基线已有粗粒度版本（两个 TextBox 设置 + Cmd+Shift+A），把整段提示词在本地 TextBox 敲完再提交即可绕开逐字符延迟。精确版要补的是「只对远程 agent、且只在空闲时」的自动化。
+  **挂点（原条目，已核实）**：设置目录 `Packages/macOS/CmuxSettings/Sources/CmuxSettings/Keys/TerminalCatalogSection.swift`（照 `showTextBoxOnNewTerminals` 加 `DefaultsKey`）；运行时 `Sources/Workspace+AgentLifecycle.swift` 的 `setAgentLifecycle(key:panelId:lifecycle:)` 在状态变 `.idle` / `.needsInput` 时判断 `Workspace.isRemoteTerminalSurface(panelId)`，再调 `Sources/Panels/TerminalPanel.swift` 的 `preferTextBoxInputWhenActivated()`；设置页 `TextBoxSection.swift`、配置 schema / 搜索索引 / JSON 路径支持照现有键补齐。默认必须关闭，不能抢本地终端焦点。
+
 ## 已完成
 
 - ✅ **已完成** **T2** 自建版并行安装后验证 P1 的真实行为（记录：2026-10-31 22:30）：用户实测第 1 条「关掉跑着 pi 的工作区不再弹窗」通过；其余两条（设置页开关打开后恢复提示、"Don't ask again" 勾选生效）用户明确表示不需要验收（第 2 条不在乎、第 3 条场景已不存在）。P1 随后续版本发布。（完成：2026-11-04 14:45）

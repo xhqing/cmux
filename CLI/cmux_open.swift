@@ -1037,9 +1037,15 @@ extension CMUXCLI {
         if viewer.url.scheme == DiffViewerURLMapper.scheme {
             params["diff_viewer_files"] = viewer.allowedFiles.map(\.jsonObject)
         }
-        if let windowHandle { params["window_id"] = windowHandle }
-        if let workspaceHandle { params["workspace_id"] = workspaceHandle }
-        if let surfaceHandle { params["surface_id"] = surfaceHandle }
+        // 面板路由只使用用户显式指定的目标。CMUX_WORKSPACE_ID / CMUX_SURFACE_ID 是调用者
+        // 上下文，用来定位 diff 内容来源（尤其 --last-turn 的基线，见 diffSourceContext），
+        // 不是面板目标。把它们同时注入 browser.open_split，会让 Dock 路由判定认为
+        // workspace_id 与 surface_id 互相矛盾，直接回 invalid_params，面板一个也开不出来。
+        // 默认不传任何路由选择器，由 cmux 按调用者所在窗口解析目标；显式指定目标的场景
+        // 仍按用户给的组合走，行为不变。
+        if parsedArgs.window != nil, let windowHandle { params["window_id"] = windowHandle }
+        if parsedArgs.workspace != nil, let workspaceHandle { params["workspace_id"] = workspaceHandle }
+        if parsedArgs.surface != nil, let surfaceHandle { params["surface_id"] = surfaceHandle }
 
         let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
         let completedViewer: DiffViewerWriteResult

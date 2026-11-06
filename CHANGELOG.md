@@ -4,7 +4,13 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### Added
+- **输入延迟防护的回归守卫**：新增 `scripts/check-latency-guardrails.py`，并在 PR 门禁 `checks` 里加一步 `Input latency guardrails`。基线 `v0.65.2.2` 已经包含上游多条仍 OPEN 的输入延迟问题的等价修复（打字静默期推迟 Git 探测、进程级探测限流、无分配索引十六进制编码、标题变更合并、预测性本地回显的 alternate screen 排除、TextBox 设置、shell 集成双开守卫、输入时间戳）；以后按 `SYNC.md` 同步新上游 tag 时若被静默覆盖，PR 会直接变红。脚本只做静态存在性检查，不测毫秒数；已自测「删掉守卫只剩注释」会精确报红。
+
 ### 文档
+- 新增 `LATENCY.md`：把本仓库 Issue #10 ~ #18（上游输入延迟问题的调研记录）逐条核实并给出处置——上游状态与基线源码证据分开列，明确「上游 Issue 开着 ≠ 本仓库缺修复」，写清已解决 / 不适用 / 剩余缺口三类结论、立即可用的远程打字配置、实机复测方法，以及为什么不在当前构建验证条件下新增 Swift 逻辑。
+- `PATCHES.md` 的「与上游 PR / issue 的对应关系」表补上这批输入延迟条目并指向 `LATENCY.md`；`README.md` / `README_cn.md` 的文档表各加一行指向 `LATENCY.md`（中英双版同步）。
+- `TODO.md` 新增 T11（实现「agent 空闲时自动显示 TextBox」的精确版，上游 #25089 方案 2）。
 - `TODO.md`：T2（P1 并行安装后的真机验收）归档进 `TODO-archive.md`——用户已确认第 1 条通过，其余两条明确不需要验收（记录：2026-11-04 14:45）。
 
 ## [0.65.2.2-xhqing.2] - 2026-11-04

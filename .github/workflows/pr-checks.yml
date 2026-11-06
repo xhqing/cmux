@@ -107,6 +107,13 @@ jobs:
           # 下两份 JSON schema，但本仓库（2026-11-02 起）已经不含 web/，那一段随之去掉。
           python3 scripts/generate-cmux-config-schema.py --check
 
+      - name: Input latency guardrails
+        # The baseline already contains equivalent fixes for several upstream
+        # typing-latency issues that are still OPEN. A rebase onto a newer
+        # upstream tag can silently drop one of them; fail the PR instead.
+        # See LATENCY.md for the per-issue analysis.
+        run: python3 scripts/check-latency-guardrails.py
+
       - name: Test files wired into the Xcode project
         run: |
           set -euo pipefail

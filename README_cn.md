@@ -71,6 +71,7 @@ cp -R "/tmp/cmux-xhqing/cmux STAGING xhqing.app" /Applications/
 | --- | --- |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 构建、安装、版本、开发流程、PR 门禁 |
 | [PATCHES.md](PATCHES.md) | 相对上游的每一个补丁，含根因分析 |
+| [LATENCY.md](LATENCY.md) | 上游未解决的输入延迟问题在本仓库基线的逐条核实与处置（附源码证据） |
 | [SYNC.md](SYNC.md) | 怎么跟上上游的新 release tag |
 | [CHANGELOG.md](CHANGELOG.md) | 变更记录 |
 | [TODO.md](TODO.md) | 待办 |

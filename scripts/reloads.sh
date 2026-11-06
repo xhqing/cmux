@@ -217,8 +217,15 @@ fi
 # isolated socket path. This keeps this build's Preferences domain and sockets
 # separate from the official cmux app.
 IDENTITY_APP_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
-rm -rf "$IDENTITY_APP_PATH"
-cp -R "$APP_PATH" "$IDENTITY_APP_PATH"
+# When APP_NAME already matches the product name (e.g. "cmux"), the identity path
+# IS the build product. Copying onto itself would run `rm -rf` on the source of
+# the following `cp`, which deleted the freshly built app and failed the step
+# with `cp: ... No such file or directory` right after `** BUILD SUCCEEDED **`
+# (2026-11-06: builds .5-.9 all failed this way). Rewrite the plist in place.
+if [[ "$IDENTITY_APP_PATH" != "$APP_PATH" ]]; then
+  rm -rf "$IDENTITY_APP_PATH"
+  cp -R "$APP_PATH" "$IDENTITY_APP_PATH"
+fi
 INFO_PLIST="$IDENTITY_APP_PATH/Contents/Info.plist"
 if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$INFO_PLIST" 2>/dev/null \

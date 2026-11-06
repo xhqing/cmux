@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-xhqing.5] - 2026-11-06
+
+### Added
+- **Release 按键延迟探针（PR #25）**：`KeyLatencyProbe` 记录系统排队按键（`NSEvent.timestamp`）到 `keyDown` 处理、以及交给 Ghostty 的延迟，写入 `~/.local/state/cmux/key-latency.log`。默认关闭，用 `CMUX_KEY_LATENCY_PROBE=1` 或 `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true` 开启；关闭时每键只多一次静态检查。它补的是 CLI 端到端探针测不到的「键盘 / 输入法 → app」这一段。
+
 ## [未发布]
 
 ### Added

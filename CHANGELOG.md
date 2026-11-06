@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-xhqing.10] - 2026-11-06
+
+### Fixed
+- **修掉身份改写时的自我删除（PR #36）**：`reloads.sh` 在 `APP_NAME` 与构建产物同名（`cmux`）时，`rm -rf "$IDENTITY_APP_PATH"` 先把随后 `cp` 的源目录删掉，导致 `** BUILD SUCCEEDED **` 之后立即报 `cp: ... No such file or directory`。`.5`~`.9` 全部栽在这里，而 GitHub 截断的实时日志只显示到最后一行编译动作，看起来像被莫名杀掉。现在同名时跳过复制、原地改写 Info.plist 并重签。
+
 ## [0.65.2.2-xhqing.9] - 2026-11-06
 
 ### Fixed

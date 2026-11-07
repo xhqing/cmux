@@ -11,7 +11,7 @@ struct AboutPanelView: View {
     private var githubURL: URL? { URL(string: repository) }
     private let docsURL = URL(string: "https://cmux.com/docs")
 
-    /// Our own release version (`VERSION`, e.g. `0.65.2.2-xhqing.12`).
+    /// Our own release version (`VERSION`, e.g. `0.65.2.2-r13`).
     ///
     /// `CFBundleShortVersionString` has to stay numeric-only for Apple tooling, so the
     /// build injects the full string under `CMUXVersion`; older builds that predate that

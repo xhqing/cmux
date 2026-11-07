@@ -57,7 +57,7 @@ jobs:
           if [ -z "${run_id}" ]; then
             run_id="$(gh run list -R "${GITHUB_REPOSITORY}" --workflow build-macos \
               --status success --limit 20 --json databaseId,headBranch \
-              --jq '[.[] | select(.headBranch | test("^v.*-xhqing\\.[0-9]+$"))][0].databaseId')"
+              --jq '[.[] | select(.headBranch | test("^v.*-r[0-9]+$"))][0].databaseId')"
           fi
           if [ -z "${run_id}" ] || [ "${run_id}" = "null" ]; then
             echo "::error::找不到可用的 build-macos 运行记录（需要填 run_id）。"
@@ -75,7 +75,7 @@ jobs:
             echo "::error::run ${run_id} 的结论是 ${conclusion}，没有可挂的产物。"
             exit 1
           fi
-          if ! [[ "${tag}" =~ ^v.*-xhqing\.[0-9]+$ ]]; then
+          if ! [[ "${tag}" =~ ^v.*-r[0-9]+$ ]]; then
             echo "::notice::run ${run_id} 不是 tag 构建（ref=${tag}），跳过。"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0

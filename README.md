@@ -75,7 +75,7 @@ mandatory — otherwise macOS reports the app as damaged.
 ## Build
 
 CI first: run the `build-macos` workflow (`workflow_dispatch`, `arch=arm64` by default), or
-push a `v*-xhqing.*` tag. Building locally needs Xcode 26 + Zig 0.16.0 + Rust, and takes a
+push a `v*-r[0-9]*` tag. Building locally needs Xcode 26 + Zig 0.16.0 + Rust, and takes a
 couple of hours of downloads on a slow link — see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Documentation

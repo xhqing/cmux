@@ -54,7 +54,7 @@ git rebase --onto v0.65.3.0 $(git rev-list --max-parents=0 main) main
 #    解完先本地构建/CI 验证，确认补丁语义没被上游改动吃掉
 
 # 4. 版本号与文档
-#    VERSION → 0.65.3.0-xhqing.1（后缀重新从 1 开始）
+#    VERSION → 0.65.3.0-r1（修订号重新从 1 开始）
 #    CHANGELOG.md 顶部加一条
 #    PATCHES.md 里的基线 tag 与 commit 一起更新
 

@@ -63,7 +63,7 @@ cp -R "/tmp/cmux-xhqing/cmux.app" /Applications/
 
 ## 构建
 
-优先走 CI：跑 `build-macos` workflow（`workflow_dispatch`，`arch` 默认 `arm64`），或推送形如 `v*-xhqing.*` 的 tag。本机构建需要 Xcode 26 + Zig 0.16.0 + Rust，出口带宽小的时候光下载就要几小时，详见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+优先走 CI：跑 `build-macos` workflow（`workflow_dispatch`，`arch` 默认 `arm64`），或推送形如 `v*-r[0-9]*` 的 tag。本机构建需要 Xcode 26 + Zig 0.16.0 + Rust，出口带宽小的时候光下载就要几小时，详见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 ## 文档
 

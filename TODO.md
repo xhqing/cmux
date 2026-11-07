@@ -18,7 +18,3 @@
 
 - [ ] **T4** 参考上游 issue #9865 实现「空闲的 coding agent 不算 running process」：agent 停在等用户输入的提示符时，即使把 `app.confirmCloseRunningProcess` 打开也不应该算作有进程在跑（记录：2026-10-31 22:30）
 - [ ] **T5** 建立上游同步节奏：至少每 1~2 个月 `gh release list -R manaflow-ai/cmux` 看一次新 tag，按 SYNC.md 的流程升级基线（记录：2026-10-31 22:30）
-- [ ] **T12** 按实测数字改本地每键路径（记录：2026-11-06 18:46）
-  **背景**：P3 只削掉了后台 Git 探测的 CPU 争用；本地「按键 → 字符出现」的每键路径开销还没有数字。上一轮靠读代码猜的 `isAlternateScreenActive()` 视口序列化热点已被证伪（快捷键路径有按事件缓存、文本编辑手势有按按键缓存），不能再凭静态阅读动刀。
-  **要做什么**：装自建版跑 `python3 scripts/measure-input-latency.py --surface <id> --samples 40`，拿到 p50 / p99 与读屏基线；再按数字定位每键热点（快捷键判定、`NSWindow.sendEvent` swizzle、焦点修复、通知清除、IME 解释、Ghostty 渲染），只改实测热点。#13 先拉 `ghostty/` 子模块源码定位 URL 检测是否落在每键路径；#11 改两个 shell 集成的加载 / hook 时序并补回归用例。
-  **边界**：测量脚本是相对 A/B 工具（改前 / 改后、空闲 / 忙碌、自建版 / 官方版），数字含 CLI / socket / 读屏开销，不能与物理按键录屏的绝对数字直接比较。每步改动走 worktree + 功能分支 + PR，包级单测与 CI 门禁全绿后合并；详见 `LATENCY.md`。

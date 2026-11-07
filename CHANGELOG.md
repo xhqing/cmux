@@ -2,6 +2,12 @@
 
 All notable changes to cmux are documented here.
 
+## [未发布]
+
+### 文档
+- 按键延迟实测数据落档：`KeyLatencyProbe` 采到 584 键 / 235.8 秒，p50 9.15 ms、p90 17.19 ms、p99 35.48 ms，稳定期 6~8 ms；尖峰集中在开头两个键（66.30 / 115.71 ms，冷启动）与后台忙碌时的偶发 53.70 / 101.41 ms。
+- 按实测结果把后续工作拆成 GitHub Issue：#44（首次按键冷启动）、#45（后台忙碌尖峰）；另两个新发现单独建条：#43（`com.xhqing.cmux` 身份下控制 socket 不监听）、#46（构建产物 `LSEnvironment` 写死 CI runner 的 home）。`TODO.md` 的 T12 按「已转移」归档进 `TODO-archive.md`。
+
 ## [0.65.2.2-xhqing.12] - 2026-11-07
 
 ### Fixed

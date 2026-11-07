@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [未发布]
+## [0.65.2.2-xhqing.13] - 2026-11-07
 
 ### Fixed
 - **About 面板显示我们自己的发布版本号**：原来「Version」一行读的是 `CFBundleShortVersionString`，而它为了满足 Apple 的纯数字要求只能写 `0.65.2.2`，跟 GitHub Release / tag 的 `0.65.2.2-xhqing.12` 对不上。现在构建阶段把仓库根 `VERSION` 原值写进 Info.plist 的 `CMUXVersion` 键，About 优先读它（缺失时回退到旧的纯数字值）；「Commit」链接也改成指向本仓库的提交（原指向上游 `manaflow-ai/cmux`，而显示的是我们自己的 hash，点开是 404）、「GitHub」按钮改指向本仓库。CI 校验 step 新增 `CMUXVersion` 与 `VERSION` 的一致性比对。
@@ -23,8 +23,6 @@ All notable changes to cmux are documented here.
 
 ### Added
 - **按键延迟探针回归（放在 `GhosttyTitleUpdateIngress.swift` 这个小文件里）**：记录 `NSEvent.timestamp` 到 `keyDown`、以及交给 Ghostty 的延迟，写 `~/.local/state/cmux/key-latency.log`。默认关闭：`CMUX_KEY_LATENCY_PROBE=1` 或 `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true`。放在小文件里而不是 1.3 万行的 `GhosttyTerminalView.swift` 顶部，避免再次触发编译期问题。
-
-## [未发布]
 
 ### Changed
 - **构建产物自动挂到 Release（2026-11-06）**：新增 `.github/workflows/attach-release-asset.yml`——`build-macos` 成功结束且是 tag 构建时，用 `workflow_run` 自动把 `cmux-<版本>-macos-<架构>.zip` 与 `.sha256` 挂到对应 Release（Release 已存在就 `--clobber` 补资产，不存在就顺手建一条）。此前 `build.yml` 只做 `actions/upload-artifact`，从来没有把包挂到 Release，所以 `.4` 之后每个版本的 Release 页面都是空的、按 README 装不了；这条补上了最后一步。单独一条 workflow 而不是塞进构建作业，是为了让构建保持 `contents: read`（挂资产需要 `contents: write`），并且挂资产可以单独重跑、给历史构建补挂（手动 dispatch 填 `run_id`）。

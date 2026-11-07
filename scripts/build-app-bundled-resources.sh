@@ -46,7 +46,7 @@ update_commit() {
 }
 
 # The About window shows this repository's own release version, which carries the
-# "-xhqing.N" iteration suffix that VERSION holds. CFBundleShortVersionString has to
+# "-rN" iteration suffix that VERSION holds. CFBundleShortVersionString has to
 # stay numeric-only for Apple tooling and Launch Services, so the full string rides
 # in its own key next to CMUXCommit.
 update_version() {

@@ -34,10 +34,10 @@ git switch -c tmp-inspect && git rm -r --cached web/ && git read-tree --reset -u
 
 workflow 文件：`.github/workflows/build.yml`（我们自己的，不依赖上游的 Blacksmith 私有 runner）。
 
-- 触发方式：手动 `workflow_dispatch`，或推送形如 `v*-xhqing.*` 的 tag 时自动跑。
+- 触发方式：手动 `workflow_dispatch`，或推送形如 `v*-r[0-9]*` 的 tag 时自动跑。
 - **架构输入 `arch`（默认 `arm64`）**：用户本机是 Apple Silicon，而工程默认编通用二进制（arm64 + x86_64 = 整个 app 编两遍，实测一轮 3.5 小时还没编完）。日常发版只编 `arm64`；要装到 Intel 机器（如 macmini）时手动选 `x86_64`，确实两个都要才选 `universal`。产物名里的架构是从二进制里用 `lipo -archs` 读出来的真实值，不是输入参数。
-- **版本号注入**：工程里 `MARKETING_VERSION` 写死上游的 `0.65.2`（12 处），CI 以仓库根 `VERSION` 为准注入：`CFBundleShortVersionString` = VERSION 去掉 `-xhqing.N` 后缀（Apple 要求纯数字段），迭代后缀只出现在 `VERSION` / `CHANGELOG` / tag / Release 名 / 产物文件名里。`CFBundleVersion`（build number）用「UTC 日期 + run 号」，单调递增，避免同一个 staging app 反复覆盖安装时系统拿旧的 Launch Services / 图标缓存。构建末尾的校验 step 会拿实际写进 Info.plist 的值与预期比对，不一致直接红。
-- **About 面板显示完整发布版本**：About 的「Version」一行读 Info.plist 的 `CMUXVersion` 键（构建阶段 `scripts/build-app-bundled-resources.sh` 从仓库根 `VERSION` 原样写入，带 `-xhqing.N` 后缀，跟 GitHub Release / tag 一致）；该键缺失时（旧构建）才退回 `CFBundleShortVersionString` 的纯数字值。校验 step 同时比对 `CMUXVersion` 与 `VERSION`，不一致直接红。
+- **版本号注入**：工程里 `MARKETING_VERSION` 写死上游的 `0.65.2`（12 处），CI 以仓库根 `VERSION` 为准注入：`CFBundleShortVersionString` = VERSION 去掉 `-rN` 后缀（Apple 要求纯数字段），修订后缀只出现在 `VERSION` / `CHANGELOG` / tag / Release 名 / 产物文件名里。`CFBundleVersion`（build number）用「UTC 日期 + run 号」，单调递增，避免同一个 staging app 反复覆盖安装时系统拿旧的 Launch Services / 图标缓存。构建末尾的校验 step 会拿实际写进 Info.plist 的值与预期比对，不一致直接红。
+- **About 面板显示完整发布版本**：About 的「Version」一行读 Info.plist 的 `CMUXVersion` 键（构建阶段 `scripts/build-app-bundled-resources.sh` 从仓库根 `VERSION` 原样写入，带 `-rN` 后缀，跟 GitHub Release / tag 一致）；该键缺失时（旧构建）才退回 `CFBundleShortVersionString` 的纯数字值。校验 step 同时比对 `CMUXVersion` 与 `VERSION`，不一致直接红。
 - **仓库只有一条分叉线：默认分支 `main`（受保护）**，上游 `main` 只留一个 `upstream-main` 快照 ref 作参照（分支布局与理由见 SYNC.md）。`gh` 在本仓库有两个 remote，可能解析错（把 `upstream` 当成目标仓库、报 `workflow not found`），**触发时仍建议一律带上 `-R xhqing/cmux`**：
 
   ```bash
@@ -122,8 +122,8 @@ open "/Applications/cmux.app"
 
 ## 六、版本与发版
 
-- 版本号权威来源：仓库根 `VERSION`（当前 `0.65.2.2-xhqing.1`），格式是「上游基线版本 + `-xhqing.N` 后缀」，N 是本分叉自己的迭代号。
-- 每次发版：更新 `VERSION` → 在 `CHANGELOG.md` 顶部写条目 → 打 tag（`v0.65.2.2-xhqing.1`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 GitHub Release。
+- 版本号权威来源：仓库根 `VERSION`（当前 `0.65.2.2-r13`），格式是「上游基线版本 + `-r<N>` 修订号」——不带个人 handle；N 是本仓库自己的修订号，换上游 tag 后从 1 重新开始。
+- 每次发版：更新 `VERSION` → 在 `CHANGELOG.md` 顶部写条目 → 打 tag（`v0.65.2.2-r13`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 GitHub Release。
 - 发版判断：只有本分叉自上一个 tag 以来有 `fix` / `feat` 类改动才发版；纯文档、杂事不发版。
 
 ## 七、上游同步

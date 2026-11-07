@@ -24,11 +24,11 @@
 
 ## 构建
 
-- **CI 优先**：`.github/workflows/build.yml`，手动 `workflow_dispatch` 或推 `v*-xhqing.*` tag 触发；`gh` 命令一律带 `-R xhqing/cmux`（本仓库有两个 remote，可能解析错）。重活不要在本机跑。
+- **CI 优先**：`.github/workflows/build.yml`，手动 `workflow_dispatch` 或推 `v*-r[0-9]*` tag 触发；`gh` 命令一律带 `-R xhqing/cmux`（本仓库有两个 remote，可能解析错）。重活不要在本机跑。
 - **本机构建只是退路**（约 20 GB 磁盘 + 两小时下载），CI 走不通时才用。
 - **Zig 必须 0.16.0**：不能用 `brew install zig` 的 latest（现在是 0.17.x，`scripts/setup.sh` 会直接报不兼容）；需要时从 ziglang.org 下载固定版本。
 - **架构只编 arm64**：`universal` 是整个 app 编两遍，实测一轮 3.5 小时还没完。
-- 版本号注入：`VERSION` 去掉 `-xhqing.N` 后缀写进 `CFBundleShortVersionString`，完整版本写进 `CMUXVersion`（About 面板显示）；构建末尾有校验 step。
+- 版本号注入：`VERSION` 去掉 `-rN` 后缀写进 `CFBundleShortVersionString`，完整版本写进 `CMUXVersion`（About 面板显示）；构建末尾有校验 step。
 - 安装：ad-hoc 签名、无公证，**必须先 `xattr -dr com.apple.quarantine`**，否则系统报「已损坏」。
 
 ## PR 门禁只能说轻量（刻意的取舍，别去"优化"）
@@ -41,8 +41,8 @@
 
 ## 版本与发版
 
-- 版本号权威：仓库根 `VERSION`，格式「上游基线 + `-xhqing.N`」。
-- 发版：更新 `VERSION` → CHANGELOG 顶部写条目 → 打 tag（`v0.65.2.2-xhqing.N`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 Release。
+- 版本号权威：仓库根 `VERSION`，格式「上游基线 + `-r<N>` 修订号」（不带个人 handle；N 是本仓库自己的修订号，换上游 tag 后从 1 重新开始）。
+- 发版：更新 `VERSION` → CHANGELOG 顶部写条目 → 打 tag（`v0.65.2.2-r13`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 Release。
 - **只有本分叉自上一个 tag 以来有 fix / feat 类改动才发版**；纯文档、杂事不发版。
 
 ## 提交纪律

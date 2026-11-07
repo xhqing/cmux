@@ -4,6 +4,12 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 变更
+- **版本号记法去掉个人 handle：`-xhqing.N` → `-r<N>`**。旧写法把 GitHub handle 塞进版本号，作为面向使用者的发布版本号不够规范；新格式统一为 `<上游基线纯数字版本>-r<修订号>`（例如 `0.65.2.2-r13`），语义与旧记法完全等价，`-r<N>` 只表示「在上游 `0.65.2.2` 基线之上的第 N 号修订」。`VERSION` 本次写作 `0.65.2.2-r13`——与已发布的 `0.65.2.2-xhqing.13` 是同一修订，**只是记法变更，不制造新版本、不 bump 号**；历史 tag 与历史 CHANGELOG 条目一律不动。
+  - CI 同步：`build.yml` 的 tag 触发 glob 改为 `v*-r[0-9]*`，并在解析构建参数时新增一道修订后缀格式校验（后缀必须是 `r` + 纯数字，否则构建直接失败）；`attach-release-asset.yml` 的两处 tag 正则同步改为 `^v.*-r[0-9]+$`。
+  - 文档同步：`DEVELOPMENT.md`、`SYNC.md`、`.pi/APPEND_SYSTEM.md`、`README.md` / `README_cn.md`（双语）、`PATCHES.md`，以及 `build.yml` / `build-app-bundled-resources.sh` / `AboutPanelView.swift` 里的注释示例。
+  - 上游基线换 tag 后修订号从 1 重新开始；下一次发版 tag 形如 `v0.65.2.2-r14`。
+
 ### 文档
 - `README_cn.md`：删掉 PR #50（main 改动自动搬运流程测试）留在文末的 `test` 占位行。
 

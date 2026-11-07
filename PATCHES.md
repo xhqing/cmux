@@ -243,7 +243,7 @@ About 窗口的「Version」一行显示 `0.65.2.2`，而 GitHub Release / tag �
 ### 根因（读基线代码确认）
 
 1. `Sources/App/About/AboutPanelView.swift` 的 `version` 直接读 `CFBundleShortVersionString`。
-2. 这个键由 `MARKETING_VERSION` 注入，而 Apple 的规范要求它是 1~3 段纯数字，带 `-xhqing.N` 后缀会被工具链拒掉，所以 `build.yml` 只注入 `VERSION` 去掉后缀的前缀（见 DEVELOPMENT.md），迭代后缀天然进不了 Info.plist。
+2. 这个键由 `MARKETING_VERSION` 注入，而 Apple 的规范要求它是 1~3 段纯数字，带 `-rN` 后缀会被工具链拒掉，所以 `build.yml` 只注入 `VERSION` 去掉后缀的前缀（见 DEVELOPMENT.md），修订后缀天然进不了 Info.plist。
 3. `AboutPanelView` 里 `githubURL` 与 commit 链接都写死上游仓库地址。
 
 ### 改法（最小收敛点）

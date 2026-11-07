@@ -45,6 +45,18 @@ update_commit() {
   fi
 }
 
+# The About window shows this repository's own release version, which carries the
+# "-xhqing.N" iteration suffix that VERSION holds. CFBundleShortVersionString has to
+# stay numeric-only for Apple tooling and Launch Services, so the full string rides
+# in its own key next to CMUXCommit.
+update_version() {
+  local version
+  version="$(tr -d '[:space:]' < "${SRCROOT}/VERSION" 2>/dev/null || true)"
+  if [ -n "$version" ] && [ -f "$INFO_PLIST" ]; then
+    /usr/libexec/PlistBuddy -c "Set :CMUXVersion $version" "$INFO_PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CMUXVersion string $version" "$INFO_PLIST" >/dev/null 2>&1 || true
+  fi
+}
+
 fingerprint_tool() {
   local label="$1"
   shift
@@ -239,6 +251,7 @@ if [ -f "$STAMP" ] && [ -x "$GHOSTTY_HELPER_DEST" ] \
   && [ "$(cat "$STAMP")" = "$fingerprint" ] \
   && [ "$(cat "$OUTPUT_MANIFEST")" = "$output_fingerprint_value" ]; then
   update_commit
+  update_version
   echo "Bundled resources unchanged; skipping helper rebuilds"
   exit 0
 fi
@@ -328,6 +341,7 @@ if [ ! -x "$CMUX_CUA_HELPER_EXEC" ]; then
   exit 1
 fi
 update_commit
+update_version
 
 
 mkdir -p "$(dirname "$STAMP")"

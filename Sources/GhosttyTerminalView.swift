@@ -7315,6 +7315,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        KeyLatencyProbe.record(event: event, phase: "keyDown")
         // A fresh press invalidates the gesture's alternate-screen answer before
         // any early return, so a later repeat never reuses one from another key.
         if !event.isARepeat { textEditingGestureAlternateScreenAtPress = nil }
@@ -7841,6 +7842,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let handled = withPotentialClipboardPasteIntent {
             ghostty_surface_key(surface, keyEvent)
         }
+        KeyLatencyProbe.record(event: event, phase: "ghosttySent")
         if handled, keyEvent.action != GHOSTTY_ACTION_RELEASE {
             terminalSurface?.didAcceptExplicitInput()
             recordPredictedEchoInput(

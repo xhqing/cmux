@@ -63,7 +63,16 @@ extension TerminalController {
         let store = SocketClientCapabilitySecretStore(
             service: "\(audience).socket-client-capability"
         )
-        let usesEphemeralSecret = SocketControlSettings.isDebugLikeBundleIdentifier(audience)
+        // Only upstream cmux identities may use the Keychain-backed secret. A
+        // locally built, ad-hoc-signed app (e.g. `com.xhqing.cmux`) has no
+        // stable signing identity, so reading a Keychain item is blocked by
+        // the system and stalls socket startup — the listener never comes up
+        // and the CLI stays dead until relaunch. Use an ephemeral secret for
+        // every non-upstream bundle id instead.
+        let isUpstreamIdentity = audience == "com.cmuxterm.app"
+            || audience.hasPrefix("com.cmuxterm.app.")
+        let usesEphemeralSecret = !isUpstreamIdentity
+            || SocketControlSettings.isDebugLikeBundleIdentifier(audience)
             || SocketControlSettings.isStagingBundleIdentifier(audience)
         let secret = usesEphemeralSecret
             ? store.makeEphemeralSecret()

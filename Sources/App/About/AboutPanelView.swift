@@ -7,10 +7,25 @@ struct AboutPanelView: View {
 
     @Environment(\.openURL) private var openURL
 
-    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
+    private let repository = "https://github.com/xhqing/cmux"
+    private var githubURL: URL? { URL(string: repository) }
     private let docsURL = URL(string: "https://cmux.com/docs")
 
-    private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
+    /// Our own release version (`VERSION`, e.g. `0.65.2.2-xhqing.12`).
+    ///
+    /// `CFBundleShortVersionString` has to stay numeric-only for Apple tooling, so the
+    /// build injects the full string under `CMUXVersion`; older builds that predate that
+    /// key fall back to the numeric bundle version.
+    private var version: String? {
+        if let value = Bundle.main.infoDictionary?["CMUXVersion"] as? String, !value.isEmpty {
+            return value
+        }
+        let env = ProcessInfo.processInfo.environment["CMUX_VERSION"] ?? ""
+        if !env.isEmpty {
+            return env
+        }
+        return Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
     private var commit: String? {
         if let value = Bundle.main.infoDictionary?["CMUXCommit"] as? String, !value.isEmpty {
@@ -52,7 +67,7 @@ struct AboutPanelView: View {
                     }
                     let commitText = commit ?? "—"
                     let commitURL = commit.flatMap { hash in
-                        URL(string: "https://github.com/manaflow-ai/cmux/commit/\(hash)")
+                        URL(string: "\(repository)/commit/\(hash)")
                     }
                     AboutPropertyRow(label: String(localized: "about.commit", defaultValue: "Commit"), text: commitText, url: commitURL)
                 }

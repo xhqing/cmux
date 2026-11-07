@@ -229,3 +229,37 @@ VS Code 的 Markdown Editor 由一个 npm 包 `@vscode/markdown-editor`（MIT，
 
 - 离屏 WKWebView 冒烟（本机 `swiftc` + WebKit，不抢焦点）：块区间覆盖校验——`README.md` 24 块 / 4804 字节、`CHANGELOG.md` 前 120 行 42 块 / 14362 字节，**非空白字节全部落在某个块的区间内、无重叠**；点击开块、textarea 取到该块原文、提交后消息里的文档结构完整；锁定时点击只触发滑钮光泽、不开编辑层。
 - `swiftc -parse` 通过（6 个改动文件 + 2 个新增测试）；完整编译与运行时行为交由 CI / Release 构建验证（本机只有 CommandLineTools）。
+
+---
+
+## P5 — About 面板显示我们自己的发布版本号
+
+**状态**：已实现
+
+### 要解决的问题
+
+About 窗口的「Version」一行显示 `0.65.2.2`，而 GitHub Release / tag 上的版本是 `0.65.2.2-xhqing.12`——两处对不上，看不出装的是哪一次自建发布。旁边的「Commit」链接还指向上游仓库（`https://github.com/manaflow-ai/cmux/commit/<hash>`），可 hash 是我们自己仓库的，点开是 404。
+
+### 根因（读基线代码确认）
+
+1. `Sources/App/About/AboutPanelView.swift` 的 `version` 直接读 `CFBundleShortVersionString`。
+2. 这个键由 `MARKETING_VERSION` 注入，而 Apple 的规范要求它是 1~3 段纯数字，带 `-xhqing.N` 后缀会被工具链拒掉，所以 `build.yml` 只注入 `VERSION` 去掉后缀的前缀（见 DEVELOPMENT.md），迭代后缀天然进不了 Info.plist。
+3. `AboutPanelView` 里 `githubURL` 与 commit 链接都写死上游仓库地址。
+
+### 改法（最小收敛点）
+
+| 文件 | 改动 |
+| --- | --- |
+| `scripts/build-app-bundled-resources.sh` | 新增 `update_version()`：读仓库根 `VERSION`（去掉首尾空白）写进 Info.plist 的 `CMUXVersion` 键，在原来调用 `update_commit` 的两处（缓存命中早退分支 / 正常结束分支）一并调用。 |
+| `Sources/App/About/AboutPanelView.swift` | `version` 优先读 `CMUXVersion`，其次环境变量 `CMUX_VERSION`（本地开发用），最后才回退旧的 `CFBundleShortVersionString`；仓库地址收敛成一个 `repository` 常量，GitHub 按钮与 commit 链接都指向本仓库。 |
+| `.github/workflows/build.yml` | 校验 step 增加 `CMUXVersion` 与 `VERSION` 原值的比对，不一致直接红。 |
+| `DEVELOPMENT.md` | 版本号注入一节补记 `CMUXVersion` 的来源与校验。 |
+
+### 为什么不用「直接把后缀写进 `CFBundleShortVersionString`」
+
+那条路更短，但会绕开 Apple 对 bundle version 的格式约束（1~3 段纯数字），`ValidateEmbeddedBinary`、公证、Launch Services 的版本比较都可能因此报警或行为异常；而 `CMUXVersion` 是纯展示用的自有键，加它不影响任何系统行为。
+
+### 验证
+
+- `swiftc -parse` 通过（改动的 Swift 文件）。
+- 完整构建与 About 面板实际显示交由 CI Release 构建验证：校验 step 会打印 `release : <VERSION>` 与 About 面板的取值，两者不一致直接失败。

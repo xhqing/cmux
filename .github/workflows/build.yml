@@ -183,8 +183,12 @@ jobs:
           BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${PLIST}" || true)"
           VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${PLIST}" || true)"
           BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${PLIST}" || true)"
+          # 我们自己的发布版本号（带 "-xhqing.N" 后缀），About 面板就显示它。
+          RELEASE_VERSION="$(tr -d '[:space:]' < VERSION)"
+          ABOUT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CMUXVersion' "${PLIST}" || true)"
           echo "bundle id : ${BID}"
           echo "version   : ${VER} (build ${BUILD})"
+          echo "release   : ${RELEASE_VERSION}（About 面板显示值：${ABOUT_VERSION}）"
           echo "feed      : ${FEED}"
           echo "auto check: ${AUTO}"
           if [ "${BID}" != "com.xhqing.cmux" ]; then
@@ -193,6 +197,10 @@ jobs:
           fi
           if [ "${VER}" != "${MARKETING_VERSION}" ]; then
             echo "::error::CFBundleShortVersionString=${VER}，应为 ${MARKETING_VERSION}（VERSION 去后缀）"
+            exit 1
+          fi
+          if [ "${ABOUT_VERSION}" != "${RELEASE_VERSION}" ]; then
+            echo "::error::CMUXVersion=${ABOUT_VERSION}，应为 ${RELEASE_VERSION}（VERSION 原值，About 面板显示的版本号）"
             exit 1
           fi
           case "${FEED}" in

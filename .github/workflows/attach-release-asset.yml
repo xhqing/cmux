@@ -1,0 +1,134 @@
+name: attach-release-asset
+
+# 把 build-macos 构建出来的安装包自动挂到对应的 GitHub Release 上。
+#
+# 为什么单独一条 workflow，而不是塞进 build-macos：
+#   - 构建作业只需要只读权限；挂 Release 需要 contents: write。分开写，构建作业保持最小权限。
+#   - 构建要 1.5 小时，挂资产只要几十秒。分开之后可以单独重跑 / 补挂历史版本，不用重新构建。
+#   - workflow_run 触发（而不是 build.yml 里的一个步骤）意味着构建跑在 tag 的代码上，
+#     而挂资产这段逻辑永远取 main 上的最新版本。
+#
+# 触发方式：
+#   1) build-macos 成功结束且是 tag 构建 → 自动挂包（Release 不存在时顺手创建）；
+#   2) 手动 dispatch，填 run_id → 给历史构建补挂（归档里没有产物时会明确报错）。
+
+on:
+  workflow_run:
+    workflows: ["build-macos"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "要补挂的 build-macos run id（留空 = 最近一次成功的 tag 构建）"
+        required: false
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: attach-release-${{ github.event.workflow_run.id || inputs.run_id || 'latest' }}
+  cancel-in-progress: false
+
+jobs:
+  attach:
+    name: attach
+    # 失败的构建没有产物；手动 dispatch 时由步骤内自行校验 run 的结论。
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 解析构建 run 与 tag
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_ID_INPUT: ${{ github.event.workflow_run.id || inputs.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "${EVENT_NAME}" = "workflow_run" ] && [ "${RUN_CONCLUSION}" != "success" ]; then
+            echo "::notice::构建没有成功（${RUN_CONCLUSION}），不挂资产。"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          run_id="${RUN_ID_INPUT:-}"
+          if [ -z "${run_id}" ]; then
+            run_id="$(gh run list -R "${GITHUB_REPOSITORY}" --workflow build-macos \
+              --status success --limit 20 --json databaseId,headBranch \
+              --jq '[.[] | select(.headBranch | test("^v.*-xhqing\\.[0-9]+$"))][0].databaseId')"
+          fi
+          if [ -z "${run_id}" ] || [ "${run_id}" = "null" ]; then
+            echo "::error::找不到可用的 build-macos 运行记录（需要填 run_id）。"
+            exit 1
+          fi
+
+          info="$(gh run view "${run_id}" -R "${GITHUB_REPOSITORY}" --json headBranch,event,conclusion)"
+          tag="$(jq -r '.headBranch' <<<"${info}")"
+          conclusion="$(jq -r '.conclusion' <<<"${info}")"
+          event="$(jq -r '.event' <<<"${info}")"
+
+          echo "run=${run_id} event=${event} conclusion=${conclusion} ref=${tag}"
+
+          if [ "${conclusion}" != "success" ]; then
+            echo "::error::run ${run_id} 的结论是 ${conclusion}，没有可挂的产物。"
+            exit 1
+          fi
+          if ! [[ "${tag}" =~ ^v.*-xhqing\.[0-9]+$ ]]; then
+            echo "::notice::run ${run_id} 不是 tag 构建（ref=${tag}），跳过。"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: 下载构建产物
+        if: steps.resolve.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.resolve.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          if ! gh run download "${RUN_ID}" -R "${GITHUB_REPOSITORY}" -D artifacts; then
+            echo "::error::产物下载失败。Actions artifact 只保留 30 天，超期后只能重新构建。"
+            exit 1
+          fi
+          find artifacts -type f | sort
+
+      - name: 挂到 Release
+        if: steps.resolve.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t zips < <(find artifacts -name 'cmux-*.zip' -type f | sort)
+          if [ "${#zips[@]}" -eq 0 ]; then
+            echo "::error::构建产物里没有 cmux-*.zip。"
+            exit 1
+          fi
+          files=("${zips[@]}")
+          while IFS= read -r checksum; do
+            files+=("${checksum}")
+          done < <(find artifacts -name 'cmux-*.zip.sha256' -type f | sort)
+
+          # Release 一般由发版流程先建好（带 CHANGELOG 说明），这里只补资产；
+          # 万一只推了 tag 没有 Release，就按 tag 注释自动创建一条。
+          if gh release view "${TAG}" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${files[@]}" -R "${GITHUB_REPOSITORY}" --clobber
+            echo "::notice::已把 $(basename "${zips[0]}") 挂到 ${TAG}。"
+          else
+            gh release create "${TAG}" "${files[@]}" -R "${GITHUB_REPOSITORY}" \
+              --title "${TAG}" --generate-notes
+            echo "::notice::创建了 Release ${TAG} 并附上 $(basename "${zips[0]}")。"
+          fi
+
+          {
+            echo "### Release 资产"
+            echo ""
+            gh release view "${TAG}" -R "${GITHUB_REPOSITORY}" --json assets \
+              --jq '.assets[] | "- `\(.name)` (\(.size / 1048576 | floor) MB)"'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -2,7 +2,15 @@
 
 All notable changes to cmux are documented here.
 
+## [未发布]
+
+### Changed
+- **构建产物自动挂到 Release（2026-11-06）**：新增 `.github/workflows/attach-release-asset.yml`——`build-macos` 成功结束且是 tag 构建时，用 `workflow_run` 自动把 `cmux-<版本>-macos-<架构>.zip` 与 `.sha256` 挂到对应 Release（Release 已存在就 `--clobber` 补资产，不存在就顺手建一条）。此前 `build.yml` 只做 `actions/upload-artifact`，从来没有把包挂到 Release，所以 `.4` 之后每个版本的 Release 页面都是空的、按 README 装不了；这条补上了最后一步。单独一条 workflow 而不是塞进构建作业，是为了让构建保持 `contents: read`（挂资产需要 `contents: write`），并且挂资产可以单独重跑、给历史构建补挂（手动 dispatch 填 `run_id`）。
+
 ## [0.65.2.2-xhqing.10] - 2026-11-06
+
+### Added
+- **Markdown 面板新增「就地编辑」模式（预览态直接编辑，2026-11-06）**：预览面板头部加一个铅笔按钮进入该模式；面板右上角是 VS Code Markdown Editor 同款的「锁 / 笔」滑动开关，锁定时点击内容只会让开关闪一道镜面光泽提醒当前只读，解锁后点任意块即把**这一块的 Markdown 原文**展开在原地编辑。设计要点是**永远不把渲染后的 HTML 反序列化成 Markdown**：每个块在渲染时就记录了它在源文件里的 `[start, end)` 区间，提交时只替换这一段字节，所以没动过的块（表格、代码块、frontmatter、手工换行）一个字节都不会变。这是本机验证过的取舍：上游那份「整篇 contenteditable + DOM→Markdown 序列化」的 PR（manaflow-ai/cmux#12479）自己承认保存会归一化整个文档；而 VS Code 真正在用的 `@vscode/markdown-editor` 依赖 Chromium 专有的 `EditContext`，在 WKWebView 里直接 `ReferenceError: Can't find variable: EditContext`（已实测），搬不进来。Cmd+S 会先提交正在编辑的块再落盘；切到其它模式前也会先提交。取舍与边界见 `PATCHES.md` P4。
 
 ### Fixed
 - **修掉身份改写时的自我删除（PR #36）**：`reloads.sh` 在 `APP_NAME` 与构建产物同名（`cmux`）时，`rm -rf "$IDENTITY_APP_PATH"` 先把随后 `cp` 的源目录删掉，导致 `** BUILD SUCCEEDED **` 之后立即报 `cp: ... No such file or directory`。`.5`~`.9` 全部栽在这里，而 GitHub 截断的实时日志只显示到最后一行编译动作，看起来像被莫名杀掉。现在同名时跳过复制、原地改写 Info.plist 并重签。
@@ -33,16 +41,8 @@ All notable changes to cmux are documented here.
 ## [0.65.2.2-xhqing.5] - 2026-11-06
 
 ### Added
-- **Release 按键延迟探针（PR #25）**：`KeyLatencyProbe` 记录系统排队按键（`NSEvent.timestamp`）到 `keyDown` 处理、以及交给 Ghostty 的延迟，写入 `~/.local/state/cmux/key-latency.log`。默认关闭，用 `CMUX_KEY_LATENCY_PROBE=1` 或 `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true` 开启；关闭时每键只多一次静态检查。它补的是 CLI 端到端探针测不到的「键盘 / 输入法 → app」这一段。
-
-## [未发布]
-
-### Added
-- **Markdown 面板新增「就地编辑」模式（预览态直接编辑，2026-11-06）**：预览面板头部加一个铅笔按钮进入该模式；面板右上角是 VS Code Markdown Editor 同款的「锁 / 笔」滑动开关，锁定时点击内容只会让开关闪一道镜面光泽提醒当前只读，解锁后点任意块即把**这一块的 Markdown 原文**展开在原地编辑。设计要点是**永远不把渲染后的 HTML 反序列化成 Markdown**：每个块在渲染时就记录了它在源文件里的 `[start, end)` 区间，提交时只替换这一段字节，所以没动过的块（表格、代码块、frontmatter、手工换行）一个字节都不会变。这是本机验证过的取舍：上游那份「整篇 contenteditable + DOM→Markdown 序列化」的 PR（manaflow-ai/cmux#12479）自己承认保存会归一化整个文档；而 VS Code 真正在用的 `@vscode/markdown-editor` 依赖 Chromium 专有的 `EditContext`，在 WKWebView 里直接 `ReferenceError: Can't find variable: EditContext`（已实测），搬不进来。Cmd+S 会先提交正在编辑的块再落盘；切到其它模式前也会先提交。取舍与边界见 `PATCHES.md` P4。
-- **Release 按键延迟探针（2026-11-06）**：`GhosttyTerminalView.swift` 新增 `KeyLatencyProbe`，记录 `NSEvent.timestamp`（系统排队按键的时刻）到 `keyDown` 处理、以及交给 Ghostty（`ghosttySent`）的延迟，逐行写 `~/.local/state/cmux/key-latency.log`。默认关闭：`CMUX_KEY_LATENCY_PROBE=1` 或 `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true` 开启；关闭时每个按键只多一次静态 bool 检查。它补的是 `scripts/measure-input-latency.py` 测不到的「键盘 / 输入法 → app」这一段。
-
-### Changed
 - **app 身份改为本项目自己的正式身份（2026-11-06）**：`scripts/reloads.sh` 的默认产物从 `cmux STAGING` / `com.cmuxterm.app.staging` 改为 `cmux` / `com.xhqing.cmux`；socket 从 `/tmp/cmux-staging-*.sock` 改为 `~/Library/Application Support/cmux/cmux-xhqing.sock`，并通过 `LSEnvironment` 注入 `CMUX_ALLOW_SOCKET_OVERRIDE=1`（非 staging 的 bundle id 也能用自定义 socket）。`build.yml` 不再传 `--tag`，产物路径改为 `/tmp/cmux-build/Build/Products/Release/cmux.app`，Sparkle 校验步骤额外断言 bundle id 为 `com.xhqing.cmux`。`--tag` 仍保留给并行测试构建（`cmux <tag>` / `com.xhqing.cmux.<tag>`）。README 双语与 `DEVELOPMENT.md` 的安装说明同步。
+- **Release 按键延迟探针（PR #25）**：`KeyLatencyProbe` 记录系统排队按键（`NSEvent.timestamp`）到 `keyDown` 处理、以及交给 Ghostty 的延迟，写入 `~/.local/state/cmux/key-latency.log`。默认关闭，用 `CMUX_KEY_LATENCY_PROBE=1` 或 `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true` 开启；关闭时每键只多一次静态检查。它补的是 CLI 端到端探针测不到的「键盘 / 输入法 → app」这一段。
 
 ## [0.65.2.2-xhqing.4] - 2026-11-06
 

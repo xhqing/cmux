@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-xhqing.12] - 2026-11-07
+
+### Fixed
+- **修掉探针在错误作用域引用 `event` 导致的编译失败（PR #41）**：`ghosttySent` 那处调用所在的函数只有 `ghostty_input_key_s`、没有 `NSEvent`，Release 构建报 `error: cannot find 'event' in scope`。删掉该调用，保留 `keyDown` 入口处（有 `event: NSEvent`）的探针——它记录的「系统排队按键 → 终端处理」延迟正是需要的那一段。
+
 ## [0.65.2.2-xhqing.11] - 2026-11-07
 
 ### Fixed

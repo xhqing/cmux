@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [未发布]
+
+### 文档
+- `README_cn.md`：删掉 PR #50（main 改动自动搬运流程测试）留在文末的 `test` 占位行。
+
 ## [0.65.2.2-xhqing.13] - 2026-11-07
 
 ### Fixed

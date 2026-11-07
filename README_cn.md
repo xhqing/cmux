@@ -80,4 +80,3 @@ cp -R "/tmp/cmux-xhqing/cmux.app" /Applications/
 
 cmux 由 [Manaflow](https://github.com/manaflow-ai/cmux) 开发，终端内核是 [Ghostty](https://github.com/ghostty-org/ghostty) 的分叉。上游版权归其作者所有；本仓库只承载 [PATCHES.md](PATCHES.md) 里列出的补丁和一条压平的历史。许可条款见 [LICENSE](LICENSE) 与 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)（GPL-3.0-or-later，另含第三方声明）。
 
-test

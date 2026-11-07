@@ -7842,7 +7842,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let handled = withPotentialClipboardPasteIntent {
             ghostty_surface_key(surface, keyEvent)
         }
-        KeyLatencyProbe.record(event: event, phase: "ghosttySent")
         if handled, keyEvent.action != GHOSTTY_ACTION_RELEASE {
             terminalSurface?.didAcceptExplicitInput()
             recordPredictedEchoInput(

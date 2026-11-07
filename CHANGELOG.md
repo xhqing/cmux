@@ -2,6 +2,14 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-xhqing.11] - 2026-11-07
+
+### Fixed
+- **修掉 socket 监听被 Keychain 读取卡住的问题（PR #39）**：`makeSocketClientCapabilityAuthority` 原来只给 debug / staging 身份用临时 secret，其它 bundle id 都去读 Keychain；自建版是 ad-hoc 签名，系统会拦住这次 Keychain 读取，监听永远起不来（无 socket 文件、无崩溃、前台后台启动都一样）。现在凡是不属于上游 `com.cmuxterm.app` 家族的身份都用临时 secret。
+
+### Added
+- **按键延迟探针回归（放在 `GhosttyTitleUpdateIngress.swift` 这个小文件里）**：记录 `NSEvent.timestamp` 到 `keyDown`、以及交给 Ghostty 的延迟，写 `~/.local/state/cmux/key-latency.log`。默认关闭：`CMUX_KEY_LATENCY_PROBE=1` 或 `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true`。放在小文件里而不是 1.3 万行的 `GhosttyTerminalView.swift` 顶部，避免再次触发编译期问题。
+
 ## [未发布]
 
 ### Changed

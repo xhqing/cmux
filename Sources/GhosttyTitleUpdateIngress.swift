@@ -1,6 +1,49 @@
 import CmuxFoundation
 import CmuxTerminalCore
+import AppKit
 import Foundation
+
+/// Release-safe key-latency probe. Off by default; enable with
+/// `CMUX_KEY_LATENCY_PROBE=1` or `defaults write <bundle-id> cmuxKeyLatencyProbe -bool true`.
+/// Appends one line per key event to `~/.local/state/cmux/key-latency.log`:
+/// `<unixTime> <phase> <delayMs> <keyCode> <isRepeat>`, where delayMs is the gap
+/// between the system event timestamp and the moment the terminal handles it.
+/// This is the segment an out-of-process CLI probe cannot measure (physical key /
+/// IME / event routing -> app). When disabled it costs one static check.
+enum KeyLatencyProbe {
+    static let isEnabled: Bool = {
+        ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1"
+            || UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
+    }()
+
+    private static let queue = DispatchQueue(label: "com.cmuxterm.key-latency-probe")
+    private static let logPath: String = {
+        let dir = ("~/.local/state/cmux" as NSString).expandingTildeInPath
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        return (dir as NSString).appendingPathComponent("key-latency.log")
+    }()
+
+    @inline(__always)
+    static func record(event: NSEvent, phase: String) {
+        guard isEnabled, event.timestamp > 0 else { return }
+        let delayMs = max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000)
+        let line = String(format: "%.3f", Date().timeIntervalSince1970)
+            + " " + phase
+            + " " + String(format: "%.2f", delayMs)
+            + " " + String(event.keyCode)
+            + " " + (event.isARepeat ? "1" : "0") + "\n"
+        queue.async {
+            let data = Data(line.utf8)
+            if let handle = FileHandle(forWritingAtPath: logPath) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            } else {
+                _ = FileManager.default.createFile(atPath: logPath, contents: data)
+            }
+        }
+    }
+}
 
 /// Synchronous callback ingress: duplicate titles are rejected before an
 /// asynchronous message is enqueued. Each ingress belongs to one Ghostty view,

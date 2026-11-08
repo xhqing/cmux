@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [Unreleased]
+## [0.65.2.2-r14] - 2026-11-08
 
 ### Fixed
 - **空窗口的标题栏不再残留已关闭工作区的目录路径（Issue #55）**：关掉窗口里最后一个工作区后，窗口按 Issue #2 的语义保留为空状态（侧边栏与内容区都空），但顶部的自定义标题栏仍显示刚关掉那个工作区的路径（形如 `~/Developer/<项目名>`），一直不消失。原因是 `Sources/ContentView.swift` 里 `.onChange(of: tabManager.selectedTabId)` 的处理器在 `guard let authoritativeSelection else { return }` 处提前返回，跳过了末尾的 `updateTitlebarText()`；标题栏文字是 `@State` 缓存，只在这个方法里更新（它本身能处理「无选中工作区」，会清空为空字符串），nil 分支不调用就一直留着旧值。现在 nil 分支也调用 `updateTitlebarText()`，标题栏随最后一个工作区关闭一起清空。

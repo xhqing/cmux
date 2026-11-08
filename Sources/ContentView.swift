@@ -2747,7 +2747,15 @@ struct ContentView: View {
             }
             reconcileMountedWorkspaceIds(selectedId: authoritativeSelection)
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
-            guard let authoritativeSelection else { return }
+            guard let authoritativeSelection else {
+                // Closing the last workspace keeps the window around as an empty
+                // window with no selection; the titlebar text is cached state and
+                // would otherwise keep showing the closed workspace's title, so it
+                // must be cleared here (this branch used to return before the
+                // refresh below).
+                updateTitlebarText()
+                return
+            }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [authoritativeSelection]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex {

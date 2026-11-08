@@ -1512,6 +1512,212 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(autoFailedButtons.filter { $0 == expectedOpenURLButton }.count, 1)
     }
 
+    /// `markdown.loadRemoteImages` (default on in this fork): safe HTTPS remote
+    /// images load without a click, unsafe ones keep the blocked placeholder,
+    /// and a failed auto-load hands the image back with the manual buttons.
+    /// The shell keeps its manual flow as the default, so the host has to push
+    /// the setting in — the test drives that through the same JS entry point
+    /// the coordinator uses.
+    func testMarkdownRenderAutoLoadsRemoteImagesWhenEnabled() async throws {
+        let markdownURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-remote-image-auto-\(UUID().uuidString).md")
+
+        let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
+        let configuration = WKWebViewConfiguration()
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let remoteImageHandler = MarkdownRemoteImageHoldingSchemeHandler()
+        let bridge = MarkdownRecordingScriptMessageHandler()
+        coordinator.filePath = markdownURL.path
+        configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
+        configuration.setURLSchemeHandler(remoteImageHandler, forURLScheme: MarkdownWebRenderer.remoteImageURLScheme)
+        configuration.userContentController.add(bridge, name: "cmuxLib")
+        let webView = MarkdownWebView(frame: frame, configuration: configuration)
+        coordinator.webView = webView
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            coordinator.webView = nil
+            coordinator.cancelImageLoads()
+            remoteImageHandler.cancelOpenTasks()
+            window.close()
+        }
+
+        let loaded = expectation(description: "markdown shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            baseURL: markdownURL
+        )
+        try await awaitMarkdownShellLoad(loaded, delegate: loadDelegate)
+
+        let expectedLoadButton = String(
+            localized: "markdown.web.remoteImageLoadImage",
+            defaultValue: "Load this image"
+        )
+        let expectedCopyURLButton = String(
+            localized: "markdown.web.remoteImageCopyURL",
+            defaultValue: "Copy image URL"
+        )
+        let expectedOpenURLButton = String(
+            localized: "markdown.web.remoteImageOpenURL",
+            defaultValue: "Open image URL"
+        )
+        let expectedHTTPSOnlyMessage = String(
+            localized: "markdown.web.remoteImageHTTPSOnly",
+            defaultValue: "Only HTTPS remote images can be loaded in the viewer."
+        )
+
+        // Order 1: the setting is already on when the panel renders.
+        let enabled = try await evaluateJavaScript(
+            """
+            (function() {
+              if (!window.__cmuxSetRemoteImageAutoLoad) { return false; }
+              window.__cmuxSetRemoteImageAutoLoad(true);
+              return true;
+            })();
+            """,
+            in: webView,
+            describedAs: "enable remote image auto-loading in the viewer shell"
+        )
+        XCTAssertEqual(enabled as? Bool, true)
+
+        try await renderMarkdown(
+            """
+            ![Auto loaded remote](https://images.example.com/auto.png)
+            ![HTTP remote](http://images.example.com/pixel.png)
+            """,
+            in: webView
+        )
+
+        // The page still asks the host for this exact URL: auto-load only
+        // removes the click, never the approval handshake.
+        try await bridge.waitForMessage(
+            action: "approveRemoteImage",
+            url: "https://images.example.com/auto.png"
+        )
+        let blocked = try await remoteImageSnapshot(in: webView)
+        let blockedImages = try XCTUnwrap(blocked["images"] as? [[String: Any]])
+        let blockedPlaceholders = try XCTUnwrap(blocked["placeholders"] as? [String])
+        let blockedButtons = try XCTUnwrap(blocked["buttons"] as? [String])
+        let autoImage = try XCTUnwrap(blockedImages.first { $0["alt"] as? String == "Auto loaded remote" })
+        let httpImage = try XCTUnwrap(blockedImages.first { $0["alt"] as? String == "HTTP remote" })
+        XCTAssertEqual(autoImage["src"] as? String, "")
+        XCTAssertEqual(autoImage["hidden"] as? Bool, true)
+        XCTAssertEqual(httpImage["src"] as? String, "")
+        XCTAssertEqual(httpImage["hidden"] as? Bool, true)
+        XCTAssertEqual(blockedPlaceholders.count, 2)
+        XCTAssertEqual(blockedButtons.filter { $0 == expectedLoadButton }.count, 1)
+        // Nothing flashes while loading: the auto-load placeholder is collapsed,
+        // while the ineligible HTTP image keeps its visible box and message.
+        let autoWaitingState = try await remoteImagePlaceholderDisplayState(alt: "Auto loaded remote", in: webView)
+        XCTAssertEqual(autoWaitingState, "hidden")
+        let httpWaitingState = try await remoteImagePlaceholderDisplayState(alt: "HTTP remote", in: webView)
+        XCTAssertEqual(httpWaitingState, "visible")
+        XCTAssertTrue(blockedPlaceholders.contains { $0.contains(expectedHTTPSOnlyMessage) })
+
+        _ = try await evaluateJavaScript(
+            "window.__cmuxRemoteImageApproved('https://images.example.com/auto.png');",
+            in: webView,
+            describedAs: "deliver the host approval for the auto-loaded remote image"
+        )
+        let loading = try await remoteImageSnapshot(in: webView)
+        let loadingImages = try XCTUnwrap(loading["images"] as? [[String: Any]])
+        let loadingAutoImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "Auto loaded remote" })
+        XCTAssertTrue((loadingAutoImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
+        XCTAssertEqual(loadingAutoImage["hidden"] as? Bool, true)
+        let autoLoadingState = try await remoteImagePlaceholderDisplayState(alt: "Auto loaded remote", in: webView)
+        XCTAssertEqual(autoLoadingState, "hidden")
+
+        _ = try await evaluateJavaScript(
+            """
+            (function() {
+              var img = document.querySelector('img[alt="Auto loaded remote"]');
+              if (img) { img.dispatchEvent(new Event('load')); }
+            })();
+            """,
+            in: webView,
+            describedAs: "deliver a load event to the auto-loaded remote image"
+        )
+        let loadedSnapshot = try await remoteImageSnapshot(in: webView)
+        let loadedImages = try XCTUnwrap(loadedSnapshot["images"] as? [[String: Any]])
+        let loadedPlaceholders = try XCTUnwrap(loadedSnapshot["placeholders"] as? [String])
+        let loadedImage = try XCTUnwrap(loadedImages.first { $0["alt"] as? String == "Auto loaded remote" })
+        XCTAssertEqual(loadedImage["hidden"] as? Bool, false)
+        XCTAssertEqual(loadedPlaceholders.count, 1)
+        let loadedState = try await remoteImagePlaceholderDisplayState(alt: "Auto loaded remote", in: webView)
+        XCTAssertEqual(loadedState, "missing")
+
+        // A failed auto-load must hand the image back with all three fallbacks.
+        try await renderMarkdown(
+            "![Auto failed remote](https://images.example.com/fail.png)\n",
+            in: webView
+        )
+        try await bridge.waitForMessage(
+            action: "approveRemoteImage",
+            url: "https://images.example.com/fail.png"
+        )
+        _ = try await evaluateJavaScript(
+            """
+            (function() {
+              window.__cmuxRemoteImageApproved('https://images.example.com/fail.png');
+              var img = document.querySelector('img[alt="Auto failed remote"]');
+              if (img) { img.dispatchEvent(new Event('error')); }
+            })();
+            """,
+            in: webView,
+            describedAs: "fail the auto-loaded remote image"
+        )
+        let failed = try await remoteImageSnapshot(in: webView)
+        let failedImages = try XCTUnwrap(failed["images"] as? [[String: Any]])
+        let failedPlaceholders = try XCTUnwrap(failed["placeholders"] as? [String])
+        let failedButtons = try XCTUnwrap(failed["buttons"] as? [String])
+        let failedImage = try XCTUnwrap(failedImages.first { $0["alt"] as? String == "Auto failed remote" })
+        XCTAssertEqual(failedImage["src"] as? String, "")
+        XCTAssertEqual(failedImage["hidden"] as? Bool, true)
+        XCTAssertEqual(failedPlaceholders.count, 1)
+        XCTAssertEqual(failedButtons.filter { $0 == expectedLoadButton }.count, 1)
+        XCTAssertEqual(failedButtons.filter { $0 == expectedCopyURLButton }.count, 1)
+        XCTAssertEqual(failedButtons.filter { $0 == expectedOpenURLButton }.count, 1)
+        let failedState = try await remoteImagePlaceholderDisplayState(alt: "Auto failed remote", in: webView)
+        XCTAssertEqual(failedState, "visible")
+
+        // Order 2: a document is already on screen when the setting turns on.
+        _ = try await evaluateJavaScript(
+            "window.__cmuxSetRemoteImageAutoLoad(false);",
+            in: webView,
+            describedAs: "disable remote image auto-loading again"
+        )
+        try await renderMarkdown(
+            "![Late auto remote](https://images.example.com/late.png)\n",
+            in: webView
+        )
+        let lateBlocked = try await remoteImageSnapshot(in: webView)
+        let lateBlockedButtons = try XCTUnwrap(lateBlocked["buttons"] as? [String])
+        XCTAssertEqual(lateBlockedButtons.filter { $0 == expectedLoadButton }.count, 1)
+
+        _ = try await evaluateJavaScript(
+            "window.__cmuxSetRemoteImageAutoLoad(true);",
+            in: webView,
+            describedAs: "enable remote image auto-loading after the document rendered"
+        )
+        try await bridge.waitForMessage(
+            action: "approveRemoteImage",
+            url: "https://images.example.com/late.png"
+        )
+        let lateLoading = try await remoteImageSnapshot(in: webView)
+        let lateLoadingImages = try XCTUnwrap(lateLoading["images"] as? [[String: Any]])
+        let lateLoadingButtons = try XCTUnwrap(lateLoading["buttons"] as? [String])
+        let lateLoadingImage = try XCTUnwrap(lateLoadingImages.first { $0["alt"] as? String == "Late auto remote" })
+        XCTAssertEqual(lateLoadingImage["src"] as? String, "")
+        XCTAssertEqual(lateLoadingImage["hidden"] as? Bool, true)
+        XCTAssertEqual(lateLoadingButtons.filter { $0 == expectedLoadButton }.count, 0)
+        let lateWaitingState = try await remoteImagePlaceholderDisplayState(alt: "Late auto remote", in: webView)
+        XCTAssertEqual(lateWaitingState, "hidden")
+    }
+
     func testMarkdownRemoteImageSecurityRejectsUnsafeTargets() throws {
         func url(_ string: String) throws -> URL {
             try XCTUnwrap(URL(string: string))
@@ -1946,6 +2152,25 @@ final class MarkdownPanelTests: XCTestCase {
             snapshot["text"] as? String == expectedText
                 && (snapshot["copied"] == nil || snapshot["copied"] is NSNull)
         }
+    }
+
+    /// Reports whether the placeholder built for `alt` is visible, collapsed
+    /// (auto-load in flight) or already removed (image loaded).
+    private func remoteImagePlaceholderDisplayState(alt: String, in webView: WKWebView) async throws -> String {
+        let result = try await evaluateJavaScript(
+            """
+            (function() {
+              var img = document.querySelector('img[alt="\(alt)"]');
+              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+              if (!placeholder) { return 'missing'; }
+              return placeholder.style.display === 'none' ? 'hidden' : 'visible';
+            })();
+            """,
+            in: webView,
+            describedAs: "read the remote image placeholder display state for \(alt)"
+        )
+        return try XCTUnwrap(result as? String)
     }
 
     private func remoteImageSnapshot(in webView: WKWebView) async throws -> [String: Any] {

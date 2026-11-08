@@ -264,6 +264,7 @@ extension CmuxSettingsFileStore {
                     "fontSize": Int(MarkdownFontSizeSettings.defaultPointSize),
                     "fontFamily": "",
                     "maxWidth": Int(MarkdownMaxWidthSettings.defaultCSSPixels),
+                    "loadRemoteImages": MarkdownRemoteImageSettings.builtInDefault,
                 ],
             ],
             [

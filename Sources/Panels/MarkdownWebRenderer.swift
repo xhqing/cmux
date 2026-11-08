@@ -22,6 +22,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let fontFamily: String
     /// Maximum content column width, in CSS pixels.
     let maxContentWidth: Double
+    /// Whether safe HTTPS remote images load without a per-image click. The
+    /// shell keeps its HTTPS/private-host checks either way; see
+    /// ``MarkdownRemoteImageSettings``.
+    var loadRemoteImages: Bool = MarkdownRemoteImageSettings.builtInDefault
     /// Whether the in-place block editor layer is installed. The viewer keeps
     /// rendering exactly as before; the layer only adds block activation.
     var isEditingEnabled: Bool = false
@@ -67,6 +71,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
+            context.coordinator.setLoadRemoteImages(loadRemoteImages)
             return webView
         }
 
@@ -118,6 +123,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.setLoadRemoteImages(loadRemoteImages)
         context.coordinator.configureEditing(
             enabled: isEditingEnabled,
             locked: isEditorLocked,
@@ -140,6 +146,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.setLoadRemoteImages(loadRemoteImages)
         context.coordinator.configureEditing(
             enabled: isEditingEnabled,
             locked: isEditorLocked,
@@ -200,6 +207,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastFontFamily: String = ""
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
+        /// Whether safe remote images auto-load in the current shell document.
+        /// This page-side flag is lost when the shell reloads, so it is
+        /// re-applied in `didFinish`.
+        private var lastLoadRemoteImages: Bool = MarkdownRemoteImageSettings.builtInDefault
+        /// The flag the current shell document already received, so ordinary
+        /// SwiftUI layout passes do not re-run the page-side sweep.
+        private var appliedLoadRemoteImages: Bool?
         private var isLoaded = false
         private var isShellLoading = false
 
@@ -381,6 +395,26 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
 
+        /// Records whether safe remote images should load without a per-image
+        /// click and pushes the flag into the page. The shell still runs the
+        /// same HTTPS/private-host checks and still asks the host to approve
+        /// each URL; only the click is skipped.
+        func setLoadRemoteImages(_ enabled: Bool) {
+            lastLoadRemoteImages = enabled
+            applyLoadRemoteImages()
+        }
+
+        private func applyLoadRemoteImages() {
+            guard let webView else { return }
+            guard appliedLoadRemoteImages != lastLoadRemoteImages else { return }
+            appliedLoadRemoteImages = lastLoadRemoteImages
+            let enabled = lastLoadRemoteImages ? "true" : "false"
+            webView.evaluateJavaScript(
+                "window.__cmuxSetRemoteImageAutoLoad && window.__cmuxSetRemoteImageAutoLoad(\(enabled));",
+                completionHandler: nil
+            )
+        }
+
         func close() {
             if let webView {
                 webView.stopLoading()
@@ -396,6 +430,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
             appliedEditingEnabled = nil
             appliedEditingLocked = nil
+            appliedLoadRemoteImages = nil
             self.webView = nil
             isLoaded = false
             isShellLoading = false
@@ -414,6 +449,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             requestedLibs.removeAll()
             isLoaded = false
             isShellLoading = true
+            // A fresh document starts with the shell's manual default; the
+            // `didFinish` pass has to send the saved value again.
+            appliedLoadRemoteImages = nil
             remoteImageApprovals.revokeAll()
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
@@ -938,6 +976,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // so it MUST be re-applied after every shell (re)load.
             applyFontFamily()
             applyMaxContentWidth()
+            // The remote-image auto-load flag is page state too: a shell reload
+            // resets it to the manual (upstream) flow, so re-apply it before
+            // the markdown replay renders any image.
+            applyLoadRemoteImages()
             applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
             // Keep the recovery budget scoped to the current markdown payload:

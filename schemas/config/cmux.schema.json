@@ -2365,6 +2365,12 @@
           "default": 980,
           "description": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers.",
           "descriptionKey": "schemaDescriptions.markdown.maxWidth"
+        },
+        "loadRemoteImages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Load safe HTTPS remote images (README badges and similar) in the markdown viewer without clicking each one. Only HTTPS URLs with no credentials, port 443 and a public host are eligible; anything else keeps the blocked placeholder. Turn this off to restore the per-image \"Load this image\" confirmation.",
+          "descriptionKey": "schemaDescriptions.markdown.loadRemoteImages"
         }
       }
     },

@@ -6,9 +6,11 @@ import Foundation
 /// The viewer shell rewrites approved images to the `cmux-remote-image`
 /// scheme, but page script can request any URL on that scheme. The native
 /// scheme handler therefore fetches only URLs present in this record, and the
-/// record is filled only through the viewer's explicit "Load this image"
-/// action. Each coordinator owns one record and clears it whenever it loads a
-/// new shell document.
+/// record is filled only through the shell's approval message: the reader's
+/// "Load this image" click, or — when `markdown.loadRemoteImages` is on — the
+/// page raising the same message on the reader's behalf for a URL that passed
+/// its safety checks. Each coordinator owns one record and clears it whenever
+/// it loads a new shell document.
 public struct MarkdownRemoteImageApprovals: Sendable {
     private var approvedURLs: Set<String> = []
 

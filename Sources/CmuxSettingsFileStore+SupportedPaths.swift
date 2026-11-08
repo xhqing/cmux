@@ -220,6 +220,7 @@ extension CmuxSettingsFileStore {
         "markdown.fontSize",
         "markdown.fontFamily",
         "markdown.maxWidth",
+        "markdown.loadRemoteImages",
         "customSidebars.renderer",
         "canvas.paneGap",
         "canvas.snappingEnabled",

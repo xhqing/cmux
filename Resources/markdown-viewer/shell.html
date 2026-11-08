@@ -756,6 +756,15 @@ html { scroll-behavior: smooth; }
 
   var remoteImageAllowedURLs = Object.create(null);
 
+  // Whether the saved `markdown.loadRemoteImages` setting lets safe remote
+  // images load without a per-image click. The page starts manual (upstream
+  // behavior); the host pushes the saved value in before the first render and
+  // again after every shell reload, since a reload resets this flag.
+  var remoteImagesAutoLoad = false;
+  // URLs the auto-load path already handed to the host for approval, so a
+  // document that references one image several times asks only once.
+  var remoteImageAutoLoadRequests = Object.create(null);
+
   function cmuxRemoteImageURL(value) {
     var info = remoteImageInfo(value);
     if (!info || !info.https) { return null; }
@@ -778,6 +787,11 @@ html { scroll-behavior: smooth; }
   function setRemoteImageLoadingState(img, loading) {
     var placeholder = remoteImagePlaceholderForImage(img);
     if (!placeholder) { return; }
+    if (!loading) {
+      // A failed auto-load hands the image back to the reader: show the
+      // placeholder again with its three fallback buttons.
+      revealAutoLoadingRemoteImagePlaceholder(img);
+    }
     var buttons = placeholder.querySelectorAll('button[data-cmux-remote-action="load"]');
     Array.prototype.slice.call(buttons).forEach(function(button) {
       if (loading) {
@@ -857,7 +871,70 @@ html { scroll-behavior: smooth; }
 
   window.__cmuxRemoteImageRejected = function(href) {
     delete remoteImageAllowedURLs[href];
+    delete remoteImageAutoLoadRequests[href];
     remoteImagesForHref(href).forEach(function(img) { setRemoteImageLoadingState(img, false); });
+  };
+
+  // The auto-load path keeps the reader in the loop exactly like a click does:
+  // it still asks the host for approval for this one URL, and the host still
+  // fetches only URLs it approved. The only difference is that the reader does
+  // not have to press "Load this image" first.
+  function hideAutoLoadingRemoteImagePlaceholder(img) {
+    var placeholder = remoteImagePlaceholderForImage(img);
+    if (!placeholder) { return; }
+    placeholder.setAttribute('data-cmux-remote-autoload', '1');
+    // The class rule sets `display: inline-flex`, which outranks the UA
+    // `[hidden]` rule, so collapse the box with an inline style instead.
+    placeholder.style.display = 'none';
+  }
+
+  function revealAutoLoadingRemoteImagePlaceholder(img) {
+    var placeholder = remoteImagePlaceholderForImage(img);
+    if (!placeholder || placeholder.getAttribute('data-cmux-remote-autoload') !== '1') { return; }
+    placeholder.removeAttribute('data-cmux-remote-autoload');
+    placeholder.style.display = '';
+  }
+
+  function autoLoadRemoteImage(img, href) {
+    hideAutoLoadingRemoteImagePlaceholder(img);
+    // A URL the host already approved in this document needs no new round
+    // trip: re-renders create fresh image elements for it.
+    if (remoteImageAllowedURLs[href]) {
+      loadRemoteImage(img);
+      return;
+    }
+    if (remoteImageAutoLoadRequests[href]) { return; }
+    remoteImageAutoLoadRequests[href] = true;
+    if (!loadApprovedRemoteImage(href)) {
+      delete remoteImageAutoLoadRequests[href];
+    }
+  }
+
+  // Used when the setting is switched on after a document is already on
+  // screen: pick up every remote image the manual flow left blocked.
+  function autoLoadPendingRemoteImages() {
+    contentEl.querySelectorAll('img[data-cmux-remote-src]').forEach(function(img) {
+      if (img.getAttribute('data-cmux-remote-loading') === '1') { return; }
+      var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
+      var info = remoteImageInfo(raw);
+      if (!info || !remoteImageCanOfferLoad(info)) { return; }
+      autoLoadRemoteImage(img, info.href);
+    });
+  }
+
+  window.__cmuxSetRemoteImageAutoLoad = function(enabled) {
+    remoteImagesAutoLoad = !!enabled;
+    if (remoteImagesAutoLoad) {
+      autoLoadPendingRemoteImages();
+      return;
+    }
+    // Switching the setting off only affects images that have not started
+    // loading yet; anything already approved stays as the reader sees it.
+    remoteImageAutoLoadRequests = Object.create(null);
+    contentEl.querySelectorAll('img[data-cmux-remote-src]').forEach(function(img) {
+      if (img.getAttribute('data-cmux-remote-loading') === '1') { return; }
+      revealAutoLoadingRemoteImagePlaceholder(img);
+    });
   };
 
   function appendRemoteImageText(placeholder, key, fallback, replacements) {
@@ -1003,6 +1080,10 @@ html { scroll-behavior: smooth; }
     );
 
     insertRemoteImagePlaceholder(img, placeholder);
+    if (canOfferLoad && remoteImagesAutoLoad) {
+      autoLoadRemoteImage(img, info.href);
+      return;
+    }
     if (canOfferLoad && remoteImageAllowedURLs[info.href]) {
       loadRemoteImage(img);
     }

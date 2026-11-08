@@ -80,6 +80,7 @@ enum SettingsSearchAliasIndex {
         "app:markdown-font-size": localized("settings.search.alias.setting.app.markdown-font-size", defaultValue: "markdown.fontSize md markdown viewer font size points zoom scale text bigger smaller larger default"),
         "app:markdown-font-family": localized("settings.search.alias.setting.app.markdown-font-family", defaultValue: "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),
         "app:markdown-max-width": localized("settings.search.alias.setting.app.markdown-max-width", defaultValue: "markdown.maxWidth md markdown viewer max width column reading line length pixels px narrow wide"),
+        "app:markdown-load-remote-images": localized("settings.search.alias.setting.app.markdown-load-remote-images", defaultValue: "markdown.loadRemoteImages md markdown viewer remote image images badge badges shields.io privacy consent block"),
         "app:file-editor-word-wrap": localized("settings.search.alias.setting.app.file-editor-word-wrap", defaultValue: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
         "app:file-editor-syntax-highlighting": localized("settings.search.alias.setting.app.file-editor-syntax-highlighting", defaultValue: "fileEditor.syntaxHighlighting syntax highlight colors tokens code"),
         "app:file-editor-line-numbers": localized("settings.search.alias.setting.app.file-editor-line-numbers", defaultValue: "fileEditor.lineNumbers gutter line numbers"),

@@ -38,6 +38,34 @@ public struct MarkdownCatalogSection: SettingCatalogSection {
         userDefaultsKey: "markdown.maxWidth"
     )
 
+    /// Whether safe HTTPS remote images load without a per-image click.
+    ///
+    /// cmux fork (xhqing): defaults to `true` so README badges and other remote
+    /// images render like they do in GitHub and VS Code previews. The viewer
+    /// still only contacts URLs that pass its HTTPS / no-credentials /
+    /// public-host checks, and the host still records each approval. Turn this
+    /// off to restore the upstream per-image "Load this image" consent flow.
+    public let loadRemoteImages = DefaultsKey<Bool>(
+        id: "markdown.loadRemoteImages",
+        defaultValue: true,
+        userDefaultsKey: "markdown.loadRemoteImages",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.markdownLoadRemoteImages",
+                defaultValue: "Load Remote Images in Markdown Viewer"
+            ),
+            section: .app,
+            searchID: "markdown-load-remote-images",
+            searchKeywords: ["remote", "image", "badge", "privacy", "markdown", "preview"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "markdownLoadRemoteImages",
+                    keywords: ["remote", "image", "badge", "privacy", "markdown"]
+                )
+            ))
+        )
+    )
+
     /// Creates the markdown settings section with its default keys.
     public init() {}
 }

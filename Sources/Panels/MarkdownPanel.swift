@@ -77,6 +77,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// `MarkdownMaxWidthSettings`.
     @Published private(set) var maxContentWidth: Double
 
+    /// Whether safe HTTPS remote images load without a per-image click.
+    /// A shared preference (not per-panel), so it always follows
+    /// `MarkdownRemoteImageSettings`; the persistent value lives under
+    /// `markdown.loadRemoteImages`.
+    @Published private(set) var loadRemoteImages: Bool
+
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
     let rendererSession = MarkdownRendererSession()
@@ -170,6 +176,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
         self.fontFamily = defaultFamily
         self.maxContentWidth = defaultMaxWidth
+        self.loadRemoteImages = MarkdownRemoteImageSettings.resolvedDefault()
         self.followedFontSize = defaultSize
         self.followedFontFamily = defaultFamily
         self.followedMaxContentWidth = defaultMaxWidth
@@ -276,9 +283,23 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private func observeTypographyDefaults() {
         typographyDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: UserDefaults.standard) { [weak self] in
             Task { @MainActor in
+                // The remote-image setting is shared by every viewer, so a
+                // cmux.json reload has to reach this panel even after the
+                // user customized its typography.
+                self?.refreshLoadRemoteImages()
                 self?.adoptTypographyDefaultsIfFollowing()
             }
         }
+    }
+
+    /// Adopts a changed `markdown.loadRemoteImages` default (Settings toggle or
+    /// cmux.json reload). Unlike typography there is no per-panel override, so
+    /// every open viewer follows the stored value.
+    private func refreshLoadRemoteImages() {
+        guard !isClosed else { return }
+        let resolved = MarkdownRemoteImageSettings.resolvedDefault()
+        guard resolved != loadRemoteImages else { return }
+        loadRemoteImages = resolved
     }
 
     private func adoptTypographyDefaultsIfFollowing() {

@@ -299,6 +299,9 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().markdown.loadRemoteImages
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "fileEditorWordWrap",
                 settingsKey: "fileEditor.wordWrap",
                 title: {

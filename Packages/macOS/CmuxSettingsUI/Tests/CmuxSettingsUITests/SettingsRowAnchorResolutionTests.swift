@@ -38,6 +38,7 @@ struct SettingsRowAnchorResolutionTests {
     static let rowConfigPaths: [String] = [
         "app.accentColor",
         "app.commandPaletteSearchesAllSurfaces",
+        "app.confirmCloseRunningProcess",
         "app.confirmQuit",
         "app.equalizeSplitsOnCreate",
         "app.focusPaneOnFirstClick",
@@ -102,6 +103,7 @@ struct SettingsRowAnchorResolutionTests {
         "fileEditor.syntaxHighlighting",
         "fileEditor.tabWidth",
         "fileEditor.wordWrap",
+        "markdown.loadRemoteImages",
         "mobile.artifactFolderAccess",
         "mobile.browserTunnel.allowOtherHosts",
         "notifications.agentIdleReminder",

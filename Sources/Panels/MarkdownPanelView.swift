@@ -85,6 +85,7 @@ struct MarkdownPanelView: View {
                 fontSize: panel.fontSize,
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,
+                loadRemoteImages: panel.loadRemoteImages,
                 isEditingEnabled: panel.displayMode == .editor,
                 isEditorLocked: panel.isEditorLocked,
                 onEditorTextChange: { [weak panel] text in

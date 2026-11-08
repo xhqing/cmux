@@ -257,6 +257,7 @@ Built-in Markdown viewer settings from Settings > App.
 | `markdown.fontSize` | integer (8–96) | `15` | Default body font size, in points, for newly opened Markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0. |
 | `markdown.fontFamily` | string | `""` | Default body font family for newly opened Markdown viewers. Leave empty for the system Markdown font stack. |
 | `markdown.maxWidth` | integer (320–2400) | `980` | Default maximum reading column width, in CSS pixels, for newly opened Markdown viewers. |
+| `markdown.loadRemoteImages` | boolean | `true` | Load safe HTTPS remote images (README badges and similar) without clicking each one. Only HTTPS URLs with no credentials, port 443 and a public host are eligible; turn it off to restore the per-image "Load this image" confirmation. On by default in the xhqing fork. |
 
 ## fileEditor
 

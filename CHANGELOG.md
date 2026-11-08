@@ -2,6 +2,15 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Added
+- **Markdown 预览默认加载远程图片（新设置 `markdown.loadRemoteImages`，默认开启）**：用 cmux 内置 markdown 查看器打开 README 这类文档时，shields.io 徽章等远程图片原来全部显示成「Remote image blocked」占位块，必须一张张点「Load this image」才显示，跟 GitHub / VS Code 的预览体验差得远。现在预览会直接加载**通过安全校验**的远程图片；安全校验本身一点没放松——仍然只允许 HTTPS、不带用户名密码、端口只能是 443、拒绝 localhost / `.local` / 内网 IP，而且每一张图仍然要经过宿主侧的同 URL 批准记录，宿主只 fetch 它批准过的 URL。加载过程中不闪占位块；只有加载失败才把占位块显示回来，并保留「Load this image」「Copy image URL」「Open image URL」三个按钮。
+  - 设置页 App 区新增「Load Remote Images in Markdown Viewer」开关（命令面板与设置搜索同样收录）；关掉它就完全恢复上游的逐图确认流程。`cmux.json` 的 `markdown.loadRemoteImages`、配置 schema、配置模板、设置搜索与命令面板一并接上。新增文案目前只有英文默认值（与 P1 的 `app.confirmCloseRunningProcess` 一样没进 `Localizable.xcstrings`，中文回退到英文默认值）。
+  - 打开着的 viewer 在设置变化或 `cmux.json` 重新加载时会立即跟着变（不用重开面板）；shell 重载（含崩溃恢复）后会自动重新应用该设置。
+  - 新增单元测试 `testMarkdownRenderAutoLoadsRemoteImagesWhenEnabled` 覆盖：设置先开再渲染（自动批准、占位块不闪现、失败回退三个按钮）、渲染后再开设置（补齐已渲染的图片）、以及 HTTP 图片仍然被拦。上游原有的「默认手动确认」测试照旧通过（shell 的默认仍是手动，只有宿主把设置推进去才自动）。
+  - 顺带修掉 `CmuxSettingsUI` 测试包一直红的一个旧漏项：`SettingsRowAnchorResolutionTests` 的行锚点契约清单里一直没登记 P1 的 `app.confirmCloseRunningProcess`，该包一跑 `swift test` 就会报「这个搜索项没有可滚动的行」；本次把 P1 的键和新键 `markdown.loadRemoteImages` 一并补进清单。
+
 ## [0.65.2.2-r14] - 2026-11-08
 
 ### Fixed

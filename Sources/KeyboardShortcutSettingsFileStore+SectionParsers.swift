@@ -492,6 +492,12 @@ extension CmuxSettingsFileStore {
         } else if section.keys.contains("maxWidth") {
             logInvalid("markdown.maxWidth", sourcePath: sourcePath)
         }
+
+        if let value = jsonBool(section["loadRemoteImages"]) {
+            snapshot.managedUserDefaults[MarkdownRemoteImageSettings.key] = .bool(value)
+        } else if section.keys.contains("loadRemoteImages") {
+            logInvalid("markdown.loadRemoteImages", sourcePath: sourcePath)
+        }
     }
 
     func parseMobileSection(

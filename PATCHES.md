@@ -263,3 +263,55 @@ About 窗口的「Version」一行显示 `0.65.2.2`，而 GitHub Release / tag �
 
 - `swiftc -parse` 通过（改动的 Swift 文件）。
 - 完整构建与 About 面板实际显示交由 CI Release 构建验证：校验 step 会打印 `release : <VERSION>` 与 About 面板的取值，两者不一致直接失败。
+
+---
+
+## P6 — Markdown 预览默认加载安全远程图片（`markdown.loadRemoteImages`，默认开启）
+
+**状态**：已实现
+
+### 要解决的问题
+
+用 cmux 内置 markdown 查看器打开 README 这类文档时，shields.io 徽章等远程图片全部渲染成「Remote image blocked」占位块，必须一张张点「Load this image」才显示。上游的保守默认可以理解（预览一个陌生文件时不替读者访问外部服务器），但日常读自己项目 README 时这个体验和 GitHub / VS Code 差得太远，用户明确要求「徽章要能正常显示」。
+
+### 改法（最小收敛点）
+
+保留上游整套安全机制与人工确认流程，只把「要不要每张图手动点一次」变成一个设置项：
+
+| 文件 | 改动 |
+| --- | --- |
+| `Resources/markdown-viewer/shell.html` | 新增 `remoteImagesAutoLoad` 标志与 `window.__cmuxSetRemoteImageAutoLoad(enabled)`；`ensureRemoteImagePlaceholder()` 末尾在 `canOfferLoad && remoteImagesAutoLoad` 时直接走 `loadApprovedRemoteImage(info.href)`（仍然经过 `remoteImageCanOfferLoad` 与宿主 approve，不绕过）；自动加载时先折叠占位块（`display:none`），失败时由 `setRemoteImageLoadingState(img, false)` 恢复显示；同一 URL 只向宿主请求一次；打开设置时补齐页面上已渲染的图片（覆盖「先开设置再渲染」与「渲染后再开设置」两种顺序）。 |
+| `Sources/Panels/MarkdownRemoteImageSettings.swift`（新增） | 设置键 `markdown.loadRemoteImages`，`resolvedDefault` / `setDefault` / `resetDefault`，内置默认 `true`。 |
+| `Sources/Panels/MarkdownWebRenderer.swift` | 新增 `loadRemoteImages` 参数；Coordinator 记录 `lastLoadRemoteImages` 并在 `makeNSView` / `updateNSView` / `didFinish`（shell 重载后页面状态会丢）重新调 `window.__cmuxSetRemoteImageAutoLoad(...)`。 |
+| `Sources/Panels/MarkdownPanel.swift` | 新增 `@Published loadRemoteImages`，init 读 `resolvedDefault()`；UserDefaults 观察回调里同步新值，设置或 `cmux.json` 变更立即生效。 |
+| `Sources/Panels/MarkdownPanelView.swift` | 把值传给渲染器。 |
+| `Packages/macOS/CmuxSettings/.../MarkdownCatalogSection.swift` | 新增目录键（boolean、默认 `true`、带 `userFacing` toggle 描述符）。 |
+| `Packages/macOS/CmuxSettingsUI/.../Sections/AppSection.swift` | 设置页 App 区 Markdown 字体 / 宽度旁边新增开关行，含开 / 关两种副标题。 |
+| `Packages/macOS/CmuxSettingsUI/.../Navigation/CuratedSettingEntry+Default.swift` | 收录进 curated 设置导航。 |
+| `Sources/SettingsSearchIndex.swift` / `Sources/SettingsSearchAliases.swift` / `Sources/CommandPalette/CommandPaletteSettingsToggle.swift` | 设置搜索项、搜索别名、命令面板开关。 |
+| `Sources/CmuxSettingsJSONPathSupport.swift` / `Sources/CmuxSettingsFileStore+SupportedPaths.swift` / `Sources/KeyboardShortcutSettingsFileStore+SectionParsers.swift` / `Sources/KeyboardShortcutSettingsFileStore+Template.swift` | `cmux.json` 的路径注册、markdown 节布尔解析与模板默认值。 |
+| `schemas/config/cmux.schema.json` + `Packages/macOS/CmuxFoundation/.../CmuxConfigSchema.generated.swift` | schema 新增 `markdown.loadRemoteImages`（描述写清默认自动加载安全 HTTPS 远程图片、关掉恢复逐图确认），并用 `scripts/generate-cmux-config-schema.py` 重新生成。 |
+| `cmuxTests/MarkdownPanelTests.swift` | 新增 `testMarkdownRenderAutoLoadsRemoteImagesWhenEnabled`（渲染前开 / 渲染后开两种顺序、失败回退、HTTP 图片仍拦）。 |
+| `Packages/macOS/CmuxSettingsUI/Tests/.../SettingsRowAnchorResolutionTests.swift` | 行锚点契约清单登记 `markdown.loadRemoteImages`；同时补上 P1 漏登记的 `app.confirmCloseRunningProcess`（该包 `swift test` 一直因此报「搜索项没有可滚动的行」，直到本 PR 才第一次在 CI 里跑到这个包测试）。 |
+| `Packages/Shared/CmuxAgentChat/.../MarkdownRemoteImageApprovals.swift` | 只改文档注释：批准记录现在也可能由页面在设置开启时代为发起（消息形式不变），不再只来自读者点击。安全逻辑没有任何改动。 |
+| `cmux.xcodeproj/project.pbxproj` | 注册新源文件；顺带跑了一次 `scripts/normalize-pbxproj.py`（该文件在 main 上已处于未归一化状态，`check-pbxproj.sh` 本来就是红的，归一化把两条无关条目也排了序）。 |
+
+### 为什么默认开启
+
+- **用户诉求就是「预览要能正常显示徽章」**：VSCode 的 markdown 预览和 GitHub 的 README 页面都默认加载远程图片，读者的默认预期已经是「图片就在那里」。cmux 自建版面向的是本机日常使用（读自己项目的 README），不是打开陌生文件。
+- **安全边界没有动**：仍只允许 HTTPS、不带凭据、端口只能是 443、拒绝 localhost / `.local` / 内网 IP；宿主仍然按 URL 逐个记录批准，`cmux-remote-image://` scheme handler 只 fetch 批准过的 URL；加载失败不静默——占位块连同三个回退按钮（重载 / 复制 URL / 外部打开）会显示回来。
+- **关掉即恢复上游行为**：设置页开关（或 `cmux.json` 里 `markdown.loadRemoteImages: false`）一关，就是上游原样的逐图确认流程，连 shell 的默认值都保持手动。
+- 担心的场景（预览不可信文档时不想让 cmux 替你发请求）由这个开关覆盖，而且与上游不冲突——上游日后若做同样的设置，rebase 时可对齐语义。
+
+### 已知边界
+
+- 设置关掉时，**已经**自动加载出来的图片不会撤回（宿主已记录批准、图片已显示）；关掉只影响之后渲染的图片。
+- 自动加载失败后不会自动重试，需要读者点「Load this image」（和上游手动流程一致）。
+- 本地图片（相对路径）走的 `cmux-local-image://` 路径本来就不需要确认，本补丁没有改动。
+- 上游 rebase 冲突点：`shell.html` 的远程图片段、`MarkdownWebRenderer.swift`、`MarkdownPanel.swift`、`MarkdownCatalogSection.swift`、`AppSection.swift`。
+
+### 验证
+
+- 改动过的 Swift 文件逐个 `swiftc -parse -enable-bare-slash-regex` 通过；`Packages/macOS/CmuxSettings` 与 `CmuxSettingsUI` 的 `swift build` 通过。
+- `python3 scripts/generate-cmux-config-schema.py --check` 通过；`scripts/lint-pbxproj-test-wiring.sh` 通过；`git diff --check` 干净。
+- `cmuxTests` 不在 PR 门禁里跑、本机也没有完整 Xcode，新增测试只是照现有用例的写法写的（用 `MarkdownRemoteImageHoldingSchemeHandler` 与录制桥），**实际编译与运行交由 CI / Release 构建确认**。

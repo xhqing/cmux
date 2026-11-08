@@ -9,6 +9,7 @@ All notable changes to cmux are documented here.
   - 设置页 App 区新增「Load Remote Images in Markdown Viewer」开关（命令面板与设置搜索同样收录）；关掉它就完全恢复上游的逐图确认流程。`cmux.json` 的 `markdown.loadRemoteImages`、配置 schema、配置模板、设置搜索与命令面板一并接上。新增文案目前只有英文默认值（与 P1 的 `app.confirmCloseRunningProcess` 一样没进 `Localizable.xcstrings`，中文回退到英文默认值）。
   - 打开着的 viewer 在设置变化或 `cmux.json` 重新加载时会立即跟着变（不用重开面板）；shell 重载（含崩溃恢复）后会自动重新应用该设置。
   - 新增单元测试 `testMarkdownRenderAutoLoadsRemoteImagesWhenEnabled` 覆盖：设置先开再渲染（自动批准、占位块不闪现、失败回退三个按钮）、渲染后再开设置（补齐已渲染的图片）、以及 HTTP 图片仍然被拦。上游原有的「默认手动确认」测试照旧通过（shell 的默认仍是手动，只有宿主把设置推进去才自动）。
+  - 顺带修掉 `CmuxSettingsUI` 测试包一直红的一个旧漏项：`SettingsRowAnchorResolutionTests` 的行锚点契约清单里一直没登记 P1 的 `app.confirmCloseRunningProcess`，该包一跑 `swift test` 就会报「这个搜索项没有可滚动的行」；本次把 P1 的键和新键 `markdown.loadRemoteImages` 一并补进清单。
 
 ## [0.65.2.2-r14] - 2026-11-08
 

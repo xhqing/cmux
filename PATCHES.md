@@ -292,6 +292,7 @@ About 窗口的「Version」一行显示 `0.65.2.2`，而 GitHub Release / tag �
 | `Sources/CmuxSettingsJSONPathSupport.swift` / `Sources/CmuxSettingsFileStore+SupportedPaths.swift` / `Sources/KeyboardShortcutSettingsFileStore+SectionParsers.swift` / `Sources/KeyboardShortcutSettingsFileStore+Template.swift` | `cmux.json` 的路径注册、markdown 节布尔解析与模板默认值。 |
 | `schemas/config/cmux.schema.json` + `Packages/macOS/CmuxFoundation/.../CmuxConfigSchema.generated.swift` | schema 新增 `markdown.loadRemoteImages`（描述写清默认自动加载安全 HTTPS 远程图片、关掉恢复逐图确认），并用 `scripts/generate-cmux-config-schema.py` 重新生成。 |
 | `cmuxTests/MarkdownPanelTests.swift` | 新增 `testMarkdownRenderAutoLoadsRemoteImagesWhenEnabled`（渲染前开 / 渲染后开两种顺序、失败回退、HTTP 图片仍拦）。 |
+| `Packages/macOS/CmuxSettingsUI/Tests/.../SettingsRowAnchorResolutionTests.swift` | 行锚点契约清单登记 `markdown.loadRemoteImages`；同时补上 P1 漏登记的 `app.confirmCloseRunningProcess`（该包 `swift test` 一直因此报「搜索项没有可滚动的行」，直到本 PR 才第一次在 CI 里跑到这个包测试）。 |
 | `Packages/Shared/CmuxAgentChat/.../MarkdownRemoteImageApprovals.swift` | 只改文档注释：批准记录现在也可能由页面在设置开启时代为发起（消息形式不变），不再只来自读者点击。安全逻辑没有任何改动。 |
 | `cmux.xcodeproj/project.pbxproj` | 注册新源文件；顺带跑了一次 `scripts/normalize-pbxproj.py`（该文件在 main 上已处于未归一化状态，`check-pbxproj.sh` 本来就是红的，归一化把两条无关条目也排了序）。 |
 

@@ -92,10 +92,7 @@ def run(command: list[str], timeout: int) -> tuple[bool, str]:
         return False, f"timed out after {timeout}s"
     output = (result.stdout + result.stderr).strip()
     if result.returncode != 0:
-        return False, (
-            "STDOUT full:\n" + result.stdout
-            + "\nSTDERR tail:\n" + "\n".join(result.stderr.splitlines()[-200:])
-        )
+        return False, "\n".join(output.splitlines()[-40:])
     return True, "\n".join(output.splitlines()[-3:])
 
 

@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [Unreleased]
+## [0.65.2.2-r15] - 2026-11-08
 
 ### Added
 - **Markdown 预览默认加载远程图片（新设置 `markdown.loadRemoteImages`，默认开启）**：用 cmux 内置 markdown 查看器打开 README 这类文档时，shields.io 徽章等远程图片原来全部显示成「Remote image blocked」占位块，必须一张张点「Load this image」才显示，跟 GitHub / VS Code 的预览体验差得远。现在预览会直接加载**通过安全校验**的远程图片；安全校验本身一点没放松——仍然只允许 HTTPS、不带用户名密码、端口只能是 443、拒绝 localhost / `.local` / 内网 IP，而且每一张图仍然要经过宿主侧的同 URL 批准记录，宿主只 fetch 它批准过的 URL。加载过程中不闪占位块；只有加载失败才把占位块显示回来，并保留「Load this image」「Copy image URL」「Open image URL」三个按钮。

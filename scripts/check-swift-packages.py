@@ -93,7 +93,7 @@ def run(command: list[str], timeout: int) -> tuple[bool, str]:
     output = (result.stdout + result.stderr).strip()
     if result.returncode != 0:
         return False, (
-            "STDOUT tail:\n" + "\n".join(result.stdout.splitlines()[-200:])
+            "STDOUT full:\n" + result.stdout
             + "\nSTDERR tail:\n" + "\n".join(result.stderr.splitlines()[-200:])
         )
     return True, "\n".join(output.splitlines()[-3:])

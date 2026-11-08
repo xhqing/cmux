@@ -102,6 +102,7 @@ struct SettingsRowAnchorResolutionTests {
         "fileEditor.syntaxHighlighting",
         "fileEditor.tabWidth",
         "fileEditor.wordWrap",
+        "markdown.loadRemoteImages",
         "mobile.artifactFolderAccess",
         "mobile.browserTunnel.allowOtherHosts",
         "notifications.agentIdleReminder",

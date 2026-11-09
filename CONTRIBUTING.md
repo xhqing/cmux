@@ -17,7 +17,7 @@ because their rights were signed over.
 ## The licence you grant
 
 By submitting a pull request, you agree that your contribution is licensed to
-this project under **the MIT License** — the licence this project itself uses
+this project under **the GNU General Public License v3.0 or later (GPL-3.0-or-later)** — the licence this project itself uses
 (see `LICENSE.md`).
 
 That is a licence, not an assignment. You keep the copyright; the project gains

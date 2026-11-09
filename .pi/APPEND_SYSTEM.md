@@ -21,7 +21,7 @@
 - **Zig 必须 0.16.0**：不能用 `brew install zig` 的 latest（现在是 0.17.x，`scripts/setup.sh` 会直接报不兼容）；需要时从 ziglang.org 下载固定版本。
 - **架构只编 arm64**：`universal` 是整个 app 编两遍，实测一轮 3.5 小时还没完。
 - 版本号注入：`VERSION` 去掉 `-rN` 后缀写进 `CFBundleShortVersionString`，完整版本写进 `CMUXVersion`（About 面板显示）；构建末尾有校验 step。
-- 安装：ad-hoc 签名、无公证，**必须先 `xattr -dr com.apple.quarantine`**，否则系统报「已损坏」。
+- 安装：ad-hoc 签名、无公证，**必须先 `xattr -dr com.apple.quarantine`**，否则系统报「已损坏」（手工路径；用 `scripts/install-release.sh` 安装则会自动下载、校验、去隔离）。
 
 ## PR 门禁只能说轻量（刻意的取舍，别去"优化"）
 

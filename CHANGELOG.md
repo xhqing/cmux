@@ -2,6 +2,21 @@
 
 All notable changes to cmux are documented here.
 
+## [未发布] - 2026-11-09
+
+### Added
+- **新增 `scripts/install-release.sh`：一条命令完成「下载 → 校验 → 安装 → 去隔离 → 启动」，根治 Gatekeeper 拦截**：本仓库的构建是 ad-hoc 签名，既没有 Developer ID 也没有公证；用浏览器从 Release 下载的 zip 会带上 `com.apple.quarantine` 隔离属性，解压出的 `cmux.app` 双击时必然被拦（弹窗「Apple could not verify "cmux" ...」）。脚本改用 `curl` 下载（curl 不写隔离属性），安装后再补一次 `xattr -dr`，从源头上避开这个问题。
+  - 支持 `--tag`（默认取最新 Release，优先 `gh release view`、回退 GitHub API）、`--dest`（默认 `/Applications`）、`--yes`、`--no-launch`、`--skip-checksum`、`-h|--help`。
+  - 下载 `cmux-<版本>-macos-arm64.zip` 及同名 `.sha256`，用 `shasum -a 256` 比对；zip 缓存在 `~/Library/Caches/cmux/releases/`，校验一致时跳过重复下载。
+  - 解压后校验 `CFBundleIdentifier`（`com.xhqing.cmux`）、`CFBundleShortVersionString` 与 tag 的版本段、`codesign --verify --deep --strict`；`spctl` 对 ad-hoc 签名预期为 rejected，只做提示、不当失败条件。
+  - 安装前检查目标位置是否已有 cmux 在运行，是则拒绝替换并提示先退出（不提供强制开关）；用 `ditto` 拷到同目录暂存路径后原子替换，失败回滚，成功后不留下备用 app 副本。
+  - 已装同版本时直接提示「已是最新」并退出；只有装到 `/Applications` 时才用 `lsregister -f` 注册 LaunchServices，测试目录不注册。
+
+### 文档
+- `README.md` / `README_cn.md` 的「安装」节：把安装脚本放在最前面作为推荐路径（含免 clone 的一行用法），手工 `unzip` + `xattr -dr` 步骤保留作兜底，并说明 Gatekeeper 弹窗的根因是 ad-hoc 签名 + 浏览器下载附带的 `com.apple.quarantine`（curl 下载不带该属性）。
+- `DEVELOPMENT.md` 第二节：改为先讲安装脚本（含 `--tag` / `--dest` 用法），再讲手工步骤，并补充「浏览器下载的 zip 及其解压副本会带 `com.apple.quarantine`，必须 `xattr -dr`；curl 下载不会」。
+- `.pi/APPEND_SYSTEM.md`：保留手工安装必须去隔离的硬约束，补一句指向新脚本。
+
 ## [0.65.2.2-r15] - 2026-11-08
 
 ### Added

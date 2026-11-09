@@ -76,6 +76,33 @@ CMUX_DEV_BACKEND_MODE=local ./scripts/reloads.sh --tag xhqing
 
 ## 二、安装与验证（重要）
 
+### 1. 安装脚本（推荐）
+
+`scripts/install-release.sh` 把「下载 → sha256 校验 → 安装 → 去隔离 → 启动」固化成一条命令：
+
+```bash
+# 安装最新版到 /Applications（覆盖旧版本前会先确认）
+./scripts/install-release.sh
+
+# 指定版本、装到临时目录、装完不启动
+./scripts/install-release.sh --tag v0.65.2.2-r15 --dest /tmp/cmux-install-test --yes --no-launch
+```
+
+不 clone 仓库也能直接用（脚本会自己从 GitHub Release 取资产）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xhqing/cmux/main/scripts/install-release.sh -o /tmp/cmux-install.sh
+bash /tmp/cmux-install.sh
+```
+
+- 版本：默认取最新 Release，`--tag` 可指定（不带前导 `v` 也行）。
+- 校验：会下载同名 `.sha256` 资产并用 `shasum -a 256` 比对，校验失败直接中止；只有 `--skip-checksum` 能跳过（仅限应急）。
+- 安装：zip 缓存在 `~/Library/Caches/cmux/releases/`，校验一致时复用；先 `ditto` 到 `<dest>/.cmux.app.new` 再原子替换，失败会回滚，成功后不留下备用副本。
+- 保护：如果目标位置（如 `/Applications/cmux.app`）里已有 cmux 在运行，脚本会拒绝安装并提示先退出——绝不强行替换运行中的实例，没有强制开关。
+- 只有装到 `/Applications` 才会跑 `lsregister -f` 注册 LaunchServices；装到测试目录不会污染系统数据库。
+
+### 2. 手工安装（兜底）
+
 ```bash
 # 从 Release 下载 zip 后
 unzip cmux-<版本>-macos-arm64.zip -d /tmp/cmux-xhqing
@@ -85,6 +112,7 @@ open "/Applications/cmux.app"
 ```
 
 - 自建版是 **ad-hoc 签名**，没有 Developer ID 也没有公证，所以**必须先去掉隔离属性**（`xattr -dr com.apple.quarantine`），否则系统会报「已损坏」或「无法验证开发者」。
+- **浏览器下载的 zip 及其解压副本会带 `com.apple.quarantine`**（Chrome / Safari 会给下载文件打上这个标记），所以手工安装必须 `xattr -dr`；`curl` 下载不会带这个属性，上面的安装脚本就是用 `curl` 下载的。
 - 本项目用独立 bundle id（`com.xhqing.cmux`）与独立 socket，和官方版互不干扰；从旧的 `com.cmuxterm.app.staging.xhqing` 身份切换过来时，偏好设置域和会话快照需要一次性迁移。
 
 ### 绝对不要做的事

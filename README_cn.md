@@ -51,6 +51,17 @@
 
 ## 安装
 
+推荐用安装脚本，一条命令完成「下载 → 校验 → 安装 → 去隔离 → 启动」（不需要 clone 本仓库）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xhqing/cmux/main/scripts/install-release.sh -o /tmp/cmux-install.sh
+bash /tmp/cmux-install.sh
+```
+
+脚本默认装最新版到 `/Applications`，覆盖旧版本前会先问你；常用参数：`--tag v0.65.2.2-r15` 指定版本、`--dest <目录>` 换安装目录、`--no-launch` 装完不启动、`--yes` 跳过确认（非交互环境必须加）、`--skip-checksum` 应急跳过校验。
+
+### 手工安装（兜底）
+
 从 [最新 Release](https://github.com/xhqing/cmux/releases/latest) 下载 zip：
 
 ```bash
@@ -59,7 +70,7 @@ xattr -dr com.apple.quarantine "/tmp/cmux-xhqing/cmux.app"
 cp -R "/tmp/cmux-xhqing/cmux.app" /Applications/
 ```
 
-这份构建是 ad-hoc 签名、没有公证，所以**必须**去掉隔离属性，否则系统会报「已损坏」。
+这份构建是 ad-hoc 签名、没有公证。**用浏览器下载的 zip 及其解压副本会带 `com.apple.quarantine` 隔离属性**，双击时会被 Gatekeeper 拦下（弹窗「Apple could not verify "cmux" ...」），所以手工安装**必须**先 `xattr -dr com.apple.quarantine` 去掉它，否则系统会报「已损坏」或「无法验证开发者」。上面的脚本用 `curl` 下载（curl 不写这个属性），安装后还会再补一次 `xattr -dr`，所以不会有这个坑。
 
 ## 构建
 

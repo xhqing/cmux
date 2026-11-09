@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [未发布] - 2026-11-09
+## [0.65.2.2-r16] - 2026-11-09
 
 ### Added
 - **新增 `scripts/install-release.sh`：一条命令完成「下载 → 校验 → 安装 → 去隔离 → 启动」，根治 Gatekeeper 拦截**：本仓库的构建是 ad-hoc 签名，既没有 Developer ID 也没有公证；用浏览器从 Release 下载的 zip 会带上 `com.apple.quarantine` 隔离属性，解压出的 `cmux.app` 双击时必然被拦（弹窗「Apple could not verify "cmux" ...」）。脚本改用 `curl` 下载（curl 不写隔离属性），安装后再补一次 `xattr -dr`，从源头上避开这个问题。

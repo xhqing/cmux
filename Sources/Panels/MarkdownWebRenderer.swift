@@ -207,13 +207,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastFontFamily: String = ""
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
-        /// Whether safe remote images auto-load in the current shell document.
-        /// This page-side flag is lost when the shell reloads, so it is
-        /// re-applied in `didFinish`.
-        private var lastLoadRemoteImages: Bool = MarkdownRemoteImageSettings.builtInDefault
-        /// The flag the current shell document already received, so ordinary
-        /// SwiftUI layout passes do not re-run the page-side sweep.
-        private var appliedLoadRemoteImages: Bool?
+        /// Tracks the remote-image auto-load value across shell (re)loads.
+        /// A push attempted before the shell document finishes loading is
+        /// dropped by WebKit, so the value only counts as applied once the
+        /// document is ready; `didFinish` always re-pushes.
+        private var remoteImageAutoLoad = MarkdownRemoteImageAutoLoadSync(
+            initialValue: MarkdownRemoteImageSettings.builtInDefault
+        )
         private var isLoaded = false
         private var isShellLoading = false
 
@@ -400,17 +400,22 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         /// same HTTPS/private-host checks and still asks the host to approve
         /// each URL; only the click is skipped.
         func setLoadRemoteImages(_ enabled: Bool) {
-            lastLoadRemoteImages = enabled
+            remoteImageAutoLoad.request(enabled)
             applyLoadRemoteImages()
         }
 
         private func applyLoadRemoteImages() {
             guard let webView else { return }
-            guard appliedLoadRemoteImages != lastLoadRemoteImages else { return }
-            appliedLoadRemoteImages = lastLoadRemoteImages
-            let enabled = lastLoadRemoteImages ? "true" : "false"
+            // `pendingPush` refuses to mark the value as applied until the
+            // shell document has finished loading (see the type's docs); the
+            // pre-load calls from makeNSView / updateNSView must stay no-ops.
+            guard let enabled = remoteImageAutoLoad.pendingPush() else { return }
+            pushRemoteImageAutoLoad(enabled, to: webView)
+        }
+
+        private func pushRemoteImageAutoLoad(_ enabled: Bool, to webView: WKWebView) {
             webView.evaluateJavaScript(
-                "window.__cmuxSetRemoteImageAutoLoad && window.__cmuxSetRemoteImageAutoLoad(\(enabled));",
+                "window.__cmuxSetRemoteImageAutoLoad && window.__cmuxSetRemoteImageAutoLoad(\(enabled ? "true" : "false"));",
                 completionHandler: nil
             )
         }
@@ -430,7 +435,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
             appliedEditingEnabled = nil
             appliedEditingLocked = nil
-            appliedLoadRemoteImages = nil
+            remoteImageAutoLoad.shellLoadStarted()
             self.webView = nil
             isLoaded = false
             isShellLoading = false
@@ -451,7 +456,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             isShellLoading = true
             // A fresh document starts with the shell's manual default; the
             // `didFinish` pass has to send the saved value again.
-            appliedLoadRemoteImages = nil
+            remoteImageAutoLoad.shellLoadStarted()
             remoteImageApprovals.revokeAll()
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
@@ -977,9 +982,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             applyFontFamily()
             applyMaxContentWidth()
             // The remote-image auto-load flag is page state too: a shell reload
-            // resets it to the manual (upstream) flow, so re-apply it before
-            // the markdown replay renders any image.
-            applyLoadRemoteImages()
+            // resets it to the manual (upstream) flow. `shellLoadFinished()`
+            // always returns the value to push, even when a pre-load call
+            // already looked successful on the previous (about:blank) document,
+            // so the replay below can never inherit a stale "applied" value.
+            pushRemoteImageAutoLoad(remoteImageAutoLoad.shellLoadFinished(), to: webView)
             applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
             // Keep the recovery budget scoped to the current markdown payload:

@@ -1037,6 +1037,85 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(rootAbsoluteImage["currentSrc"] as? String, "")
     }
 
+    func testMarkdownRenderHandlesLocalSVGImageSources() async throws {
+        let fileManager = FileManager.default
+        let rootURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-svg-image-\(UUID().uuidString)", isDirectory: true)
+        let directoryURL = rootURL.appendingPathComponent("docs", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: rootURL) }
+
+        let svgURL = directoryURL.appendingPathComponent("logo.svg")
+        let outsideSVGURL = rootURL.appendingPathComponent("outside.svg")
+        let markdownURL = directoryURL.appendingPathComponent("svg.md")
+        try Self.tinySVG.write(to: svgURL)
+        try Self.tinySVG.write(to: outsideSVGURL)
+        try """
+        ![Local svg](logo.svg)
+        ![Traversal svg](../outside.svg)
+        ![Explicit file svg](\(outsideSVGURL.absoluteString))
+        """.write(to: markdownURL, atomically: true, encoding: .utf8)
+
+        let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+        let configuration = WKWebViewConfiguration()
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        coordinator.filePath = markdownURL.path
+        configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
+        let webView = MarkdownWebView(frame: frame, configuration: configuration)
+        coordinator.webView = webView
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            coordinator.webView = nil
+            window.close()
+        }
+
+        let loaded = expectation(description: "markdown shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            baseURL: markdownURL
+        )
+        try await awaitMarkdownShellLoad(loaded, delegate: loadDelegate)
+        defer { coordinator.cancelLocalImageLoads() }
+
+        try await renderMarkdown(
+            """
+            ![Local svg](logo.svg)
+            ![Traversal svg](../outside.svg)
+            ![Explicit file svg](\(outsideSVGURL.absoluteString))
+            """,
+            in: webView
+        )
+        let images = try await waitForMarkdownImages(expectedCount: 3, in: webView)
+        func image(alt: String) throws -> [String: Any] {
+            try XCTUnwrap(images.first { $0["alt"] as? String == alt })
+        }
+
+        // The fix: a local `.svg` next to the markdown file is served as
+        // image/svg+xml instead of being rejected by the MIME whitelist.
+        let localImage = try image(alt: "Local svg")
+        XCTAssertEqual(localImage["complete"] as? Bool, true)
+        XCTAssertGreaterThan(try XCTUnwrap(localImage["naturalWidth"] as? Int), 0)
+        XCTAssertGreaterThan(try XCTUnwrap(localImage["naturalHeight"] as? Int), 0)
+        XCTAssertTrue((localImage["currentSrc"] as? String ?? "").hasPrefix("cmux-local-image://"))
+
+        // The directory guard is untouched: a `.svg` outside the markdown
+        // directory is still rejected (empty payload, no intrinsic size).
+        let traversalImage = try image(alt: "Traversal svg")
+        XCTAssertEqual(traversalImage["complete"] as? Bool, true)
+        XCTAssertEqual(traversalImage["naturalWidth"] as? Int, 0)
+        XCTAssertEqual(traversalImage["naturalHeight"] as? Int, 0)
+
+        // Absolute `file:` URLs never reach the local-image handler.
+        let explicitFileImage = try image(alt: "Explicit file svg")
+        XCTAssertEqual(explicitFileImage["src"] as? String, "")
+        XCTAssertEqual(explicitFileImage["currentSrc"] as? String, "")
+    }
+
     func testMarkdownRenderDeniesLocalImageWhenMarkdownPathIsMissing() async throws {
         let fileManager = FileManager.default
         let rootURL = fileManager.temporaryDirectory
@@ -2276,6 +2355,12 @@ final class MarkdownPanelTests: XCTestCase {
     }()
 
     private static let onePixelPNGDataURI = "data:image/png;base64,\(onePixelPNG.base64EncodedString())"
+
+    /// Minimal SVG fixture for the local-image tests. Explicit `width` / `height`
+    /// (not just a viewBox) so WebKit reports a non-zero intrinsic size.
+    private static let tinySVG: Data = Data(
+        ##"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="4" viewBox="0 0 8 4"><rect width="8" height="4" fill="#1f6feb"/></svg>"##.utf8
+    )
 }
 
 /// The markdown shell's first navigation never reached a terminal outcome.

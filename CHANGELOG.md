@@ -2,6 +2,16 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-r17] - 2026-11-09
+
+### Fixed
+- **Markdown 面板不再把本地 SVG 图片显示成破图（README 顶部的项目 LOGO 恢复正常显示）**：问题不在 README 的写法——`Resources/markdown-viewer/shell.html` 的 `rewriteLocalImageSources()` 会把所有相对路径的 `<img>`（HTML `<img>` 与 markdown 图片一视同仁）重写成 `cmux-local-image://image?url=<file URL>`，所以 README 换成哪种写法都一样；真正的拦点是宿主 `Sources/Panels/MarkdownWebRenderer.swift` 的 `localImageMimeType(for:)` 白名单只有 png / jpg / jpeg / gif / webp / avif，`.svg` 被 `localImageFileURL(from:)` 里的 MIME guard 判掉、返回 `nil`，于是回退成空数据 + `image/png`，页面上只剩 alt 文字和问号图标。远程图片走的是另一条链路（`MarkdownRemoteImageLoader` 明确支持 `image/svg+xml`），所以同一页里 shields.io 徽章正常、只有本地 LOGO 破图。现在白名单补上 `svg` → `image/svg+xml`。
+  - 安全边界没有放松：SVG 经 `<img>` 加载属于 image 上下文，WebKit 按 secure static mode 渲染——脚本不执行、也不加载外部资源；挡脚本的是 image 上下文本身，MIME 白名单不承担这个职责。`localImageFileURL` 的目录限制（必须在 markdown 文件所在目录内、`standardized` + `resolvingSymlinksInPath` 之后仍要 `hasPrefix(root)`）与 `path == "/"` 拒绝原样保留，绝对路径 / 绝对 `file:` URL 仍然根本进不到本地图片通道。`.svgz`（gzip 内容体）没有加：WebKit 不会在 image 上下文解压，加上去仍然只会是破图。
+  - 测试：`cmuxTests/MarkdownPanelTests.swift` 新增 `testMarkdownRenderHandlesLocalSVGImageSources`（真实 WKWebView + `cmux-local-image://` scheme handler），断言本地 `logo.svg` 渲染成功（`complete == true`、`naturalWidth` / `naturalHeight > 0`）、目录外的 SVG 仍被拒（`naturalWidth == 0`）、显式 `file:` URL 仍不进入本地图片通道（`src` 为空）；原有的 PNG 用例（含越界路径被拒、绝对路径被拒两条断言）保持不变、照常覆盖这些保护。
+
+### 文档
+- `PATCHES.md` 新增 P7 条目：要解决的问题、根因（读代码确认）、改法、为什么放开 SVG 的 MIME 不引入脚本执行面、保留的保护、已知边界与验证方式。
+
 ## [0.65.2.2-r16] - 2026-11-09
 
 ### Added

@@ -834,6 +834,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return "image/webp"
             case "avif":
                 return "image/avif"
+            case "svg":
+                // SVGs are served as images (<img src="...">), which WebKit renders in
+                // secure static mode: scripting is disabled and the document cannot load
+                // external resources, so allowing the MIME type does not add a script
+                // execution surface. `.svgz` (gzip body) is deliberately not listed:
+                // WebKit does not decompress it in an image context, so it would render
+                // as a broken image anyway.
+                return "image/svg+xml"
             default:
                 return nil
             }

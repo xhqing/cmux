@@ -61,6 +61,22 @@ GPL-3.0-or-later — the BUSL-licensed server pieces are gone with `web/` and fr
 
 ## Install
 
+The recommended path is the install script, which does download → verify → install →
+strip quarantine → launch in one command (no need to clone this repo):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xhqing/cmux/main/scripts/install-release.sh -o /tmp/cmux-install.sh
+bash /tmp/cmux-install.sh
+```
+
+By default it installs the latest release into `/Applications` and asks before replacing
+an existing copy. Useful flags: `--tag v0.65.2.2-r15` pins a version, `--dest <dir>` changes
+the install location, `--no-launch` skips launching, `--yes` skips the confirmation
+(required in non-interactive shells), and `--skip-checksum` bypasses the sha256 check in
+an emergency.
+
+### Manual install (fallback)
+
 Grab the zip from the [latest release](https://github.com/xhqing/cmux/releases/latest):
 
 ```bash
@@ -69,8 +85,13 @@ xattr -dr com.apple.quarantine "/tmp/cmux-xhqing/cmux.app"
 cp -R "/tmp/cmux-xhqing/cmux.app" /Applications/
 ```
 
-The build is ad-hoc signed (no notarization), so removing the quarantine attribute is
-mandatory — otherwise macOS reports the app as damaged.
+The build is ad-hoc signed (no notarization). **A zip downloaded through a browser — and
+everything extracted from it — carries the `com.apple.quarantine` attribute**, so
+Gatekeeper blocks the app on first launch ("Apple could not verify \"cmux\" ...").
+Manual installs therefore **must** run `xattr -dr com.apple.quarantine` first; otherwise
+macOS reports the app as damaged or from an unidentified developer. The script above
+downloads with `curl` (which does not set that attribute) and strips quarantine again
+after installing, so it never hits this.
 
 ## Build
 

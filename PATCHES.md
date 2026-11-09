@@ -335,3 +335,58 @@ About 窗口的「Version」一行显示 `0.65.2.2`，而 GitHub Release / tag �
 - 另外用 `swiftc` 把同一份状态机源码与断言脚本编译成本地可执行文件，逐条跑过 r15 时序（抢跑不记账、`didFinish` 必推、重载重推、关闭推送、重复不推），全部通过。
 - `cmuxTests` 不在 PR 门禁里跑、本机也没有完整 Xcode；P6 原有的 WebView 测试保留不动，本轮的时序修复由上面的 `CmuxAgentChat` 单测覆盖（CI 可执行）。
 - 本次不涉及 schema / pbxproj 改动；`git diff --check` 与 `scripts/lint-pbxproj-test-wiring.sh` 照常跑过。
+
+---
+
+## P7 — Markdown 面板显示本地 SVG 图片（README 项目 LOGO 不再破图）
+
+**状态**：已实现
+
+### 要解决的问题
+
+在 cmux 内置 markdown 查看器里打开一份带本地 LOGO 的 README（例如某个项目根目录的 README，顶部用 `<img src="assets/logo.svg">` 或 `![](assets/logo.svg)` 引用仓库里的 SVG）：LOGO 是破图——只剩 alt 文字加一个问号图标；同一页的 shields.io 徽章（远程 SVG）显示正常。用户为此改了十几轮 README 写法都没用，因为问题不在 README。
+
+### 根因（读代码确认，不是推测）
+
+1. `Resources/markdown-viewer/shell.html` 的 `rewriteLocalImageSources()` 对 `contentEl.querySelectorAll('img[src]')` 逐个处理，`cmuxLocalImageURL()` 只判断「是不是相对路径 + 解析后是不是 `file:`」、**不看扩展名**——所以 HTML 写 `<img>` 和 markdown 写 `![]()` 完全一样，都会被重写成 `cmux-local-image://image?url=<file URL>`。
+2. `Sources/Panels/MarkdownWebRenderer.swift` 的 `localImageMimeType(for:)` 白名单原本只有 png / jpg / jpeg / gif / webp / avif，**没有 svg**。
+3. 同文件 `localImageFileURL(from:)` 末尾的 guard 是 `standardizedURL.path.hasPrefix(markdownRoot) && Self.localImageMimeType(for: standardizedURL.pathExtension) != nil`，所以 `.svg` 直接 `return nil`；`imageLoadTask` 随即回退成 `ImageLoadResult(data: Data(), mimeType: "image/png")` → 空数据 → 破图。
+4. 远程图片是另一条链路：`Packages/Shared/CmuxAgentChat/.../MarkdownRemoteImageLoader.swift` 的 MIME 归一化明确列了 `image/svg+xml`，所以徽章能显示。这正好解释「只有徽章渲染出来、本地 LOGO 破图」。
+
+### 改法（最小收敛点）
+
+| 文件 | 改动 |
+| --- | --- |
+| `Sources/Panels/MarkdownWebRenderer.swift` | `localImageMimeType(for:)` 增加 `case "svg": return "image/svg+xml"`（带注释说明 image 上下文的安全语义与 `.svgz` 为何不加）。这是整个修复唯一的逻辑改动。 |
+| `cmuxTests/MarkdownPanelTests.swift` | 新增 `testMarkdownRenderHandlesLocalSVGImageSources` 与 `tinySVG` fixture（8×4、显式 width/height 的矩形 SVG）。 |
+
+`.svgz` 没有加：它要求响应体是 gzip 压缩流、由 HTTP `Content-Encoding` 解压；`cmux-local-image://` 是本地文件读取、不经过 HTTP 内容编码协商，WebKit 拿到 gzip 字节只会当成坏图，加了反而给人「支持了」的错觉。
+
+### 为什么放开 svg 不引入脚本执行面
+
+SVG 能带 `<script>` / `onload` / 外部引用，看起来像「放开一个可执行格式」，但这里加载它是经过 `<img src=...>`，属于 **image 上下文**：
+
+- 规范层面 SVG 在 image 上下文按 **secure static mode** 渲染：脚本不执行（`<script>` 与事件处理属性一律无效）、动画不启动、不加载外部资源（不会去 fetch `xlink:href` 指向的远程文件或 CSS `@import`）。
+- 所以挡脚本的门是 **image 上下文**，不是 MIME 白名单——白名单只决定「这个文件的字节要不要交付给 WebKit」。同一份 SVG 换成 `<iframe>` / 直接导航打开才需要考虑脚本，而这条预览管线只把本地文件喂给 `<img>`，没有 iframe / 导航入口。
+- 目视可控：图片能拿到的信息就是「markdown 文件同目录及其子目录里的文件」，与 png 同级——这个信任边界早在 P1 之前的上游行为里就存在，本次没有扩大。
+
+如果将来有人把本地图片改成 `iframe` / `<object>` 渲染，这个结论立刻失效，那时必须重新评估（届时 MIME 白名单要再做一次收紧）。
+
+### 保留的保护（没被削弱）
+
+- `localImageFileURL(from:)` 的目录限制原样保留：scheme 必须是 `cmux-local-image:`、`url` 参数必须是 `file:` URL、markdown 目录 `standardizedFileURL.resolvingSymlinksInPath()`、`path != "/"` 拒绝、目标文件同样先 standardized + resolvingSymlinksInPath 再 `hasPrefix(markdownRoot)`——越界、软链逃逸、根目录场景全部照旧拒绝。
+- shell 侧仍然只重写**相对路径**（`isRelativeLocalImagePath`）：绝对路径与绝对 `file:` URL 不会被塞进 `cmux-local-image://`。
+- 远程图片链路（`cmux-remote-image://` + `MarkdownRemoteImageLoader`）本次未改。
+
+### 已知边界
+
+- `.svgz` 不支持（见上）。
+- 本地图片仍然没有文件大小上限：一张几百 MB 的 SVG 会和同尺寸 PNG 一样吃内存。这是既有行为，本次不扩大也不修复。
+- 同目录下的 SVG 在 image 上下文里无法执行脚本、无法外连，但它仍能把画面渲染成任意内容（例如伪造成 UI 截图）——这是「显示本地图片」的固有属性，与是否会话安全无关。
+- 上游 rebase 冲突点：`MarkdownWebRenderer.swift` 的 `localImageMimeType(for:)`（一处 switch）。
+
+### 验证
+
+- `swiftc -parse` 对改动的两个 Swift 文件通过（`Sources/Panels/MarkdownWebRenderer.swift`、`cmuxTests/MarkdownPanelTests.swift`）。
+- `cmuxTests` 不在 PR 门禁里跑，本机也没有完整 Xcode（项目规矩：本机不跑完整构建，两小时量级），因此新增的 WebView 用例在本机**未实际执行**，如实记录；由 CI 的 `build-macos` 编译兜底，行为验证交给发版后安装 + 用户实测。
+- 新增用例覆盖三条断言：本地同目录 `logo.svg` 渲染成功（`complete == true`、`naturalWidth` / `naturalHeight > 0`、`currentSrc` 以 `cmux-local-image://` 开头）、目录外 SVG 被拒（`naturalWidth == 0`）、显式 `file:` URL 不进本地图片通道（`src` 为空）。原有 PNG 用例未改动，其中的「越界路径被拒」「绝对路径 / 绝对 file: 被拒」断言继续覆盖同样的保护面。

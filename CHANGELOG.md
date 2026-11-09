@@ -19,6 +19,7 @@ All notable changes to cmux are documented here.
 - `README.md` / `README_cn.md` 的「安装」节：把安装脚本放在最前面作为推荐路径（含免 clone 的一行用法），手工 `unzip` + `xattr -dr` 步骤保留作兜底，并说明 Gatekeeper 弹窗的根因是 ad-hoc 签名 + 浏览器下载附带的 `com.apple.quarantine`（curl 下载不带该属性）。
 - `DEVELOPMENT.md` 第二节：改为先讲安装脚本（含 `--tag` / `--dest` 用法），再讲手工步骤，并补充「浏览器下载的 zip 及其解压副本会带 `com.apple.quarantine`，必须 `xattr -dr`；curl 下载不会」。
 - `.pi/APPEND_SYSTEM.md`：保留手工安装必须去隔离的硬约束，补一句指向新脚本。
+- `DEVELOPMENT.md` 第六节与 `.pi/APPEND_SYSTEM.md` 的「版本与发版」：去掉写死的旧版本号 `0.65.2.2-r13`——「当前版本」改为指向仓库根 `VERSION` 文件本身，tag 示例由具体版本号改成通用形式「把 `VERSION` 的值前面加个 `v`」（形如 `v<上游基线>-r<N>`），以后发版不必再回来改这两处文档。
 
 ## [0.65.2.2-r15] - 2026-11-08
 

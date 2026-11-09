@@ -12,6 +12,9 @@ All notable changes to cmux are documented here.
   - 安装前检查目标位置是否已有 cmux 在运行，是则拒绝替换并提示先退出（不提供强制开关）；用 `ditto` 拷到同目录暂存路径后原子替换，失败回滚，成功后不留下备用 app 副本。
   - 已装同版本时直接提示「已是最新」并退出；只有装到 `/Applications` 时才用 `lsregister -f` 注册 LaunchServices，测试目录不注册。
 
+### Fixed
+- **Markdown 查看器默认自动加载远程图片在 r15 里失效（P6 补丁没生效）**：r15 的 `MarkdownWebRenderer` 在 shell 文档加载完成前就把 `appliedLoadRemoteImages` 记为已推送，`didFinish` 于是判定「值没变」直接返回，页面永远停在 shell 默认的逐图确认流程，shields.io 徽章全部显示「Remote image blocked」。现在把同步状态抽成 `MarkdownRemoteImageAutoLoadSync` 纯值类型：shell 未就绪时 `pendingPush()` 不记账，`didFinish` 无条件强制推送一次；重载 / 崩溃恢复后同样会重新注入。新增 `CmuxAgentChat` 包单测覆盖该时序（PR 门禁实际执行）。行为没有回退：关掉设置仍是逐图确认，自动加载失败仍回退三个按钮，HTTP / 内网 URL 仍被拦。
+
 ### 文档
 - `README.md` / `README_cn.md` 的「安装」节：把安装脚本放在最前面作为推荐路径（含免 clone 的一行用法），手工 `unzip` + `xattr -dr` 步骤保留作兜底，并说明 Gatekeeper 弹窗的根因是 ad-hoc 签名 + 浏览器下载附带的 `com.apple.quarantine`（curl 下载不带该属性）。
 - `DEVELOPMENT.md` 第二节：改为先讲安装脚本（含 `--tag` / `--dest` 用法），再讲手工步骤，并补充「浏览器下载的 zip 及其解压副本会带 `com.apple.quarantine`，必须 `xattr -dr`；curl 下载不会」。

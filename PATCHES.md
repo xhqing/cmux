@@ -282,7 +282,9 @@ About 窗口的「Version」一行显示 `0.65.2.2`，而 GitHub Release / tag �
 | --- | --- |
 | `Resources/markdown-viewer/shell.html` | 新增 `remoteImagesAutoLoad` 标志与 `window.__cmuxSetRemoteImageAutoLoad(enabled)`；`ensureRemoteImagePlaceholder()` 末尾在 `canOfferLoad && remoteImagesAutoLoad` 时直接走 `loadApprovedRemoteImage(info.href)`（仍然经过 `remoteImageCanOfferLoad` 与宿主 approve，不绕过）；自动加载时先折叠占位块（`display:none`），失败时由 `setRemoteImageLoadingState(img, false)` 恢复显示；同一 URL 只向宿主请求一次；打开设置时补齐页面上已渲染的图片（覆盖「先开设置再渲染」与「渲染后再开设置」两种顺序）。 |
 | `Sources/Panels/MarkdownRemoteImageSettings.swift`（新增） | 设置键 `markdown.loadRemoteImages`，`resolvedDefault` / `setDefault` / `resetDefault`，内置默认 `true`。 |
-| `Sources/Panels/MarkdownWebRenderer.swift` | 新增 `loadRemoteImages` 参数；Coordinator 记录 `lastLoadRemoteImages` 并在 `makeNSView` / `updateNSView` / `didFinish`（shell 重载后页面状态会丢）重新调 `window.__cmuxSetRemoteImageAutoLoad(...)`。 |
+| `Sources/Panels/MarkdownWebRenderer.swift` | 新增 `loadRemoteImages` 参数；Coordinator 改用 `MarkdownRemoteImageAutoLoadSync`（见下方 r15 修复）记录该值，并在 `didFinish` 强制重新注入，shell 重载后页面状态不会丢。 |
+| `Packages/Shared/CmuxAgentChat/.../MarkdownRemoteImageAutoLoadSync.swift`（新增） | 纯值类型：记录请求值 / shell 是否就绪 / 已推送值。shell 未就绪时 `pendingPush()` 不记账；`didFinish` 调 `shellLoadFinished()` 无条件拿到要推送的值。 |
+| `Packages/Shared/CmuxAgentChat/Tests/.../MarkdownRemoteImageAutoLoadSyncTests.swift`（新增） | 覆盖 r15 抢跑时序、重载必须重推、加载后变更只推一次、加载前多次变更由 `didFinish` 送最后值；PR 门禁会实际跑该包的 `swift test`。 |
 | `Sources/Panels/MarkdownPanel.swift` | 新增 `@Published loadRemoteImages`，init 读 `resolvedDefault()`；UserDefaults 观察回调里同步新值，设置或 `cmux.json` 变更立即生效。 |
 | `Sources/Panels/MarkdownPanelView.swift` | 把值传给渲染器。 |
 | `Packages/macOS/CmuxSettings/.../MarkdownCatalogSection.swift` | 新增目录键（boolean、默认 `true`、带 `userFacing` toggle 描述符）。 |
@@ -303,6 +305,23 @@ About 窗口的「Version」一行显示 `0.65.2.2`，而 GitHub Release / tag �
 - **关掉即恢复上游行为**：设置页开关（或 `cmux.json` 里 `markdown.loadRemoteImages: false`）一关，就是上游原样的逐图确认流程，连 shell 的默认值都保持手动。
 - 担心的场景（预览不可信文档时不想让 cmux 替你发请求）由这个开关覆盖，而且与上游不冲突——上游日后若做同样的设置，rebase 时可对齐语义。
 
+### r15 回归与修复（2026-11-09）
+
+**现象**：装的是 r15（`CMUXVersion=0.65.2.2-r15`，bundle 内 `Resources/markdown-viewer/shell.html` 与 tag 的 sha256 一致，UserDefaults 里没有 `markdown.loadRemoteImages`，即默认开启），但内置查看器打开 README 时 shields.io 徽章仍全部显示「Remote image blocked」，必须逐张点「Load this image」。
+
+**根因**：Coordinator 用 `appliedLoadRemoteImages` 记录「当前文档已经收到该值」，但这个记录在页面还没准备好时就被写入了：
+
+1. `makeNSView` 先调 `setLoadRemoteImages(true)`——此时 WebView 还是 `about:blank`，`evaluateJavaScript` 无效，但 `applied` 已被置为 `true`；
+2. `loadShell()` 把 `applied` 重置为 `nil` 并开始 `loadHTMLString`；
+3. SwiftUI 紧接着调用 `updateNSView`，再次 `setLoadRemoteImages(true)`——shell 仍在加载、`window.__cmuxSetRemoteImageAutoLoad` 还不存在，JS 静默失败，但 `applied` 又被置为 `true`；
+4. `didFinish` 调 `applyLoadRemoteImages()`，`applied == last` 直接 return，页面永远停在 shell 默认的 `remoteImagesAutoLoad = false`。
+
+**修复**：
+
+- 新增 `Packages/Shared/CmuxAgentChat/.../MarkdownViewer/MarkdownRemoteImageAutoLoadSync.swift`：把「请求值 / 当前文档是否已加载 / 已推送值」抽成纯值类型。`pendingPush()` 在 shell 未加载完成时一律返回 `nil` 且不写 `applied`；`shellLoadFinished()` 无条件返回要推送的值（并记为已推送），保证 `didFinish` 一定注入。
+- `MarkdownWebRenderer.swift` 的 Coordinator 改用该类型：`setLoadRemoteImages` → `request` + `pendingPush`；`loadShell` / `close` → `shellLoadStarted()`；`didFinish` → `shellLoadFinished()` + 强制推送。行为不变——设置关闭仍推 `false` 恢复逐图确认，重载 / 崩溃恢复会重新注入，自动加载失败仍回退三个按钮，HTTP / 内网 URL 仍被拦（这些逻辑都在 `shell.html`，本次未改）。
+- 测试：`Packages/Shared/CmuxAgentChat/Tests/.../MarkdownRemoteImageAutoLoadSyncTests.swift` 覆盖 r15 的抢跑时序、重载必须重推、加载后变更只推一次、加载前多次变更由 `didFinish` 送最后值。该包在 PR 门禁的 `check-swift-packages.py` 里会实际跑 `swift build` + `swift test`。
+
 ### 已知边界
 
 - 设置关掉时，**已经**自动加载出来的图片不会撤回（宿主已记录批准、图片已显示）；关掉只影响之后渲染的图片。
@@ -312,6 +331,7 @@ About 窗口的「Version」一行显示 `0.65.2.2`，而 GitHub Release / tag �
 
 ### 验证
 
-- 改动过的 Swift 文件逐个 `swiftc -parse -enable-bare-slash-regex` 通过；`Packages/macOS/CmuxSettings` 与 `CmuxSettingsUI` 的 `swift build` 通过。
-- `python3 scripts/generate-cmux-config-schema.py --check` 通过；`scripts/lint-pbxproj-test-wiring.sh` 通过；`git diff --check` 干净。
-- `cmuxTests` 不在 PR 门禁里跑、本机也没有完整 Xcode，新增测试只是照现有用例的写法写的（用 `MarkdownRemoteImageHoldingSchemeHandler` 与录制桥），**实际编译与运行交由 CI / Release 构建确认**。
+- 改动过的 Swift 文件逐个 `swiftc -parse -enable-bare-slash-regex` 通过；`swift build --package-path Packages/Shared/CmuxAgentChat` 通过。本机是 CommandLineTools（没有 `Testing` 模块），`swift test` 无法执行，如实记录；CI 的 `scripts/check-swift-packages.py` 会对该包实际跑 `swift test`。
+- 另外用 `swiftc` 把同一份状态机源码与断言脚本编译成本地可执行文件，逐条跑过 r15 时序（抢跑不记账、`didFinish` 必推、重载重推、关闭推送、重复不推），全部通过。
+- `cmuxTests` 不在 PR 门禁里跑、本机也没有完整 Xcode；P6 原有的 WebView 测试保留不动，本轮的时序修复由上面的 `CmuxAgentChat` 单测覆盖（CI 可执行）。
+- 本次不涉及 schema / pbxproj 改动；`git diff --check` 与 `scripts/lint-pbxproj-test-wiring.sh` 照常跑过。

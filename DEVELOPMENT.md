@@ -150,8 +150,8 @@ open "/Applications/cmux.app"
 
 ## 六、版本与发版
 
-- 版本号权威来源：仓库根 `VERSION`（当前 `0.65.2.2-r13`），格式是「上游基线版本 + `-r<N>` 修订号」——不带个人 handle；N 是本仓库自己的修订号，换上游 tag 后从 1 重新开始。
-- 每次发版：更新 `VERSION` → 在 `CHANGELOG.md` 顶部写条目 → 打 tag（`v0.65.2.2-r13`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 GitHub Release。
+- 版本号权威来源：仓库根 `VERSION`，格式是「上游基线版本 + `-r<N>` 修订号」——不带个人 handle；N 是本仓库自己的修订号，换上游 tag 后从 1 重新开始。当前版本号一律看 `VERSION` 文件本身，本文档不写死具体值（写死了每发一次版就漂移一次）。
+- 每次发版：更新 `VERSION` → 在 `CHANGELOG.md` 顶部写条目 → 打 tag（把 `VERSION` 的值前面加个 `v`，形如 `v<上游基线>-r<N>`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 GitHub Release。
 - 发版判断：只有本分叉自上一个 tag 以来有 `fix` / `feat` 类改动才发版；纯文档、杂事不发版。
 
 ## 七、上游同步

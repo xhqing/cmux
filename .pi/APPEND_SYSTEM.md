@@ -34,7 +34,7 @@
 ## 版本与发版
 
 - 版本号权威：仓库根 `VERSION`，格式「上游基线 + `-r<N>` 修订号」（不带个人 handle；N 是本仓库自己的修订号，换上游 tag 后从 1 重新开始）。
-- 发版：更新 `VERSION` → CHANGELOG 顶部写条目 → 打 tag（`v0.65.2.2-r13`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 Release。
+- 发版：更新 `VERSION` → CHANGELOG 顶部写条目 → 打 tag（把 `VERSION` 的值前面加个 `v`，形如 `v<上游基线>-r<N>`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 Release。
 - **只有本分叉自上一个 tag 以来有 fix / feat 类改动才发版**；纯文档、杂事不发版。
 
 ## 提交纪律

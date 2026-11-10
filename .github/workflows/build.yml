@@ -182,13 +182,18 @@ jobs:
           set -o pipefail
           ./scripts/reloads.sh --derived-data /tmp/cmux-build 2>&1 | tee /tmp/cmux-build-raw.log
 
-      - name: 校验 Sparkle 已被关掉
+      - name: 校验更新通道（feed / 公钥 / 版本）
         run: |
           set -euo pipefail
           APP="/tmp/cmux-build/Build/Products/Release/cmux.app"
           PLIST="${APP}/Contents/Info.plist"
+          EXPECTED_FEED="https://github.com/xhqing/cmux/releases/latest/download/appcast.xml"
+          # 本分叉自己的 Sparkle EdDSA 公钥；对应私钥只放在 GitHub secret
+          # SPARKLE_PRIVATE_KEY 里（本机备份在 macOS 钥匙串，见 DEVELOPMENT.md 第四节）。
+          EXPECTED_SPARKLE_PUBLIC_KEY="rfbvt6jmbne/wfXun8IedZrnp4hR/iRFi9oCPtKsN4Q="
           FEED="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "${PLIST}" || true)"
           AUTO="$(/usr/libexec/PlistBuddy -c 'Print :SUEnableAutomaticChecks' "${PLIST}" || true)"
+          KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "${PLIST}" || true)"
           BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${PLIST}" || true)"
           VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${PLIST}" || true)"
           BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${PLIST}" || true)"
@@ -200,6 +205,7 @@ jobs:
           echo "release   : ${RELEASE_VERSION}（About 面板显示值：${ABOUT_VERSION}）"
           echo "feed      : ${FEED}"
           echo "auto check: ${AUTO}"
+          echo "sparkle key: ${KEY}"
           if [ "${BID}" != "com.xhqing.cmux" ]; then
             echo "::error::CFBundleIdentifier=${BID}，应为 com.xhqing.cmux"
             exit 1
@@ -212,9 +218,20 @@ jobs:
             echo "::error::CMUXVersion=${ABOUT_VERSION}，应为 ${RELEASE_VERSION}（VERSION 原值，About 面板显示的版本号）"
             exit 1
           fi
-          case "${FEED}" in
-            *manaflow-ai/cmux*) echo "::error::SUFeedURL 仍指向上游，会被官方版本覆盖"; exit 1 ;;
-          esac
+          # Sparkle 用 CFBundleVersion 比较新旧版本；CI 传的是「日期 + run 号」的单调数字，
+          # 一旦退回工程里写死的 113，后续所有更新都不会被判为「更新」。
+          if ! [[ "${BUILD}" =~ ^[0-9]{10,}$ ]]; then
+            echo "::error::CFBundleVersion=${BUILD}，不是预期的「日期 + run 号」单调构建号（CURRENT_PROJECT_VERSION 没传进 xcodebuild？）"
+            exit 1
+          fi
+          if [ "${FEED}" != "${EXPECTED_FEED}" ]; then
+            echo "::error::SUFeedURL=${FEED}，应为 ${EXPECTED_FEED}（更新源只认本仓库，不能指向上游）"
+            exit 1
+          fi
+          if [ "${KEY}" != "${EXPECTED_SPARKLE_PUBLIC_KEY}" ]; then
+            echo "::error::SUPublicEDKey=${KEY}，应为 ${EXPECTED_SPARKLE_PUBLIC_KEY}；改了公钥必须同步 GitHub secret SPARKLE_PRIVATE_KEY，否则 appcast 签名对不上"
+            exit 1
+          fi
           if [ "${AUTO}" = "true" ]; then
             echo "::error::SUEnableAutomaticChecks 仍为 true"
             exit 1
@@ -234,6 +251,42 @@ jobs:
           ls -lh "${OUT}"
           shasum -a 256 "${OUT}" | tee "${OUT}.sha256"
 
+      - name: 生成并签名 appcast（仅 tag 构建）
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SPARKLE_PRIVATE_KEY:-}" ]; then
+            echo "::error::缺少 GitHub secret SPARKLE_PRIVATE_KEY，无法给 appcast 签名（app 内更新通道会断掉）"
+            exit 1
+          fi
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          if [ "${TAG}" != "v${VERSION}" ]; then
+            echo "::error::tag ${TAG} 与 VERSION（${VERSION}）不一致，appcast 会指向错的版本"
+            exit 1
+          fi
+          # 先确认 secret 里的私钥与 app 里的公钥是同一对，否则生成的签名 Sparkle 会拒绝。
+          EXPECTED_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' /tmp/cmux-build/Build/Products/Release/cmux.app/Contents/Info.plist)"
+          DERIVED_KEY="$(swift scripts/derive_sparkle_public_key.swift "${SPARKLE_PRIVATE_KEY}")"
+          if [ "${DERIVED_KEY}" != "${EXPECTED_KEY}" ]; then
+            echo "::error::SPARKLE_PRIVATE_KEY 对应的公钥（${DERIVED_KEY}）与 app 的 SUPublicEDKey（${EXPECTED_KEY}）不一致"
+            exit 1
+          fi
+          ZIP="$(find . -maxdepth 1 -name 'cmux-*.zip' -type f -print -quit)"
+          if [ -z "${ZIP}" ]; then
+            echo "::error::找不到要签名的 cmux-*.zip"
+            exit 1
+          fi
+          DOWNLOAD_URL_PREFIX="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/" \
+          RELEASE_NOTES_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" \
+            ./scripts/sparkle_generate_appcast.sh "${ZIP}" "${TAG}" appcast.xml
+          # 显示版本用 VERSION 原值（带 -rN），否则更新提示会把 r18 显示成旧基线版本号。
+          python3 scripts/ci/set-appcast-version.py appcast.xml "${VERSION}"
+          ls -lh appcast.xml
+          grep -qF "releases/download/${TAG}/$(basename "${ZIP}")" appcast.xml
+
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
@@ -241,6 +294,7 @@ jobs:
           path: |
             cmux-*.zip
             cmux-*.zip.sha256
+            appcast.xml
           if-no-files-found: error
           retention-days: 30
 

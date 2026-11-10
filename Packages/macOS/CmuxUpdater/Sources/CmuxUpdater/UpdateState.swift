@@ -198,18 +198,37 @@ public enum UpdateState: Equatable {
             self.reply = reply
         }
 
-        /// A link to the release notes for this update, derived from its version string.
+        /// A link to the release notes for this update (the appcast's own link when the feed
+        /// provides one, otherwise a link derived from the display version string).
         public var releaseNotes: ReleaseNotes? {
-            ReleaseNotes(displayVersionString: appcastItem.displayVersionString)
+            ReleaseNotes(appcastItem: appcastItem)
         }
     }
 
-    /// A "view release notes" link derived from an update's display version string.
+    /// A "view release notes" link for an available update.
     public enum ReleaseNotes {
         /// The version maps to a git commit; links to the commit page.
         case commit(URL)
         /// The version maps to a semantic-version tag; links to the release page.
         case tagged(URL)
+
+        /// Derives a release-notes link from an appcast item.
+        ///
+        /// The feed's own release-notes URLs win: this build's appcast points
+        /// `sparkle:fullReleaseNotesLink` at this repository's release page, while the
+        /// display-version fallback below hardcodes upstream cmux. Without this, the in-app
+        /// update prompt sends this fork's users to the official project's release page.
+        public init?(appcastItem: SUAppcastItem) {
+            if let url = appcastItem.fullReleaseNotesURL {
+                self = .tagged(url)
+                return
+            }
+            if let url = appcastItem.releaseNotesURL {
+                self = .tagged(url)
+                return
+            }
+            self.init(displayVersionString: appcastItem.displayVersionString)
+        }
 
         /// Derives a release-notes link from a display version string, returning `nil` when
         /// the string contains neither a semantic version nor a git hash.

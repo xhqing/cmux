@@ -50,7 +50,7 @@
 | `Sources/SettingsSearchIndex.swift` | 注册搜索项（`confirmation` / `running process` 等关键词） |
 | `Sources/CmuxSettingsJSONPathSupport.swift` | 注册 JSON 配置键映射 |
 | `Sources/CmuxSettingsFileStore+SupportedPaths.swift` | 注册支持的配置路径 |
-| `Resources/Info.plist` | Sparkle：`SUEnableAutomaticChecks` → `false`、`SUFeedURL` → 本仓库地址（见 DEVELOPMENT.md 第三节） |
+| `Resources/Info.plist` | Sparkle：`SUEnableAutomaticChecks` → `false`、`SUFeedURL` → 本仓库地址（见 DEVELOPMENT.md 第四节） |
 
 ### 为什么改在 `Workspace.panelNeedsConfirmClose` 这一处
 
@@ -390,3 +390,50 @@ SVG 能带 `<script>` / `onload` / 外部引用，看起来像「放开一个可
 - `swiftc -parse` 对改动的两个 Swift 文件通过（`Sources/Panels/MarkdownWebRenderer.swift`、`cmuxTests/MarkdownPanelTests.swift`）。
 - `cmuxTests` 不在 PR 门禁里跑，本机也没有完整 Xcode（项目规矩：本机不跑完整构建，两小时量级），因此新增的 WebView 用例在本机**未实际执行**，如实记录；由 CI 的 `build-macos` 编译兜底，行为验证交给发版后安装 + 用户实测。
 - 新增用例覆盖三条断言：本地同目录 `logo.svg` 渲染成功（`complete == true`、`naturalWidth` / `naturalHeight > 0`、`currentSrc` 以 `cmux-local-image://` 开头）、目录外 SVG 被拒（`naturalWidth == 0`）、显式 `file:` URL 不进本地图片通道（`src` 为空）。原有 PNG 用例未改动，其中的「越界路径被拒」「绝对路径 / 绝对 file: 被拒」断言继续覆盖同样的保护面。
+
+---
+
+## P8 — 修好「Check for Updates…」：从 `xhqing/cmux` 的 Release 检测并安装最新版
+
+**状态**：已实现
+
+### 要解决的问题
+
+菜单里的「Check for Updates…」一直报错 / 什么也检查不到。P1 时代关掉了 Sparkle 的**自动安装**、把 feed 指回本仓库（`Info.plist` 里还写了 `SUEnableAutomaticChecks=false`，但 `CmuxUpdater` 的 `UpdateSettings` 会注册上游默认的 `true`，实际把自动检查覆盖成开启——这一点也是本次顺手核实的），可本仓库从来没有发布过 appcast：菜单项实际去拉 `https://github.com/xhqing/cmux/releases/latest/download/appcast.xml`，拿回来的是 404。用户想要的是：**能从本仓库的 Release 里检测出最新版，并在应用内直接更新过去**。
+
+### 根因（读代码 + 实测确认）
+
+1. `Resources/Info.plist` 的 `SUFeedURL` 已经指向本仓库，但 `SUPublicEDKey` 仍是**上游**的公钥 `avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=`（`project.pbxproj` 两处 `SPARKLE_PUBLIC_KEY` 的默认值）。上游私钥不在我们手里，所以即使有 appcast 也签不了名。
+2. `.github/workflows/build.yml` 只产 zip，**从不生成 `appcast.xml`**；`attach-release-asset.yml` 也只挂 zip 与 sha256。因此 `releases/latest/download/appcast.xml` 实测为 404。
+3. 就算把 appcast 补上，`generate_appcast` 默认把 `CFBundleShortVersionString`（纯数字 `0.65.2.2`）写进 `sparkle:shortVersionString`，更新提示会把 `-r18` 显示成「0.65.2.2」，用户看不出这是哪个修订。
+4. 更新弹窗里的「View Release Notes」由 `UpdateState.ReleaseNotes` 从显示版本号反推 GitHub 地址，而反推目标写死为 `github.com/manaflow-ai/cmux`——在本分叉里点进去会跳到上游的发布页。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `cmux.xcodeproj/project.pbxproj` | 两处 `SPARKLE_PUBLIC_KEY` 换成我们自己的 EdDSA 公钥 `rfbvt6jmbne/wfXun8IedZrnp4hR/iRFi9oCPtKsN4Q=`（Info.plist 的 `SUPublicEDKey` 从这里注入）。 |
+| `.github/workflows/build.yml` | 校验 step 增加「公钥必须是本仓库的、feed 必须精确指向本仓库」；新增 tag 构建的「生成并签名 appcast」step（secret `SPARKLE_PRIVATE_KEY` → `scripts/sparkle_generate_appcast.sh` → `scripts/ci/set-appcast-version.py`）；产物加上 `appcast.xml`。 |
+| `.github/workflows/attach-release-asset.yml` | 把 `appcast.xml` 与 zip / sha256 一起挂到 Release；挂之前校验 appcast 的下载地址确实指向本 tag 的 zip，不一致拒绝发布。 |
+| `scripts/ci/set-appcast-version.py` | 把 appcast 的 `<item><title>` 与 `sparkle:shortVersionString` 改成 `VERSION` 原值（`0.65.2.2-r18`）。Sparkle 版本比较用的是 `sparkle:version`（`CFBundleVersion`），显示字段不参与排序。 |
+| `Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateState.swift` | `ReleaseNotes` 优先取 appcast 自己的 `sparkle:fullReleaseNotesLink` / `sparkle:releaseNotesLink`，没有时才回退到原来的「显示版本号反推」逻辑。 |
+| `Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/ReleaseNotesTests.swift` | 新增两条单测：appcast 链接优先、无链接时保持旧行为。 |
+| `scripts/sparkle_generate_appcast.sh` | 未改动（上游脚本原本就支持任意归档格式与自定义下载前缀，直接复用）。 |
+
+私钥只进两个地方：GitHub Actions secret `SPARKLE_PRIVATE_KEY`（CI 签名用）与开发机 macOS 钥匙串（服务名 `cmux-sparkle-eddsa`）；不写进仓库任何文件。
+
+### 为什么生成 appcast，而不是自己写更新器
+
+Sparkle 已经完整地实现了「拉 feed → 比较版本 → 提示 → 下载 → EdDSA 校验 → 解压 → 替换 app → 重启」，本分叉也已经有整套自定义更新 UI（`CmuxUpdater` / `CmuxUpdaterUI`）在跑。缺的只是**喂给它一个本仓库的、签好名的 appcast**。自己再写一个「查 GitHub API + 替换 `/Applications` 下的 app」的更新器，要重新处理替换时文件锁、原子替换、回滚、重启、签名等边界，风险远大于补上 appcast。
+
+### 一次性迁移（必须知道）
+
+Sparkle 校验更新包时用的是**当前安装版本**的 `SUPublicEDKey`：r17 及更早装的是上游公钥，而我们没有上游私钥；ad-hoc 签名的 designated requirement 又是 cdhash，也让「Apple 签名一致」这条兜底不可能成立。所以 **r17 / 更早的安装无法自动更新到带本仓库公钥的版本**，必须手动用 `scripts/install-release.sh` 重装一次。装上新版之后，后续所有更新都能在应用内完成。
+
+### 验证
+
+- 用 Sparkle 2.8.1 的 `generate_appcast` 在本机对一份改过公钥的 app 试跑了整条链路：appcast 生成成功、`sparkle:edSignature` 存在、`set-appcast-version.py` 后 `<item><title>` 与 `shortVersionString` 为 `0.65.2.2-r18`、channel 标题 `cmux` 未被误改。
+- 签名依赖的私钥公钥配对已实测：`scripts/derive_sparkle_public_key.swift` 从私钥导出的公钥与写进 `project.pbxproj` 的公钥一致。
+- `.github/workflows/` 的两个 YAML 用 Ruby 的 YAML 解析器做了语法校验。
+- `UpdateState.swift` 与整个 `CmuxUpdater` 包源码一起编成本地探针跑过真实行为：带 `sparkle:fullReleaseNotesLink` 的 item 得到本仓库的 release 地址，不带链接的 item 保持旧行为（反推到上游 `v0.65.2`）。本机是 CommandLineTools、没有 Swift Testing 的 `Testing` 模块，所以 `ReleaseNotesTests` 只能做 `swiftc -parse` 语法检查，真正执行交给 PR 门禁的 `scripts/check-swift-packages.py`（`macos-26` runner 有完整 Xcode）。
+- 更新链路的端到端验证（检测到新版本 → 下载 → 安装 → 重启）要在下一次 tag 发布后用装好的 app 实测；本次无法在没有新 Release 的情况下验证。

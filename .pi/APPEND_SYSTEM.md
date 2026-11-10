@@ -22,6 +22,7 @@
 - **架构只编 arm64**：`universal` 是整个 app 编两遍，实测一轮 3.5 小时还没完。
 - 版本号注入：`VERSION` 去掉 `-rN` 后缀写进 `CFBundleShortVersionString`，完整版本写进 `CMUXVersion`（About 面板显示）；构建末尾有校验 step。
 - 安装：ad-hoc 签名、无公证，**必须先 `xattr -dr com.apple.quarantine`**，否则系统报「已损坏」（手工路径；用 `scripts/install-release.sh` 安装则会自动下载、校验、去隔离）。
+- **更新通道（Sparkle）**：自动**安装**关着（`SUAutomaticallyUpdate=false`），自动检查沿用上游默认；CI 用 GitHub secret `SPARKLE_PRIVATE_KEY` 生成并签名 `appcast.xml`，`attach-release-asset` 自动挂到 Release。改 `project.pbxproj` 的 `SPARKLE_PUBLIC_KEY`（两处）**必须**同步更新该 secret，否则签名对不上、app 内更新装不上；私钥本机备份在 macOS 钥匙串（服务名 `cmux-sparkle-eddsa`、账号 `private-key`）。详见 `DEVELOPMENT.md` 第四节。
 
 ## PR 门禁只能说轻量（刻意的取舍，别去"优化"）
 
@@ -34,7 +35,7 @@
 ## 版本与发版
 
 - 版本号权威：仓库根 `VERSION`，格式「上游基线 + `-r<N>` 修订号」（不带个人 handle；N 是本仓库自己的修订号，换上游 tag 后从 1 重新开始）。
-- 发版：更新 `VERSION` → CHANGELOG 顶部写条目 → 打 tag（把 `VERSION` 的值前面加个 `v`，形如 `v<上游基线>-r<N>`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 Release。
+- 发版：更新 `VERSION` → CHANGELOG 顶部写条目 → 打 tag（把 `VERSION` 的值前面加个 `v`，形如 `v<上游基线>-r<N>`）→ 推 tag（CI 自动构建）→ CI 自动把 zip / sha256 / `appcast.xml` 挂到 Release（app 内更新靠 appcast，不要漏挂或手改）。
 - **只有本分叉自上一个 tag 以来有 fix / feat 类改动才发版**；纯文档、杂事不发版。
 
 ## 提交纪律
@@ -50,7 +51,7 @@
 
 ## 自建版验证清单（改行为后必须过）
 
-装好新版、在新窗口里逐条走（完整版见 `DEVELOPMENT.md` 第三节）：① 跑着进程的工作区关闭时**默认不弹**；② Cmd+W / Cmd+Ctrl+W 同样不弹；③ 设置里打开「Confirm Before Closing Running Processes」后重试**应该弹**；④ 勾选 "Don't ask again" 后不再弹；⑤ 浏览器面板有未保存内容时**仍要弹**；⑥ pinned 工作区仍要弹；⑦ Sparkle 已关（菜单「Check for Updates」不应请求上游仓库）。
+装好新版、在新窗口里逐条走（完整版见 `DEVELOPMENT.md` 第三节）：① 跑着进程的工作区关闭时**默认不弹**；② Cmd+W / Cmd+Ctrl+W 同样不弹；③ 设置里打开「Confirm Before Closing Running Processes」后重试**应该弹**；④ 勾选 "Don't ask again" 后不再弹；⑤ 浏览器面板有未保存内容时**仍要弹**；⑥ pinned 工作区仍要弹；⑦ 更新通道只问本仓库（菜单「Check for Updates…」不应请求上游 `manaflow-ai/cmux`，装的是最新版时应提示已是最新）。
 
 ## 详细说明
 

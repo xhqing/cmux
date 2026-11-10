@@ -126,7 +126,7 @@ jobs:
               exit 1
             fi
             files+=("${appcasts[0]}")
-            echo "::notice::appcast.xml 已校验（下载地址指向 ${TAG} 的 ${basename "${zips[0]}"}）。"
+            echo "::notice::appcast.xml 已校验（下载地址指向 ${TAG} 的 $(basename "${zips[0]}")）。"
           elif [ "${#appcasts[@]}" -gt 1 ]; then
             echo "::error::构建产物里有 ${#appcasts[@]} 个 appcast.xml，无法确定该挂哪一个。"
             exit 1

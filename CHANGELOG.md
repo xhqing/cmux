@@ -13,6 +13,9 @@ All notable changes to cmux are documented here.
   - **不会静默安装**（`SUAutomaticallyUpdate=false`）：自动检查沿用上游默认（`UpdateSettings` 注册为开启，可能后台探测并在侧边栏显示更新提示），但所有检查结果都只来自本仓库的签名 appcast，安装必须由用户点「Install and Relaunch」。
   - **一次性迁移**：r17 及更早版本里的公钥是上游的，Sparkle 校验更新包时用的是「当前安装版本」的公钥，ad-hoc 签名的 designated requirement 又是 cdhash，所以旧版无法自动跨到新公钥的版本——需要手动跑一次 `scripts/install-release.sh` 重装，之后的手动更新都能在应用内完成。
 
+### 构建与发布
+- **`attach-release-asset` 的通知消息里有个 bash 引用写法错误（`${basename "…"}` → `bad substitution`），r18 构建成功但资产首次挂载中断**：改用命令替换 `$(basename …)`；随后用 `workflow_dispatch` 重跑 r18 那次构建的挂载（run 42824769839），zip / sha256 / `appcast.xml` 已补齐。r18 的安装包内容不受影响。
+
 ### 文档
 - `DEVELOPMENT.md` 第四节重写：更新链路、密钥位置与轮换方法、一次性迁移、为什么不用上游通道；第三节验证清单第 7 条改为「只问本仓库 + 能检测新版本」；第六节补上 appcast 随 Release 自动挂载的说明；第八节同步 workflow 文件清单。
 - `README.md` / `README_cn.md` 同步改写更新说明（双语一致）：更新只来自本仓库签名 appcast、从不静默安装（自动检查沿用上游默认，发现新版本时侧边栏会出现提示，安装需用户确认）。

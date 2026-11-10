@@ -1,12 +1,12 @@
 # cmux
 
-> FullStackEngineerAgent（Atlas）名下的子项目 · 本项目规则本体
+> dev-agent（Atlas）名下的子项目 · 本项目规则本体
 
 [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux) 的个人自建版：基线固定在上游 release tag，只叠加少量自有补丁（清单见 `PATCHES.md`，同步上游见 `SYNC.md`）。已脱离 fork network，只保留 macOS app 的构建闭包。
 
 ## 归谁负责
 
-本项目由 **Atlas**（FullStackEngineerAgent）负责维护。改动范围跨出本项目时，先向 Atlas 说明，不自行扩张改动面。
+本项目由 **Atlas**（dev-agent）负责维护。改动范围跨出本项目时，先向 Atlas 说明，不自行扩张改动面。
 
 ## 你的角色
 

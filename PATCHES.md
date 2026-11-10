@@ -436,4 +436,6 @@ Sparkle 校验更新包时用的是**当前安装版本**的 `SUPublicEDKey`：r
 - 签名依赖的私钥公钥配对已实测：`scripts/derive_sparkle_public_key.swift` 从私钥导出的公钥与写进 `project.pbxproj` 的公钥一致。
 - `.github/workflows/` 的两个 YAML 用 Ruby 的 YAML 解析器做了语法校验。
 - `UpdateState.swift` 与整个 `CmuxUpdater` 包源码一起编成本地探针跑过真实行为：带 `sparkle:fullReleaseNotesLink` 的 item 得到本仓库的 release 地址，不带链接的 item 保持旧行为（反推到上游 `v0.65.2`）。本机是 CommandLineTools、没有 Swift Testing 的 `Testing` 模块，所以 `ReleaseNotesTests` 只能做 `swiftc -parse` 语法检查，真正执行交给 PR 门禁的 `scripts/check-swift-packages.py`（`macos-26` runner 有完整 Xcode）。
-- 更新链路的端到端验证（检测到新版本 → 下载 → 安装 → 重启）要在下一次 tag 发布后用装好的 app 实测；本次无法在没有新 Release 的情况下验证。
+- 发布侧已验到「签名 appcast + zip 全部正确」；应用内的「检测到新版本 → 下载 → 安装 → 重启」要等下一次 tag（r19）发布后实测——本次没有比 r18 更新的版本可测。
+- r18 的 tag 构建（run 42824769839）成功，artifact 里已包含 `appcast.xml`；首次资产挂载因 attach workflow 通知消息里的 `bad substitution` 中断，修复后（PR #74）用 `workflow_dispatch` 重跑同一个 run 的挂载，Release 资产补齐。
+- 发布后的实测：`https://github.com/xhqing/cmux/releases/latest/download/appcast.xml` 返回 200；`sparkle:version` = `20261110024`、显示版本 `0.65.2.2-r18`、下载地址指向本 tag 的 zip。把 zip 下载回来复算：sha256 与 Release 里的 `.sha256` 一致，EdDSA 签名用 app 内公钥（CryptoKit `Curve25519.Signing.PublicKey`）验证通过；zip 内 app 的 `CFBundleIdentifier` / `CMUXVersion` / `SUPublicEDKey` / `SUFeedURL` / `CFBundleVersion` 全部与预期一致，`codesign --verify --deep --strict` 通过（ad-hoc，符合预期）。

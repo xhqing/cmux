@@ -129,16 +129,33 @@ open "/Applications/cmux.app"
 4. **勾选真生效**：在第 3 步弹出的对话框里勾上 "Don't ask again" 再点关闭，然后重做一次 → **不应该再弹**；
 5. **未保存内容仍然保护**：在一个浏览器面板里输入点东西但不提交（页面变 dirty），关工作区 → **应该照样弹**（不受新开关影响）；
 6. **pinned 工作区**：把工作区 pin 住再关 → 仍应弹「Close pinned workspace?」；
-7. **Sparkle 已关**：菜单里「Check for Updates」不应去请求 `manaflow-ai/cmux`（如果它报错/无更新都正常，就是不能装到官方版本）。
+7. **更新通道**：菜单「Check for Updates…」只请求本仓库（`xhqing/cmux`）的 appcast，**不能**请求 `manaflow-ai/cmux`；当前已是最新版时应提示「已是最新」。下一次发版后才能完整验证「检测到新版本 → 下载 → 安装并重启」。
 
-## 四、自动更新（Sparkle）已被关掉
+## 四、应用内更新（Sparkle）：更新源只认本仓库，自动安装关闭
 
-上游的 app 内建 Sparkle 自动更新，指向 `https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml`。**如果不关，官方一旦发新版就会把我们自建的 app 覆盖掉。** 本分叉已在 `Resources/Info.plist` 里做了两处改动：
+- **更新源固定为本仓库**：`SUFeedURL` → `https://github.com/xhqing/cmux/releases/latest/download/appcast.xml`，无论自动还是手动检查，都永远不会拉官方版本。
+- **不会静默安装**：`SUAutomaticallyUpdate` 与 `UpdateSettings` 都把它固定为 `false`，新版本必须由用户点「Install and Relaunch」。
+- **自动检查沿用上游默认（开着）**：`Resources/Info.plist` 里的 `SUEnableAutomaticChecks` 虽然写 `false`，但 `CmuxUpdater` 的 `UpdateSettings.apply(to:)` 会注册上游默认（自动检查 = `true`）并对旧安装做一次迁移，所以实际行为是「自动检查 + 后台探测，发现新版本时侧边栏出现更新提示」。这是上游的设计（`DevStagingUpdateGatingTests` 明确断言 public release train 保持自动检查开启），本分叉保留它；所有检查结果都只来自本仓库的 appcast。
 
-- `SUEnableAutomaticChecks` → `false`（不再自动检查更新）；
-- `SUFeedURL` → `https://github.com/xhqing/cmux/releases/latest/download/appcast.xml`（即使手动点「检查更新」也只会问我们自己的仓库，永远不会去拉官方版本）。
+### 更新链路怎么跑
 
-另外 `SUPublicEDKey` 是上游的签名公钥，我们手里没有对应私钥，所以我们也无法给自己的分叉签更新包——这个通道对我们来说本来就是死的，关掉只是把它彻底焊死。
+1. 构建（tag 触发的 `build.yml`）产出 zip 后，用 GitHub secret `SPARKLE_PRIVATE_KEY` 调 `scripts/sparkle_generate_appcast.sh` 生成并签名 `appcast.xml`，再用 `scripts/ci/set-appcast-version.py` 把显示版本改成 `VERSION` 原值（带 `-rN`）。
+2. `attach-release-asset` workflow 把 `cmux-*.zip`、`.sha256`、`appcast.xml` 一起挂到 Release；挂之前会校验 appcast 里的下载地址确实指向**本 tag** 的 zip，不一致就拒绝发布。
+3. app 里点「Check for Updates…」→ Sparkle 拉 `releases/latest/download/appcast.xml` → 用 `sparkle:version`（`CFBundleVersion`，单调递增）比较 → 有新版本就提示「Install and Relaunch」→ 下载 zip、校验 EdDSA 签名、替换 app、重启。
+
+### 密钥
+
+- **公钥** `SUPublicEDKey` 写死在 `cmux.xcodeproj/project.pbxproj` 的 `SPARKLE_PUBLIC_KEY`（Debug / Release 两处），当前值：`rfbvt6jmbne/wfXun8IedZrnp4hR/iRFi9oCPtKsN4Q=`。
+- **私钥**只在 GitHub secret `SPARKLE_PRIVATE_KEY` 里；开发机备份在 macOS 钥匙串（服务名 `cmux-sparkle-eddsa`、账号 `private-key`）。
+- **改公钥必须与 secret 成对更换**：appcast 用新私钥签名、app 却带旧公钥时，Sparkle 会拒绝安装。轮换步骤：生成新密钥对（Sparkle 的 `generate_keys`）→ 改 `project.pbxproj` 两处公钥 → 更新 GitHub secret → 发一个新版本（旧版装不了跨密钥的更新）。
+
+### 一次性迁移（r17 及更早的安装）
+
+r17 及更早的 app 里装的是**上游的** `SUPublicEDKey`，我们手里没有对应私钥；而 ad-hoc 签名的 designated requirement 是 cdhash，Sparkle 的「Apple 签名一致」兜底也不可能匹配。所以从 r17 或更早的版本升级到带本仓库公钥的版本，**必须手动用 `scripts/install-release.sh` 重装一次**；从这之后的手动更新都走 Sparkle 的「Install and Relaunch」。
+
+### 为什么不用上游的通道
+
+上游的 appcast 与签名密钥都属于 `manaflow-ai/cmux`：feed 指回上游会被官方版本覆盖，而用上游公钥去签我们的包又签不了（私钥在对方手里）。所以本分叉必须有自己的一套 appcast + 密钥。
 
 ## 五、提交纪律与 gitleaks hook
 
@@ -152,6 +169,7 @@ open "/Applications/cmux.app"
 
 - 版本号权威来源：仓库根 `VERSION`，格式是「上游基线版本 + `-r<N>` 修订号」——不带个人 handle；N 是本仓库自己的修订号，换上游 tag 后从 1 重新开始。当前版本号一律看 `VERSION` 文件本身，本文档不写死具体值（写死了每发一次版就漂移一次）。
 - 每次发版：更新 `VERSION` → 在 `CHANGELOG.md` 顶部写条目 → 打 tag（把 `VERSION` 的值前面加个 `v`，形如 `v<上游基线>-r<N>`）→ 推 tag（CI 自动构建）→ 用 CI 产物建 GitHub Release。
+- tag 构建会自动产出并签名 `appcast.xml`，`attach-release-asset` 把它和 zip / sha256 一起挂到 Release——app 内更新依赖它，发版时不要手工替换或漏挂。
 - 发版判断：只有本分叉自上一个 tag 以来有 `fix` / `feat` 类改动才发版；纯文档、杂事不发版。
 
 ## 七、上游同步
@@ -162,7 +180,7 @@ open "/Applications/cmux.app"
 
 **过去的麻烦**：GitHub 的 fork 会把上游 `.github/workflows/` 下的全部 workflow 一起继承过来（本仓当时 146 个），而且 `schedule`（定时）触发在 fork 里照样生效。上游那套是给他们的私有 runner 和 secrets 准备的：`Nightly macOS build` 每次是几小时的全量构建，`iOS TestFlight` 上传和公证续做在我们这里没有对应凭据，只会失败刷屏；这些 run 还会抢走我们 `build-macos` 的 macOS runner 队列。2026-11-01 的处理是「除 `build-macos` 外 145 个全部 `disabled_manually`」。
 
-**现在的状态（2026-11-02 起）**：仓库脱离 fork network 并重建，`.github/workflows/` 里只剩下我们自己的两个文件——`build.yml`（构建）与 `pr-checks.yml`（PR 门禁）。继承来的 145 个 workflow 已不在仓库里，不需要再批量关；也没有上游 cron 偷偷触发。
+**现在的状态（2026-11-02 起）**：仓库脱离 fork network 并重建，`.github/workflows/` 里只剩我们自己的三个文件——`build.yml`（构建）、`attach-release-asset.yml`（把构建产物挂到 Release）与 `pr-checks.yml`（PR 门禁）。继承来的 145 个 workflow 已不在仓库里，不需要再批量关；也没有上游 cron 偷偷触发。
 
 **边界**：以后要借上游某个 workflow（比如静态检查），把那个文件单独拷过来、按我们的 runner 改一遍再用，不要整体同步上游的 `.github/`。
 

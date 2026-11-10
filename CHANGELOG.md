@@ -2,6 +2,23 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-r18] - 2026-11-10
+
+### Fixed
+- **菜单里的「Check for Updates…」修好了：现在会从 `xhqing/cmux` 的 Release 检测最新版，并在应用内直接更新过去**：之前这个菜单项只会报错——`SUFeedURL` 虽然指向本仓库，但本仓库从来没有发布过 `appcast.xml`（实测 `releases/latest/download/appcast.xml` 返回 404），而且 `SUPublicEDKey` 还是上游的公钥、我们手里没有对应私钥，签不了更新包。现在本仓库有了自己的更新链路：
+  - `project.pbxproj` 的两处 `SPARKLE_PUBLIC_KEY` 换成本仓库自己的 EdDSA 公钥；私钥只放在 GitHub Actions secret `SPARKLE_PRIVATE_KEY`（开发机在 macOS 钥匙串备份），不写进仓库任何文件。
+  - tag 构建（`.github/workflows/build.yml`）在打包后用 `scripts/sparkle_generate_appcast.sh` 生成并签名 `appcast.xml`，再用 `scripts/ci/set-appcast-version.py` 把显示版本改成 `VERSION` 原值（`0.65.2.2-r18`，否则更新提示只会显示纯数字的 `0.65.2.2`，看不出是哪个修订）。生成前会校验 secret 私钥与 app 公钥确实是同一对、tag 与 `VERSION` 一致。
+  - `attach-release-asset` workflow 把 `appcast.xml` 和 zip / sha256 一起挂到 Release；挂之前校验 appcast 的下载地址确实指向本 tag 的 zip，不一致就拒绝发布。
+  - 更新弹窗里的「View Release Notes」不再跳到上游：`UpdateState.ReleaseNotes` 优先使用 appcast 自己的 `sparkle:fullReleaseNotesLink`，没有时才回退到原来的显示版本号反推逻辑（新增 `ReleaseNotesTests` 覆盖这两条）。
+  - **不会静默安装**（`SUAutomaticallyUpdate=false`）：自动检查沿用上游默认（`UpdateSettings` 注册为开启，可能后台探测并在侧边栏显示更新提示），但所有检查结果都只来自本仓库的签名 appcast，安装必须由用户点「Install and Relaunch」。
+  - **一次性迁移**：r17 及更早版本里的公钥是上游的，Sparkle 校验更新包时用的是「当前安装版本」的公钥，ad-hoc 签名的 designated requirement 又是 cdhash，所以旧版无法自动跨到新公钥的版本——需要手动跑一次 `scripts/install-release.sh` 重装，之后的手动更新都能在应用内完成。
+
+### 文档
+- `DEVELOPMENT.md` 第四节重写：更新链路、密钥位置与轮换方法、一次性迁移、为什么不用上游通道；第三节验证清单第 7 条改为「只问本仓库 + 能检测新版本」；第六节补上 appcast 随 Release 自动挂载的说明；第八节同步 workflow 文件清单。
+- `README.md` / `README_cn.md` 同步改写更新说明（双语一致）：更新只来自本仓库签名 appcast、从不静默安装（自动检查沿用上游默认，发现新版本时侧边栏会出现提示，安装需用户确认）。
+- `.pi/APPEND_SYSTEM.md`：构建节新增「改公钥必须同步 secret」，发版节补 appcast 自动挂载，验证清单第 7 条更新。
+- `PATCHES.md` 新增 P8 条目（问题、根因、改法、为什么生成 appcast 而不是自己写更新器、一次性迁移、验证）。
+
 ## [0.65.2.2-r17] - 2026-11-09
 
 ### Fixed

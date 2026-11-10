@@ -115,6 +115,25 @@ jobs:
             files+=("${checksum}")
           done < <(find artifacts -name 'cmux-*.zip.sha256' -type f | sort)
 
+          # appcast.xml 是 app 内「Check for Updates」的更新源，必须与本 tag 的 zip 一起挂。
+          # 老版本（这条流水线引入前）的构建没有 appcast，补挂历史版本时只告警不报错；
+          # 新流水线的 tag 构建由 build.yml 强制生成，缺失即构建失败。
+          mapfile -t appcasts < <(find artifacts -name 'appcast.xml' -type f | sort)
+          if [ "${#appcasts[@]}" -eq 1 ]; then
+            expected_enclosure="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/$(basename "${zips[0]}")"
+            if ! grep -qF "${expected_enclosure}" "${appcasts[0]}"; then
+              echo "::error::appcast 里的下载地址不是 ${expected_enclosure}，拒绝把它发布出去。"
+              exit 1
+            fi
+            files+=("${appcasts[0]}")
+            echo "::notice::appcast.xml 已校验（下载地址指向 ${TAG} 的 ${basename "${zips[0]}"}）。"
+          elif [ "${#appcasts[@]}" -gt 1 ]; then
+            echo "::error::构建产物里有 ${#appcasts[@]} 个 appcast.xml，无法确定该挂哪一个。"
+            exit 1
+          else
+            echo "::warning::构建产物里没有 appcast.xml（这条更新通道引入前的历史构建属正常），本次只挂安装包。"
+          fi
+
           # Release 一般由发版流程先建好（带 CHANGELOG 说明），这里只补资产；
           # 万一只推了 tag 没有 Release，就按 tag 注释自动创建一条。
           if gh release view "${TAG}" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then

@@ -30,8 +30,11 @@ Behaviour differences from the official cmux build:
 - **Closing a workspace / tab / window no longer asks for confirmation just because a process
   is running** — `app.confirmCloseRunningProcess` (default off). Unsaved content, pinned
   workspaces and in-progress agent sessions stay protected.
-- **Sparkle auto-update is disabled**, and the feed points at this repository, so the official
-  build can never silently replace this one.
+- **Updates are never installed automatically, and every update comes from this repository**:
+  the in-app Check for Updates… menu reads a signed appcast published with this repo's
+  releases. The app may also check in the background (upstream default) and show a passive
+  update pill, but nothing is installed until you click Install; the feed never points at the
+  official cmux repo.
 - The app is ad-hoc signed and uses this project's own identity — bundle id
   `com.xhqing.cmux`, a dedicated socket and its own Preferences domain — so it never
   shares state with the official cmux build.

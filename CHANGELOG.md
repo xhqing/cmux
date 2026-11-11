@@ -6,6 +6,8 @@ All notable changes to cmux are documented here.
 
 ### Fixed
 - **后台忙碌时偶发的 50–115 ms 按键尖峰（Issue #45）：滚动回写检查点不再在主线程格式化整段 scrollback**。`.12` 版本的探针日志里 584 个按键有 2 例 53.70 ms / 101.41 ms 落在「后台忙碌」时段（开头两例属冷启动，归 Issue #44）。定位结论：`SessionScrollbackCheckpoint` 的导出走 Ghostty 的 `write_screen_file:copy,vt`，会把该终端**整段历史**格式化在主线程上，4000 行的上限是导出**之后**由非主线程读临时文件时才截断的——而检查点只对「有后台输出」的 pane 触发，所以它天然只在用户跑构建 / 日志在流时落到输入路径上；5 s 打字静默是「导出开始前」的一次性检查，挡不住「导出跑到一半用户重新开始敲键」。现在改走 Ghostty 的有界格式化（`readBoundedScreenTailVT`，只格式化最新 N 行），与 quit 快照路径早就采用的做法一致；运行时不支持时仍回退原来的临时文件导出。导出预算、每轮最多 3 个、超预算退避 600 s、打字静默期等既有约束一条没放松。
+- **终端拿到焦点后的第一个可打印键不再为「键盘布局 / 输入源」的冷加载付费（Issue #44）**：`KeyLatencyProbe` 在 `.12` 上实测第 1 键 66.30 ms、第 2 键 115.71 ms、第 3 键起 11.42 ms，稳定态 p50 6~8 ms。读代码 + 在本机做冷启动测量后确认了其中一块一次性开销：按键路径上的 `KeyboardLayout.id`、`KeyboardLayout.character(forKeyCode:)`（`unshiftedCodepointFromEvent` 用它）每次都要先 `TISCopyCurrentKeyboardInputSource()` 再 `UCKeyTranslate(..., LMGetKbdType(), ...)`，而这两步都是「进程内第一次调用才贵」——在 macmini（Intel / macOS 12.4）上实测 `TISCopyCurrentKeyboardInputSource()` 冷 30~45 ms、`LMGetKbdType()` 冷 19.3 ms，之后都是 0.00 ms；AppKit 自己的 `NSEvent.characters(byApplyingModifiers:)` 与它们共用同一份缓存（冷 30.9 ms，预热后 0.00 ms）。默认安装启动阶段不会碰这些 API（`systemWideHotkey.enabled` 默认关闭，菜单快捷键用的是存下来的字符串），所以这笔开销一直留到第一个按键。现在 `Sources/KeyboardLayout.swift` 新增 `warmCaches()` / `scheduleCacheWarmup()`，在终端 surface 就绪后 0.25 s 把这份缓存跑一遍（每进程最多一次，跑之前有守卫），不叠在 surface 创建和第一帧上。预热是纯读的：只调 `TIS*` / `LMGetKbdType` / `UCKeyTranslate`，**不构造也不解释任何 `NSEvent`**——`interpretKeyEvents` 会走 `insertText`，在终端里等于真的把字符打进 shell，还可能让输入法进入组合状态，所以那一段刻意不预热。
+- **探针补了三段口径，用来定位「还慢在哪里」**：`keyEquivalent`（window 级 key-equivalent 入口，和 `keyDown` 一比就能分出「排队等主线程」还是「我们自己的 key-equivalent 路由慢」）、`keyDown.end`（这个键处理了多久，以及其中 `layoutIdMs` / `interpretMs` 两段；一个键处理得久，下一个键才会慢）、`warmKeyboardLayout`（预热自身的耗时）。都挂在原有的默认关闭开关下，关闭时每个键只多一次静态 `Bool` 判断。
 
 ### Added
 - **探针日志现在能直接回答「这次尖峰是哪个后台任务造成的」**：`KeyLatencyProbe` 在同一个 `~/.local/state/cmux/key-latency.log` 里追加 span 行 `<unixTime> <activity> <durationMs> [detail]`，覆盖 `scrollbackExport`（一次检查点导出的主线程耗时）、`sessionAutosave`（一次自动保存 tick）与 `mainTurn`（主线程单回合 ≥ 20 ms，由一个只在探针开启时安装的 runloop 观察者记录，Release 版同样生效）。新增 `scripts/analyze-key-latency.py` 把尖峰与重叠 span 对起来：有 span 覆盖 → 就是它；只有 `mainTurn` → 主线程在跑没插桩的代码；连 `mainTurn` 都没有 → 事件进 app 之前就被拖住了，该去抓 `sample` / `spindump` 而不是改 cmux 代码。
@@ -16,7 +18,7 @@ All notable changes to cmux are documented here.
 ### 文档
 - `LATENCY.md` 新增「Issue #45」一节：实测数据、逐项排除后的定位依据（含为什么是「整场只有两例」这个形状）、用户在本机怎么开探针采集、改后怎么判断尖峰是否消失（指标 + 阈值）、以及三种归因结果各自下一步该做什么。
 - `PATCHES.md` 新增 P10 条目。
-
+- `LATENCY.md` 新增「Issue #44：终端获得焦点后的第一个按键」一节：探针口径怎么读、冷启动实测数字与测法、按键路径上谁在用这些 API、改了什么与为什么这样改、用户怎么验证与预期数字、以及这次没有解决的部分（首次 `interpretKeyEvents` 的文本输入上下文 / 输入法激活、启动期主线程忙碌）。
 ## [0.65.2.2-r18] - 2026-11-10
 
 ### Fixed

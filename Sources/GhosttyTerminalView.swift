@@ -5931,6 +5931,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func runtimeSurfaceDidBecomeReady() {
+        // Issue #44: load HIToolbox's input-source / keyboard-layout caches here
+        // instead of on the first keystroke (measured 30 ms + 19 ms cold, 0.00 ms
+        // warm). `scheduleCacheWarmup()` runs at most once per app session, after
+        // this turn, so surface creation and the first paint are unaffected.
+        KeyboardLayout.scheduleCacheWarmup()
         if let surfaceID = terminalSurface?.id {
             TerminalPredictionCenter.shared.register(
                 surfaceID: surfaceID,
@@ -7316,6 +7321,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func keyDown(with event: NSEvent) {
         KeyLatencyProbe.record(event: event, phase: "keyDown")
+        // Release-safe phase timing for the first keystroke after focus (Issue #44):
+        // a handler's own duration is what the *next* key waits behind, so logging
+        // it plus the two once-per-process segments tells a cold input-source load
+        // apart from an IME/input-context stall. Zero cost when the probe is off.
+        let probeStartedAt = KeyLatencyProbe.isEnabled ? ProcessInfo.processInfo.systemUptime : 0
+        var probeLayoutIdMs: Double = 0
+        var probeInterpretMs: Double = 0
+        defer {
+            if probeStartedAt > 0 {
+                KeyLatencyProbe.recordPhases(
+                    event: event,
+                    phase: "keyDown.end",
+                    totalMs: (ProcessInfo.processInfo.systemUptime - probeStartedAt) * 1000,
+                    parts: [("layoutIdMs", probeLayoutIdMs), ("interpretMs", probeInterpretMs)]
+                )
+            }
+        }
         // A fresh press invalidates the gesture's alternate-screen answer before
         // any early return, so a later repeat never reuses one from another key.
         if !event.isARepeat { textEditingGestureAlternateScreenAtPress = nil }
@@ -7543,7 +7565,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Capture the keyboard layout ID before interpretation so the IME
         // forwarding decision uses the source that saw this key.
+        let probeLayoutIdStartedAt = KeyLatencyProbe.isEnabled ? ProcessInfo.processInfo.systemUptime : 0
         let keyboardIdBefore = KeyboardLayout.id
+        if probeLayoutIdStartedAt > 0 {
+            probeLayoutIdMs = (ProcessInfo.processInfo.systemUptime - probeLayoutIdStartedAt) * 1000
+        }
+
+        let probeInterpretStartedAt = KeyLatencyProbe.isEnabled ? ProcessInfo.processInfo.systemUptime : 0
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
@@ -7562,6 +7590,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #else
         interpretKeyEvents([textInputEvent])
 #endif
+        if probeInterpretStartedAt > 0 {
+            probeInterpretMs = (ProcessInfo.processInfo.systemUptime - probeInterpretStartedAt) * 1000
+        }
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(

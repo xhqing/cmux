@@ -555,3 +555,46 @@ Issue #45：`.12` 版本采到 584 个按键，其中 4 例 ≥ 50 ms、2 例 �
 - `python3 scripts/check-latency-guardrails.py` 15 组全 PASS（含新增的一组）；
 - `python3 scripts/analyze-key-latency.py --self-test` 通过；用合成日志跑过「有 span 覆盖 / 无 span 覆盖」两条分支的输出；
 - 实机验收口径（指标 + 阈值）见 LATENCY.md 的「Issue #45」一节。
+
+---
+
+## P11 — 首个按键不再为键盘布局 / 输入源的冷加载付费（Issue #44）
+
+**状态**：已实现（功能分支 `fix/first-keystroke-latency`）
+
+### 要解决的问题
+
+`KeyLatencyProbe` 在 `.12` 上实测（584 键 / 235.8 秒）：终端刚拿到焦点后的第 1 个可打印键 66.30 ms、第 2 个 115.71 ms、第 3 个起 11.42 ms，稳定态 p50 6~8 ms——第一个键比稳定态慢一个数量级，而这正是用户最容易注意到的时刻。
+
+### 根因（读代码 + 冷启动实测，不是推测）
+
+1. **探针口径**：`KeyLatencyProbe.record(event:phase:"keyDown")` 只在 `keyDown` 入口打点，`delayMs` 是「系统事件时间戳 → 进入 `keyDown`」。所以一个键的处理器慢，表现出来是**下一个键**的 `delayMs` 变大（主线程被占着）。
+2. **按键路径上的进程级一次性开销**：`Sources/KeyboardLayout.swift` 的 `id` / `character(forKeyCode:)` / `isDeadKey` 每次都先 `TISCopyCurrentKeyboardInputSource()`，再用 `UCKeyTranslate(..., UInt32(LMGetKbdType()), ...)`。这两步在进程内第一次调用时贵：macmini（Intel / macOS 12.4）冷启动实测 `TISCopyCurrentKeyboardInputSource()` 30 ~ 45 ms、`LMGetKbdType()` 19.3 ms，之后都是 0.00 ms；AppKit 自己的 `NSEvent.characters(byApplyingModifiers:)` 与它们共用同一份缓存（冷 30.9 ms，先预热 TIS 之后 0.00 ms）。
+3. **默认安装不会在启动时碰到它们**：`systemWideHotkey.enabled` 默认 `false`，`KeyboardShortcutSettings.refreshRegistration()` 在热键未启用时直接 `unregisterHotKey()` 返回；菜单快捷键用存下来的字符串（`StoredShortcut.menuItemKeyEquivalent`），不查布局。所以这份「冷」一直留到第一个按键——`keyDown` 里紧接着探针点的 `KeyboardLayout.id` 就是第一个付费点。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `Sources/KeyboardLayout.swift` | 新增 `warmCaches()`：把 `TISCopyCurrentKeyboardInputSource()` / `TISCopyCurrentASCIICapableKeyboardInputSource()` / `LMGetKbdType()` / 几个 `UCKeyTranslate` 路径各跑一次；新增 `scheduleCacheWarmup(delay:)`：每进程最多调度一次，延后执行。 |
+| `Sources/GhosttyTerminalView.swift` | `runtimeSurfaceDidBecomeReady()` 里调用 `KeyboardLayout.scheduleCacheWarmup()`（surface 就绪 = 面板马上能接键盘，但用户还要几百毫秒才会敲）；`keyDown` 增加 release 侧分段计时（`layoutIdMs` / `interpretMs` / 总时长），默认关闭。 |
+| `Sources/GhosttyTitleUpdateIngress.swift` | `KeyLatencyProbe` 增加 `recordPhases` / `recordCost` 与共享的 `enqueue`，日志格式保持 `<unixTime> <phase> <delayMs> <keyCode> <isRepeat> [k=v...]`。 |
+| `Sources/AppDelegate.swift` | `cmux_performKeyEquivalent(with:)` 入口记一条 `keyEquivalent` 阶段，用来区分「进入我们的代码之前就排队了」与「key-equivalent 路由慢」。 |
+
+### 保留的行为（没被削弱）
+
+- **预热是纯读的**：只调 `TIS*` / `LMGetKbdType` / `UCKeyTranslate`，**不构造、不解释任何 `NSEvent`**。刻意不预热文本输入上下文 / 输入法：那只能靠合成事件走 `interpretKeyEvents`，而它会走 `insertText`——在终端里等于真的把字符打进 shell，还可能让输入法进入组合状态。
+- 预热只跑一次（`didScheduleCacheWarmup` 守卫），已热时再跑也是 0.00 ms；延后 0.25 s 是为了不叠在 surface 创建与第一帧上。
+- 输入延迟守卫（打字静默期、Git 探测限流、标题合并、预测回显等）原样保留，`scripts/check-latency-guardrails.py` 照旧全绿。
+
+### 已知取舍 / 边界
+
+- **不承诺「首键 < 20 ms」**：这次只搬走「TIS + LMGetKbdType」这一块（实测 30 ~ 50 ms）。剩余部分由新加的探针口径归因：`interpretMs` 大 = 首次 `interpretKeyEvents` 激活输入法（CJK 输入法可能远高于本机测到的 7~10 ms）；`total` 小但 `delayMs` 仍大 = 启动期主线程忙碌（属 #45 / 启动耗时，不在按键路径上）。
+- 本机数字来自 macmini（Intel / macOS 12.4），用户机器是 Apple Silicon / 新系统，绝对值会不同；「第一次贵、之后接近 0」来自系统缓存设计，不随机器变化。
+
+### 验证
+
+- `swiftc -parse -enable-bare-slash-regex Sources/KeyboardLayout.swift Sources/GhosttyTitleUpdateIngress.swift` 通过；`keyDown` 里新加的分段计时用等价结构的临时文件做过 `swiftc -typecheck`（本机 Swift 5.7 无法整文件解析 `nonisolated(unsafe)` 的既有语法）；完整编译由 `build-macos` 兜底。
+- `python3 scripts/check-latency-guardrails.py`、`python3 scripts/generate-cmux-config-schema.py --check`、`./scripts/lint-pbxproj-test-wiring.sh` 三项门禁本机全绿。
+- **行为验证由用户在本机装新版后跑探针完成**：`defaults write com.xhqing.cmux cmuxKeyLatencyProbe -bool true` → 冷启动 → 连敲 10 个以上可打印键 → 看 `~/.local/state/cmux/key-latency.log`。验收看「第 1、2 键合计」（应从约 182 ms 降到 130 ~ 150 ms 量级）、`keyDown.end` 的 `layoutIdMs` 应变成亚毫秒、`warmKeyboardLayout` 应只有一行。详见 [LATENCY.md](LATENCY.md) 的 Issue #44 一节。
+

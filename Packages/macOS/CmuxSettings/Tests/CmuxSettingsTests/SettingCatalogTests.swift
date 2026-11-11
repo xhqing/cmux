@@ -121,8 +121,11 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }
 
-    @Test func adaptiveDefaultTerminalThemeDefaultsOnForUntouchedConfigs() {
-        #expect(SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
+    @Test func adaptiveDefaultTerminalThemeDefaultsOff() {
+        // Issue #71: the default theme is the same in both appearances, so
+        // this compatibility preference no longer changes any behavior and
+        // defaults to off.
+        #expect(!SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
     }
 
     @Test func runawayMemoryGuardrailDefaultsOffForUntouchedConfigs() {

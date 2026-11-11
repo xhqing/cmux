@@ -14,11 +14,13 @@ All notable changes to cmux are documented here.
 
 ### 工具
 - `scripts/check-latency-guardrails.py` 新增一组守卫：检查点导出必须走有界格式化，防止以后同步上游 tag 时被 rebase 掉。
+- `scripts/analyze-key-latency.py` 认识新加的三种探针行（`keyEquivalent` / `keyDown.end` / `warmKeyboardLayout`）：分别列成 `routing:` / `handler:` / `warm-up:` 三段、不计入 `keys:` 统计，也不会再被误当成后台 span；`--self-test` 覆盖这三种行的解析。首键慢的时候可以直接看出是「进入 `keyDown` 之前就慢了」还是「上一个键的处理器慢」（后者看该行 `total=`）。
 
 ### 文档
 - `LATENCY.md` 新增「Issue #45」一节：实测数据、逐项排除后的定位依据（含为什么是「整场只有两例」这个形状）、用户在本机怎么开探针采集、改后怎么判断尖峰是否消失（指标 + 阈值）、以及三种归因结果各自下一步该做什么。
 - `PATCHES.md` 新增 P10 条目。
 - `LATENCY.md` 新增「Issue #44：终端获得焦点后的第一个按键」一节：探针口径怎么读、冷启动实测数字与测法、按键路径上谁在用这些 API、改了什么与为什么这样改、用户怎么验证与预期数字、以及这次没有解决的部分（首次 `interpretKeyEvents` 的文本输入上下文 / 输入法激活、启动期主线程忙碌）。
+
 ## [0.65.2.2-r18] - 2026-11-10
 
 ### Fixed

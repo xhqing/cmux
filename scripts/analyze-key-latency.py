@@ -8,6 +8,13 @@ is enabled (`defaults write com.xhqing.cmux cmuxKeyLatencyProbe -bool true`, or
     <unixTime> <phase> <delayMs> <keyCode> <isRepeat>   one per key event
     <unixTime> <activity> <durationMs> [detail]         one per background span
 
+Key events are `keyDown` (the terminal handler entered) with one diagnostic line
+each: `keyEquivalent` (window-level key-equivalent routing entered, same shape as
+a key line) and `keyDown.end` (that handler returned; adds `total=` plus the
+`layoutIdMs=` / `interpretMs=` segments it measured). `warmKeyboardLayout` is the
+one-time input-source warm-up and appears at most once per app launch. Those
+diagnostic lines are reported separately and never counted as keys or spans.
+
 Key lines answer "how long did this key wait before the terminal handled it".
 Activity spans answer "what was running then", and a span covers
 `[unixTime - durationMs, unixTime]`:
@@ -46,6 +53,12 @@ DEFAULT_LOG = Path("~/.local/state/cmux/key-latency.log").expanduser()
 
 #: Phases written by `KeyLatencyProbe.record(event:phase:)`.
 KEY_PHASES = {"keyDown"}
+#: Key lines recorded before `keyDown` reaches the terminal.
+ROUTING_PHASES = {"keyEquivalent"}
+#: One key handler's own duration plus the segments it measured.
+HANDLER_PHASES = {"keyDown.end"}
+#: One-off costs that happen at most once per app launch.
+WARMUP_PHASES = {"warmKeyboardLayout"}
 
 
 @dataclass(frozen=True)
@@ -73,8 +86,55 @@ class Span:
         return self.start - slack <= instant <= self.end + slack
 
 
-def parse_log(text: str) -> tuple[list[KeyEvent], list[Span], int]:
+@dataclass(frozen=True)
+class HandlerRun:
+    """One `keyDown.end` line: the handler's own cost and its segments."""
+
+    timestamp: float
+    delay_ms: float
+    total_ms: float
+    layout_id_ms: float
+    interpret_ms: float
+
+
+@dataclass(frozen=True)
+class ParsedLog:
+    keys: list[KeyEvent]
+    spans: list[Span]
+    routing: list[KeyEvent]
+    handlers: list[HandlerRun]
+    warmups: list[float]
+    skipped: int
+
+
+def key_event(fields: list[str]) -> KeyEvent | None:
+    """Parse `<unixTime> <phase> <delayMs> <keyCode> <isRepeat>`."""
+    try:
+        return KeyEvent(
+            timestamp=float(fields[0]),
+            delay_ms=float(fields[2]),
+            key_code=int(fields[3]) if len(fields) > 3 else -1,
+            is_repeat=len(fields) > 4 and fields[4] == "1",
+        )
+    except ValueError:
+        return None
+
+
+def trailing_fields(fields: list[str]) -> dict[str, str]:
+    """Parse the `name=value` tail of a handler line."""
+    parsed: dict[str, str] = {}
+    for field in fields[5:]:
+        name, separator, value = field.partition("=")
+        if separator:
+            parsed[name] = value
+    return parsed
+
+
+def parse_log(text: str) -> ParsedLog:
     keys: list[KeyEvent] = []
+    routing: list[KeyEvent] = []
+    handlers: list[HandlerRun] = []
+    warmups: list[float] = []
     spans: list[Span] = []
     skipped = 0
     for raw in text.splitlines():
@@ -89,22 +149,32 @@ def parse_log(text: str) -> tuple[list[KeyEvent], list[Span], int]:
             skipped += 1
             continue
         phase = fields[1]
-        is_key_line = (
-            phase in KEY_PHASES
-            or (len(fields) == 5 and fields[3].lstrip("-").isdigit())
-        )
-        if is_key_line:
+        if phase in KEY_PHASES or phase in ROUTING_PHASES:
+            event = key_event(fields)
+            if event is None:
+                skipped += 1
+            elif phase in KEY_PHASES:
+                keys.append(event)
+            else:
+                routing.append(event)
+            continue
+        if phase in HANDLER_PHASES:
+            extra = trailing_fields(fields)
             try:
-                keys.append(
-                    KeyEvent(
+                handlers.append(
+                    HandlerRun(
                         timestamp=timestamp,
                         delay_ms=duration,
-                        key_code=int(fields[3]) if len(fields) > 3 else -1,
-                        is_repeat=len(fields) > 4 and fields[4] == "1",
+                        total_ms=float(extra.get("total", "0")),
+                        layout_id_ms=float(extra.get("layoutIdMs", "0")),
+                        interpret_ms=float(extra.get("interpretMs", "0")),
                     )
                 )
             except ValueError:
                 skipped += 1
+            continue
+        if phase in WARMUP_PHASES:
+            warmups.append(duration)
             continue
         spans.append(
             Span(
@@ -115,7 +185,14 @@ def parse_log(text: str) -> tuple[list[KeyEvent], list[Span], int]:
                 detail=" ".join(fields[3:]),
             )
         )
-    return keys, spans, skipped
+    return ParsedLog(
+        keys=keys,
+        spans=spans,
+        routing=routing,
+        handlers=handlers,
+        warmups=warmups,
+        skipped=skipped,
+    )
 
 
 def percentile(values: list[float], fraction: float) -> float:
@@ -146,6 +223,9 @@ def report(
     threshold_ms: float,
     slack_ms: float,
     show_spikes: bool,
+    routing: list[KeyEvent] | None = None,
+    handlers: list[HandlerRun] | None = None,
+    warmups: list[float] | None = None,
     stream=sys.stdout,
 ) -> int:
     def out(line: str = "") -> None:
@@ -161,6 +241,22 @@ def report(
         + f">=100ms: {sum(1 for d in delays if d >= 100)}"
     )
 
+    # Diagnostic lines from newer builds. A slow first key is a property of the
+    # handler (`keyDown.end`) or of the routing before it (`keyEquivalent`), not
+    # of the key-line distribution above, so they get their own summary.
+    if routing:
+        out(f"routing: keyEquivalent {summarize([item.delay_ms for item in routing])}")
+    if handlers:
+        out(f"handler: keyDown.end  {summarize([item.total_ms for item in handlers])}")
+        for name, values in (
+            ("layoutId", [item.layout_id_ms for item in handlers]),
+            ("interpret", [item.interpret_ms for item in handlers]),
+        ):
+            if any(values):
+                out(f"         {name:<10} {summarize(values)}")
+    if warmups:
+        out(f"warm-up: warmKeyboardLayout {max(warmups):.2f} ms (n={len(warmups)})")
+
     phases: dict[str, list[float]] = {}
     for span in spans:
         phases.setdefault(span.phase, []).append(span.duration_ms)
@@ -171,7 +267,10 @@ def report(
             out(f"  {phase:<18} {summarize(phases[phase])}")
     else:
         out("")
-        out("background spans: none in this log (probe written by an older build?)")
+        if routing or handlers or warmups:
+            out("background spans: none in this log (no background activity recorded)")
+        else:
+            out("background spans: none in this log (probe written by an older build?)")
 
     spikes = [key for key in keys if key.delay_ms >= threshold_ms]
     if not show_spikes:
@@ -204,8 +303,12 @@ def report(
     )
     if attributed < len(spikes):
         out(
-            "unattributed spikes are not cmux main-thread work: capture "
-            "`sample cmux` / `spindump` while they happen before changing app code"
+            "an unattributed spike can still be a previous key's own handler "
+            "(`handler` above): that key's `total=` is what this one waited behind"
+        )
+        out(
+            "otherwise it is not cmux main-thread work: capture `sample cmux` / "
+            "`spindump` while it happens before changing app code"
         )
     return 0
 
@@ -223,23 +326,45 @@ def self_test() -> int:
             "3000.100 mainTurn 40.00",
             "3000.050 keyDown 33.00 0 0",
             "3001.000 keyDown 6.00 0 0",
+            # Diagnostic lines from a newer build: reported, never counted as a
+            # key or as a background span.
+            "3001.001 keyEquivalent 31.50 0 0",
+            "3001.010 keyDown.end 6.20 0 0 total=4.10 layoutIdMs=0.30 interpretMs=2.20",
+            "0500.000 warmKeyboardLayout 47.30 0 0",
         ]
     ) + "\n"
     from io import StringIO
 
-    keys, spans, skipped = parse_log(log)
-    assert skipped == 0, skipped
-    assert len(keys) == 4, keys
-    assert len(spans) == 2, spans
+    parsed = parse_log(log)
+    assert parsed.skipped == 0, parsed.skipped
+    assert len(parsed.keys) == 4, parsed.keys
+    assert len(parsed.spans) == 2, parsed.spans
+    assert len(parsed.routing) == 1, parsed.routing
+    assert len(parsed.handlers) == 1, parsed.handlers
+    assert parsed.handlers[0].layout_id_ms == 0.30, parsed.handlers[0]
+    assert len(parsed.warmups) == 1 and parsed.warmups[0] == 47.30, parsed.warmups
     buffer = StringIO()
-    report(keys, spans, threshold_ms=30, slack_ms=50, show_spikes=True, stream=buffer)
+    report(
+        parsed.keys,
+        parsed.spans,
+        threshold_ms=30,
+        slack_ms=50,
+        show_spikes=True,
+        routing=parsed.routing,
+        handlers=parsed.handlers,
+        warmups=parsed.warmups,
+        stream=buffer,
+    )
     output = buffer.getvalue()
     assert "attributed: 2/3 spikes" in output, output
     assert "scrollbackExport" in output and "mainTurn" in output, output
+    assert "routing: keyEquivalent" in output, output
+    assert "handler: keyDown.end" in output, output
+    assert "warm-up: warmKeyboardLayout 47.30 ms" in output, output
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "key-latency.log"
         path.write_text(log, encoding="utf-8")
-        assert parse_log(path.read_text(encoding="utf-8"))[0] == keys
+        assert parse_log(path.read_text(encoding="utf-8")).keys == parsed.keys
     print("self-test ok")
     return 0
 
@@ -267,17 +392,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    keys, spans, skipped = parse_log(args.log.read_text(encoding="utf-8", errors="replace"))
-    print(f"log: {args.log}  (unparsed lines: {skipped})")
-    if not keys:
+    parsed = parse_log(args.log.read_text(encoding="utf-8", errors="replace"))
+    print(f"log: {args.log}  (unparsed lines: {parsed.skipped})")
+    if not parsed.keys:
         print("no key events yet: is the probe enabled for this build?", file=sys.stderr)
         return 1
     return report(
-        keys,
-        spans,
+        parsed.keys,
+        parsed.spans,
         threshold_ms=args.threshold_ms,
         slack_ms=args.slack_ms,
         show_spikes=not args.no_spikes,
+        routing=parsed.routing,
+        handlers=parsed.handlers,
+        warmups=parsed.warmups,
     )
 
 

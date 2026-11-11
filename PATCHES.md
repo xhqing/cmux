@@ -580,6 +580,7 @@ Issue #45：`.12` 版本采到 584 个按键，其中 4 例 ≥ 50 ms、2 例 �
 | `Sources/GhosttyTerminalView.swift` | `runtimeSurfaceDidBecomeReady()` 里调用 `KeyboardLayout.scheduleCacheWarmup()`（surface 就绪 = 面板马上能接键盘，但用户还要几百毫秒才会敲）；`keyDown` 增加 release 侧分段计时（`layoutIdMs` / `interpretMs` / 总时长），默认关闭。 |
 | `Sources/GhosttyTitleUpdateIngress.swift` | `KeyLatencyProbe` 增加 `recordPhases` / `recordCost` 与共享的 `enqueue`，日志格式保持 `<unixTime> <phase> <delayMs> <keyCode> <isRepeat> [k=v...]`。 |
 | `Sources/AppDelegate.swift` | `cmux_performKeyEquivalent(with:)` 入口记一条 `keyEquivalent` 阶段，用来区分「进入我们的代码之前就排队了」与「key-equivalent 路由慢」。 |
+| `scripts/analyze-key-latency.py` | 认识新加的三种探针行：`keyEquivalent` / `keyDown.end` / `warmKeyboardLayout` 列成 `routing:` / `handler:` / `warm-up:` 三段，不计入 `keys:` 统计、也不再被误当成后台 span；`--self-test` 覆盖这三种行。 |
 
 ### 保留的行为（没被削弱）
 

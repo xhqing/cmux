@@ -189,6 +189,21 @@ GUARDS: tuple[Guard, ...] = (
         ),
     ),
     Guard(
+        title="Scrollback checkpoint exports format a bounded tail",
+        path="Sources/AppDelegate+SessionScrollbackCheckpoint.swift",
+        required=(
+            "readBoundedScreenTailVT(",
+            "maxRows: lineLimit",
+        ),
+        note=(
+            "Checkpoints capture the panes that produced background output, so "
+            "they run exactly when the user is most likely to type again. "
+            "Formatting the whole scrollback on the main thread made that export "
+            "the only background task able to charge 50-100 ms to a keystroke; "
+            "the quit-path snapshot already used the bounded formatter."
+        ),
+    ),
+    Guard(
         title="zsh integration keeps the double-integration hook guards",
         path="Resources/shell-integration/cmux-zsh-integration.zsh",
         language="shell",

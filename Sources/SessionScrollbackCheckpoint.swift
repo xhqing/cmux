@@ -16,9 +16,10 @@ import os
 // - They capture only terminals that produced PTY output since their last
 //   checkpoint. The signal is two relaxed atomic loads per PTY read on the
 //   Ghostty IO thread (`TerminalScrollbackCheckpointActivity`).
-// - The main thread does only Ghostty's VT export into a temp file. Reading,
-//   CRLF normalization, the line tail, truncation, encoding and the write all
-//   run on a utility queue.
+// - The main thread does only Ghostty's bounded tail format (newest rows only; the
+//   compatibility fallback for runtimes without that request formats into a temp
+//   file instead). Line-ending normalization, the line tail, truncation, encoding
+//   and the write all run on a utility queue.
 // - At most `maxCapturesPerCheckpoint` exports per checkpoint, one per
 //   main-queue turn, stopping early when typing resumes or the exports used
 //   `mainThreadCaptureBudget`. A terminal whose export alone exceeded the
@@ -604,6 +605,15 @@ final class SessionScrollbackCheckpointCoordinator {
         let outputSincePlan = activity.beginCapture(surfaceID: candidate.surfaceId)
         let export = candidate.beginCapture()
         let duration = max(0, environment.uptime() - start)
+        // This export is the only main-thread cost a checkpoint can charge to the
+        // input path; log it so a keystroke spike can be matched to it.
+        KeyLatencyProbe.recordActivity(
+            "scrollbackExport",
+            startedAt: start,
+            detail: duration > SessionScrollbackCheckpointPolicy.mainThreadCaptureBudget
+                ? "overBudget=1"
+                : nil
+        )
         var captured = captured
         if let export {
             captured.append(SessionScrollbackCheckpointCapture(

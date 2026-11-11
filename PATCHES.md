@@ -503,3 +503,55 @@ CMUXD_UNIX_PATH  = /Users/runner/Library/Application Support/cmux/cmuxd-xhqing.s
 - 手工对照：同一份旧式 plist（`/Users/runner/...`）直接喂给检查脚本 → 退出 1 并打印命中行；干净 plist（XML 与 binary 两种格式都试）→ 退出 0。
 - `bash -n` 过了 `reloads.sh` / `install-release.sh` / 新脚本；`build.yml` 用 Ruby YAML 解析器校验通过。
 - CI 侧的实际断言在 `build-macos` 里（`校验产物不含构建机 home 路径` 步骤）；PR 门禁 `checks` 没有改动（job 名与步骤都不变）。真正的 Release 产物验证要等下一次 tag 构建——本机是 Intel macOS 12 + CommandLineTools，跑不了完整构建。
+
+---
+
+## P10 — 后台忙碌时的按键尖峰：检查点导出不再在主线程格式化整段 scrollback
+
+**状态**：已实现
+
+### 要解决的问题
+
+Issue #45：`.12` 版本采到 584 个按键，其中 4 例 ≥ 50 ms、2 例 ≥ 100 ms。开头的 66.30 / 115.71 ms 是冷启动首键（Issue #44），中间稳定期 p50 6~8 ms，**结尾后台忙碌时另有 53.70 ms / 101.41 ms 两例**。预期是后台工作（Git 探测、自动保存、标题刷新、大量 shell 输出）不该让按键处理延迟超过 ~30 ms。
+
+### 根因（读代码确认）
+
+滚动回写检查点（`Sources/SessionScrollbackCheckpoint.swift`）会把有输出的终端回写成 crash-safe 文件，其中「主线程那一半」是 `TerminalScrollbackCheckpointExport.begin` —— 它调用 Ghostty 的 `write_screen_file:copy,vt`，**格式化该终端的整段历史**；4000 行 / 40 万字符的上限是在导出之后、由非主线程读临时文件时才截断的，主线程已经付掉了整段格式化的时间。三点让它专打输入路径：
+
+1. 只有 `hasPendingOutput` 的终端才排 capture，所以它天然只在用户跑构建、日志在流的时候触发；
+2. `typingQuietPeriod = 5` 是「导出开始前」的一次性检查，挡不住「导出跑到一半用户重新开始敲键」；
+3. `mainThreadCaptureBudget = 50 ms` + 超预算退避 `slowCaptureBackoff = 600 s`，正好解释「整场只有两例、且相隔很久」。
+
+对照：quit / 快照路径的 `readTerminalTextFromVTExportForSnapshot`（`Sources/TerminalController.swift`）早就改用 Ghostty 的有界格式化，注释写明「不要格式化了整段再丢掉」。只有检查点这条路径没跟上。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `Sources/AppDelegate+SessionScrollbackCheckpoint.swift` | `TerminalScrollbackCheckpointExport.begin` 先走 `readBoundedScreenTailVT(maxRows: lineLimit, maxBytes: 400_000 * 4)`；运行时不支持时才回退原来的 `write_screen_file:copy,vt` 临时文件路径 |
+| `Sources/GhosttyTitleUpdateIngress.swift` | `KeyLatencyProbe` 新增 `recordActivity(_:startedAt:detail:)`（同一个日志写 span 行）与 `KeyLatencyMainTurnMonitor`（探针开启时才安装的 runloop 观察者，主线程单回合 ≥ 20 ms 记一行 `mainTurn`） |
+| `Sources/SessionScrollbackCheckpoint.swift` | 每次导出记一行 `scrollbackExport`（超 50 ms 预算时带 `overBudget=1`） |
+| `Sources/SessionAutosaveCoordinator.swift` | 每个 autosave tick 记一行 `sessionAutosave` |
+| `Sources/AppDelegate.swift` | `didFinishLaunching` 安装主线程回合监视器（探针未开启时立即返回） |
+| `scripts/analyze-key-latency.py` | 新增：把尖峰与重叠 span 对起来，并对没有 span 覆盖的尖峰给出「去抓 sample / spindump」的提示 |
+| `scripts/check-latency-guardrails.py` | 新增一组守卫：检查点导出必须走有界格式化 |
+
+### 保留的行为（没被削弱）
+
+- 每次检查点仍最多 3 个导出、一次 main-queue turn 只做一个、超预算退避 600 s、要求 5 s 打字静默；
+- 导出内容仍是「最新 ~4000 行 VT 文本」，与 quit 快照同口径（行数语义由 Ghostty 的 bounded formatter 保证）；
+- 运行时不支持 bounded 请求时行为与改动前完全一致（走原来的临时文件路径）；
+- 探针关闭时全部新增代码只剩一次静态 bool 判断。
+
+### 已知取舍
+
+- `maxRows` 是「物理行」上限，与原先「导出后按逻辑行截断」在折行文本上可能差几行；与 quit 快照路径的差异一致，属于既有口径。
+- 本机（Intel macOS 12 + 仅 CommandLineTools）跑不了 GUI 与完整编译，性能结论要等用户装新版后用探针实测；代码正确性由 PR 门禁与 `build-macos` 兜底。
+- 检查点导出的主线程成本现在有界，但「导出撞上刚按下的键」这个窗口本身还在（5 s 静默期是开始前的检查）；要等实机日志证明 20 ms 以内就不再构成尖峰。
+
+### 验证
+
+- `swiftc -parse` 跑过改动的 4 个 Swift 文件与 `AppDelegate.swift`（后者需把 3 处 `nonisolated(unsafe)` 临时降级才能被 Swift 5.7 解析，属本机工具链限制，不是改动引入）；
+- `python3 scripts/check-latency-guardrails.py` 15 组全 PASS（含新增的一组）；
+- `python3 scripts/analyze-key-latency.py --self-test` 通过；用合成日志跑过「有 span 覆盖 / 无 span 覆盖」两条分支的输出；
+- 实机验收口径（指标 + 阈值）见 LATENCY.md 的「Issue #45」一节。

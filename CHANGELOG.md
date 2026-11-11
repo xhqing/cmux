@@ -2,6 +2,21 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **后台忙碌时偶发的 50–115 ms 按键尖峰（Issue #45）：滚动回写检查点不再在主线程格式化整段 scrollback**。`.12` 版本的探针日志里 584 个按键有 2 例 53.70 ms / 101.41 ms 落在「后台忙碌」时段（开头两例属冷启动，归 Issue #44）。定位结论：`SessionScrollbackCheckpoint` 的导出走 Ghostty 的 `write_screen_file:copy,vt`，会把该终端**整段历史**格式化在主线程上，4000 行的上限是导出**之后**由非主线程读临时文件时才截断的——而检查点只对「有后台输出」的 pane 触发，所以它天然只在用户跑构建 / 日志在流时落到输入路径上；5 s 打字静默是「导出开始前」的一次性检查，挡不住「导出跑到一半用户重新开始敲键」。现在改走 Ghostty 的有界格式化（`readBoundedScreenTailVT`，只格式化最新 N 行），与 quit 快照路径早就采用的做法一致；运行时不支持时仍回退原来的临时文件导出。导出预算、每轮最多 3 个、超预算退避 600 s、打字静默期等既有约束一条没放松。
+
+### Added
+- **探针日志现在能直接回答「这次尖峰是哪个后台任务造成的」**：`KeyLatencyProbe` 在同一个 `~/.local/state/cmux/key-latency.log` 里追加 span 行 `<unixTime> <activity> <durationMs> [detail]`，覆盖 `scrollbackExport`（一次检查点导出的主线程耗时）、`sessionAutosave`（一次自动保存 tick）与 `mainTurn`（主线程单回合 ≥ 20 ms，由一个只在探针开启时安装的 runloop 观察者记录，Release 版同样生效）。新增 `scripts/analyze-key-latency.py` 把尖峰与重叠 span 对起来：有 span 覆盖 → 就是它；只有 `mainTurn` → 主线程在跑没插桩的代码；连 `mainTurn` 都没有 → 事件进 app 之前就被拖住了，该去抓 `sample` / `spindump` 而不是改 cmux 代码。
+
+### 工具
+- `scripts/check-latency-guardrails.py` 新增一组守卫：检查点导出必须走有界格式化，防止以后同步上游 tag 时被 rebase 掉。
+
+### 文档
+- `LATENCY.md` 新增「Issue #45」一节：实测数据、逐项排除后的定位依据（含为什么是「整场只有两例」这个形状）、用户在本机怎么开探针采集、改后怎么判断尖峰是否消失（指标 + 阈值）、以及三种归因结果各自下一步该做什么。
+- `PATCHES.md` 新增 P10 条目。
+
 ## [0.65.2.2-r18] - 2026-11-10
 
 ### Fixed

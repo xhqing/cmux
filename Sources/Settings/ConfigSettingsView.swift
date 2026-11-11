@@ -6,64 +6,29 @@ import SwiftUI
 struct ConfigSettingsView: View {
     static let windowID = "config-editor"
 
-    @State private var configSource: ConfigSource = .cmux
-    @State private var snapshots: [ConfigSource: ConfigSourceSnapshot] = [:]
+    @State private var snapshot: ConfigSourceSnapshot = ConfigSource.cmux.snapshot(environment: .live())
     @State private var cmuxDraft = ""
     @State private var cmuxLastLoadedContents = ""
     @State private var statusMessage = ""
     @State private var statusIsError = false
 
-    private var currentSnapshot: ConfigSourceSnapshot {
-        snapshots[configSource] ?? configSource.snapshot(environment: .live())
-    }
-
     private var hasUnsavedCmuxChanges: Bool {
         cmuxDraft != cmuxLastLoadedContents
     }
 
-    private var currentBannerText: String? {
-        switch configSource {
-        case .cmux:
-            return String(
-                localized: "settings.config.banner.cmux",
-                defaultValue: "This is the cmux Ghostty config selected for this build. Edit it here, then Save to reload cmux."
-            )
-        case .synced:
-            if currentSnapshot.hasStandaloneGhosttyConfig {
-                return String(
-                    localized: "settings.config.banner.synced",
-                    defaultValue: "This is a generated preview of the effective config. Edit the cmux tab to change what cmux reads."
-                )
-            }
-            return String(
-                localized: "settings.config.banner.syncedNoGhostty",
-                defaultValue: "This is a generated preview of the effective config. No base Ghostty config file was found, so only cmux overrides are shown."
-            )
-        }
+    private var currentBannerText: String {
+        String(
+            localized: "settings.config.banner.cmux",
+            defaultValue: "This is the cmux config file. Edit it here, then Save to reload cmux."
+        )
     }
 
     var body: some View {
         VStack(spacing: 12) {
-            HStack {
-                Spacer(minLength: 0)
-                Picker(
-                    String(localized: "settings.config.source.label", defaultValue: "Config Source"),
-                    selection: $configSource
-                ) {
-                    ForEach(ConfigSource.allCases) { source in
-                        Text(source.localizedTitle).tag(source)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 280)
-                Spacer(minLength: 0)
-            }
-
             Divider()
 
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(currentSnapshot.displayPaths, id: \.self) { path in
+                ForEach(snapshot.displayPaths, id: \.self) { path in
                     Text(verbatim: path)
                         .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                         .foregroundStyle(.secondary)
@@ -72,29 +37,18 @@ struct ConfigSettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let bannerText = currentBannerText {
-                ConfigSettingsBanner(text: bannerText)
-            }
+            ConfigSettingsBanner(text: currentBannerText)
 
-            Group {
-                if configSource == .cmux {
-                    ConfigSettingsTextView(text: $cmuxDraft, isEditable: true)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .background(editorBackground)
-                        .accessibilityIdentifier("ConfigSettingsCmuxEditor")
-                } else {
-                    ConfigSettingsTextView(text: .constant(currentSnapshot.contents), isEditable: false)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(editorBackground)
-                    .accessibilityIdentifier("ConfigSettingsReadOnlyView")
-                }
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.25), lineWidth: 1)
-                    .allowsHitTesting(false)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            ConfigSettingsTextView(text: $cmuxDraft, isEditable: true)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(editorBackground)
+                .accessibilityIdentifier("ConfigSettingsCmuxEditor")
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.25), lineWidth: 1)
+                        .allowsHitTesting(false)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
 
             HStack(spacing: 8) {
                 if !statusMessage.isEmpty {
@@ -105,13 +59,13 @@ struct ConfigSettingsView: View {
 
                 Spacer(minLength: 0)
 
-                Button(openEditorButtonTitle) {
+                Button(String(localized: "settings.config.action.openEditor", defaultValue: "Open in Editor…")) {
                     openCurrentSourceInEditor()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
-                Button(revealFinderButtonTitle) {
+                Button(String(localized: "settings.config.action.revealFinder", defaultValue: "Reveal in Finder")) {
                     revealCurrentSourceInFinder()
                 }
                 .buttonStyle(.bordered)
@@ -128,7 +82,7 @@ struct ConfigSettingsView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .disabled(configSource != .cmux || !hasUnsavedCmuxChanges)
+                .disabled(!hasUnsavedCmuxChanges)
             }
         }
         .padding(16)
@@ -142,10 +96,6 @@ struct ConfigSettingsView: View {
         .onAppear {
             refreshSnapshots(preserveCmuxDraft: false)
         }
-        .onChange(of: configSource) { _ in
-            statusMessage = ""
-            statusIsError = false
-        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshSnapshots(preserveCmuxDraft: true)
         }
@@ -157,23 +107,11 @@ struct ConfigSettingsView: View {
     }
 
     private var openEditorButtonTitle: String {
-        if configSource == .synced {
-            return String(
-                localized: "settings.config.action.openActiveEditor",
-                defaultValue: "Open Active Config…"
-            )
-        }
-        return String(localized: "settings.config.action.openEditor", defaultValue: "Open in Editor…")
+        String(localized: "settings.config.action.openEditor", defaultValue: "Open in Editor…")
     }
 
     private var revealFinderButtonTitle: String {
-        if configSource == .synced {
-            return String(
-                localized: "settings.config.action.revealActiveFinder",
-                defaultValue: "Reveal Active Config in Finder"
-            )
-        }
-        return String(localized: "settings.config.action.revealFinder", defaultValue: "Reveal in Finder")
+        String(localized: "settings.config.action.revealFinder", defaultValue: "Reveal in Finder")
     }
 
     private func configureWindow(_ window: NSWindow) {
@@ -191,18 +129,13 @@ struct ConfigSettingsView: View {
     private func refreshSnapshots(preserveCmuxDraft: Bool) {
         let wasDirty = hasUnsavedCmuxChanges
         let environment = ConfigSourceEnvironment.live()
-        let newSnapshots = Dictionary(
-            uniqueKeysWithValues: ConfigSource.allCases.map { source in
-                (source, source.snapshot(environment: environment))
-            }
-        )
-        snapshots = newSnapshots
+        let newSnapshot = ConfigSource.cmux.snapshot(environment: environment)
+        snapshot = newSnapshot
 
-        let latestCmuxContents = newSnapshots[.cmux]?.contents ?? ""
         if !preserveCmuxDraft || !wasDirty {
-            cmuxDraft = latestCmuxContents
+            cmuxDraft = newSnapshot.contents
         }
-        cmuxLastLoadedContents = latestCmuxContents
+        cmuxLastLoadedContents = newSnapshot.contents
     }
 
     private func reloadFromDisk() {
@@ -420,17 +353,6 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
-        }
-    }
-}
-
-private extension ConfigSource {
-    var localizedTitle: String {
-        switch self {
-        case .cmux:
-            return String(localized: "settings.config.source.cmux", defaultValue: "cmux")
-        case .synced:
-            return String(localized: "settings.config.source.synced", defaultValue: "synced")
         }
     }
 }

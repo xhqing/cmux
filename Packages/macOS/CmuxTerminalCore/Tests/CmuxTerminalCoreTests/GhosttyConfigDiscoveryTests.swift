@@ -290,50 +290,42 @@ private struct NoFontProbe: GhosttyFontProbing {
     }
 }
 
-@Suite struct GhosttyConfigDiscoveryLegacyTests {
-    private let discovery = GhosttyConfigDiscovery(fontProbe: NoFontProbe())
-
-    @Test func loadLegacyOnlyWhenNewIsEmptyAndLegacyNonEmpty() {
-        #expect(discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 0, legacyConfigFileSize: 10))
-        #expect(!discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 5, legacyConfigFileSize: 10))
-        #expect(!discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 0, legacyConfigFileSize: 0))
-        #expect(!discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: nil, legacyConfigFileSize: 10))
-    }
-
-    @Test func includeLegacyInScanPathsWhenNewMissingOrEmpty() {
-        #expect(discovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: nil, legacyConfigFileSize: 10))
-        #expect(discovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: 0, legacyConfigFileSize: 10))
-        #expect(!discovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: 5, legacyConfigFileSize: 10))
-        #expect(!discovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: 0, legacyConfigFileSize: 0))
-    }
-}
-
 @Suite struct GhosttyConfigDiscoveryScanPathsTests {
-    @Test func scanPathsIncludeNativeAndUserConfigLocations() throws {
+    @Test func scanPathsContainOnlyCmuxCandidates() throws {
+        let discovery = GhosttyConfigDiscovery(fileReader: FakeFileReader(), fontProbe: NoFontProbe())
+        let fixedHome = "/tmp/cmux-fixed-home-scan-paths"
+        let paths = discovery.loadedGhosttyConfigScanPaths(
+            environment: ["CFFIXED_USER_HOME": fixedHome]
+        )
+
+        #expect(paths == [
+            "\(fixedHome)/.config/cmux/config",
+            "\(fixedHome)/.config/cmux/config.ghostty",
+        ])
+    }
+
+    @Test func scanPathsExcludeGhosttyOwnLocations() throws {
         let appSupport = URL(fileURLWithPath: "/AppSupport", isDirectory: true)
         let reader = FakeFileReader()
         let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
         let paths = discovery.loadedGhosttyConfigScanPaths(
-            currentBundleIdentifier: "com.cmuxterm.app",
-            appSupportDirectory: appSupport
+            environment: [:]
         )
-        #expect(paths.contains("~/.config/ghostty/config"))
-        #expect(paths.contains("~/.config/ghostty/config.ghostty"))
-        #expect(paths.contains("/AppSupport/com.mitchellh.ghostty/config.ghostty"))
+        #expect(!paths.contains("~/.config/ghostty/config"))
+        #expect(!paths.contains("~/.config/ghostty/config.ghostty"))
+        #expect(!paths.contains("/AppSupport/com.mitchellh.ghostty/config.ghostty"))
+        #expect(!paths.contains("\(appSupport.path)/com.mitchellh.ghostty/config"))
     }
 
-    @Test func nativeLegacyIncludedWhenNewEmpty() {
-        let appSupport = URL(fileURLWithPath: "/AppSupport", isDirectory: true)
-        let reader = FakeFileReader(contentsByPath: [
-            "/AppSupport/com.mitchellh.ghostty/config": "theme = foo",
-            "/AppSupport/com.mitchellh.ghostty/config.ghostty": "",
-        ])
-        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
-        let paths = discovery.loadedGhosttyConfigScanPaths(
-            currentBundleIdentifier: "com.cmuxterm.app",
-            appSupportDirectory: appSupport
+    @Test func cjkScanPathsMatchGhosttyConfigScanPaths() throws {
+        let discovery = GhosttyConfigDiscovery(fileReader: FakeFileReader(), fontProbe: NoFontProbe())
+        let fixedHome = "/tmp/cmux-fixed-home-cjk-scan"
+        let environment = ["CFFIXED_USER_HOME": fixedHome]
+
+        #expect(
+            discovery.loadedCJKScanPaths(environment: environment)
+                == discovery.loadedGhosttyConfigScanPaths(environment: environment)
         )
-        #expect(paths.contains("/AppSupport/com.mitchellh.ghostty/config"))
     }
 }
 

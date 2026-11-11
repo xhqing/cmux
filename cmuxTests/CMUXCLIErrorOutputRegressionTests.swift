@@ -3278,8 +3278,7 @@ import Testing
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
-        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        let themesURL = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
         try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
         try writeTheme(named: "Offline Theme", background: "#101010", to: themesURL)
 
@@ -3289,7 +3288,6 @@ import Testing
             tagSlug: tagSlug
         )
         var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: root)
-        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
 
         let result = runProcess(
             executablePath: fakeCLIPath,
@@ -3312,8 +3310,7 @@ import Testing
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
-        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        let themesURL = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
         try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
         try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
         try writeTheme(named: "Theme B", background: "#f8f8f8", to: themesURL)
@@ -3336,14 +3333,12 @@ import Testing
         var observedReloads: [(bundleIdentifier: String?, phase: String?)] = []
 
         var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: root)
-        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLE_ID"] = bundleIdentifier
 
         let configURL = root
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("config.ghostty", isDirectory: false)
 
         var observedThemeValues: [String] = []
@@ -3398,8 +3393,7 @@ import Testing
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
-        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        let themesURL = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
         try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
         try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
 
@@ -3440,7 +3434,6 @@ import Testing
         }
 
         var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: root)
-        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLE_ID"] = staleBundleIdentifier
 

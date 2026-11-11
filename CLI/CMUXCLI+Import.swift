@@ -182,7 +182,7 @@ extension CMUXCLI {
         }
         printImportNotes(plan.notes)
         print("")
-        print("Your ~/.config/ghostty/config and \(source.displayName)'s own settings are not changed.")
+        print("Your ~/.config/cmux/config.ghostty and \(source.displayName)'s own settings are not changed.")
 
         if dryRun {
             print("Dry run: nothing was written.")

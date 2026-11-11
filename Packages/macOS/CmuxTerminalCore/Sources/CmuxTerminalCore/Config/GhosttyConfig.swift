@@ -259,18 +259,10 @@ public struct GhosttyConfig {
     }
 
     private static func cmuxConfigPaths(
-        fileManager: FileManager = .default,
-        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier
+        fileManager: FileManager = .default
     ) -> [String] {
-        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return []
-        }
-
-        return CmuxGhosttyConfigPathResolver().loadConfigURLs(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupport,
-            fileManager: fileManager
-        ).map(\.path)
+        CmuxGhosttyConfigPathResolver().loadConfigURLs(fileManager: fileManager)
+            .map(\.path)
     }
 
     /// Resolves the sidebar background color(s) from the raw `sidebar-background`
@@ -326,30 +318,12 @@ public struct GhosttyConfig {
         }
     }
 
-    /// The top-level config files Ghostty loads on macOS, in load order: the
-    /// user's Ghostty config, then cmux's own config files.
+    /// The top-level config files cmux loads, in load order. Since the
+    /// Ghostty-config decoupling patch this is only cmux's own config file at
+    /// `~/.config/cmux/config.ghostty` (plus the legacy `config` name in the
+    /// same directory); Ghostty's own config locations are never read.
     public static func resolvedConfigPaths() -> [String] {
-        // Match Ghostty's default load order on macOS.
-        let appSupportGhosttyDirectory = NSString(
-            string: "~/Library/Application Support/com.mitchellh.ghostty"
-        ).expandingTildeInPath
-        let appSupportConfigGhostty = (appSupportGhosttyDirectory as NSString)
-            .appendingPathComponent("config.ghostty")
-        let appSupportLegacyConfig = (appSupportGhosttyDirectory as NSString)
-            .appendingPathComponent("config")
-        var configPaths = [
-            "~/.config/ghostty/config",
-            "~/.config/ghostty/config.ghostty",
-        ].map { NSString(string: $0).expandingTildeInPath }
-        configPaths.append(appSupportConfigGhostty)
-        if shouldIncludeLegacyGhosttyConfigInResolvedLoad(
-            newConfigFileSize: configFileSize(at: appSupportConfigGhostty),
-            legacyConfigFileSize: configFileSize(at: appSupportLegacyConfig)
-        ) {
-            configPaths.append(appSupportLegacyConfig)
-        }
-        configPaths.append(contentsOf: cmuxConfigPaths())
-        return configPaths
+        cmuxConfigPaths()
     }
 
     // Internal + @usableFromInline so it can back the public `load` default
@@ -1350,8 +1324,10 @@ public struct GhosttyConfig {
     }
 
     /// The ordered list of filesystem paths cmux searches for the given theme
-    /// name, spanning the ghostty resources dir, app bundle, XDG data dirs, and
-    /// common system/user fallback locations.
+    /// name: the theme library bundled inside the running cmux app (Issue #71
+    /// ships the managed default theme library there), followed by the user
+    /// theme directory `~/.config/cmux/themes`. Ghostty's own theme locations
+    /// are no longer searched.
     public static func themeSearchPaths(
         forThemeName themeName: String,
         environment: [String: String],
@@ -1368,52 +1344,23 @@ public struct GhosttyConfig {
             }
         }
 
-        func appendThemePath(in resourcesRoot: String?) {
-            guard let resourcesRoot else { return }
-            let expanded = NSString(string: resourcesRoot).expandingTildeInPath
-            guard !expanded.isEmpty else { return }
+        // 1) Theme library bundled inside the running cmux app.
+        if let bundleResourceURL {
             appendUniquePath(
-                URL(fileURLWithPath: expanded)
-                    .appendingPathComponent("themes/\(themeName)")
+                bundleResourceURL
+                    .appendingPathComponent("ghostty/themes/\(themeName)")
                     .path
             )
         }
 
-        // 1) Explicit resources dir used by the running Ghostty embedding.
-        appendThemePath(in: environment["GHOSTTY_RESOURCES_DIR"])
-
-        // 2) App bundle resources.
+        // 2) cmux's own user theme directory.
         appendUniquePath(
-            bundleResourceURL?
-                .appendingPathComponent("ghostty/themes/\(themeName)")
+            CmuxGhosttyConfigPathResolver.configHomeDirectory(environment: environment)
+                .appendingPathComponent("cmux", isDirectory: true)
+                .appendingPathComponent("themes", isDirectory: true)
+                .appendingPathComponent(themeName, isDirectory: false)
                 .path
         )
-
-        // 3) Data dirs (Ghostty installs themes under share/ghostty/themes).
-        if let xdgDataDirs = environment["XDG_DATA_DIRS"] {
-            for dataDir in xdgDataDirs.split(separator: ":").map(String.init) {
-                guard !dataDir.isEmpty else { continue }
-                appendUniquePath(
-                    URL(fileURLWithPath: dataDir)
-                        .appendingPathComponent("ghostty/themes/\(themeName)")
-                        .path
-                )
-            }
-        }
-
-        // 4) Common system/user fallback locations.
-        appendUniquePath("/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(themeName)")
-        appendUniquePath("~/.config/ghostty/themes/\(themeName)")
-        for appSupportDirectory in CmuxApplicationSupportDirectories(environment: environment).userDirectories {
-            appendUniquePath(
-                appSupportDirectory
-                    .appendingPathComponent(CmuxGhosttyConfigPathResolver.releaseBundleIdentifier, isDirectory: true)
-                    .appendingPathComponent("themes", isDirectory: true)
-                    .appendingPathComponent(themeName, isDirectory: false)
-                    .path
-            )
-        }
-        appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
 
         return paths
     }
@@ -1433,22 +1380,5 @@ public struct GhosttyConfig {
         }
 
         return try? String(contentsOfFile: path, encoding: .utf8)
-    }
-
-    private static func configFileSize(at path: String) -> Int? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
-              let size = attributes[.size] as? NSNumber else {
-            return nil
-        }
-        return size.intValue
-    }
-
-    private static func shouldIncludeLegacyGhosttyConfigInResolvedLoad(
-        newConfigFileSize: Int?,
-        legacyConfigFileSize: Int?
-    ) -> Bool {
-        guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
-        guard let newConfigFileSize else { return true }
-        return newConfigFileSize == 0
     }
 }

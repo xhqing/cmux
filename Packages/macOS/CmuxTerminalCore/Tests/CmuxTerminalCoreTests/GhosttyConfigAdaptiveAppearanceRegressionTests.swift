@@ -61,8 +61,8 @@ import Testing
             configPaths: [path],
             preferredColorScheme: scheme,
             adaptiveDefaultThemeEnabled: true,
-            environment: ["GHOSTTY_RESOURCES_DIR": resources.path],
-            bundleResourceURL: nil
+            environment: [:],
+            bundleResourceURL: resources
         )
         return config
     }
@@ -73,7 +73,7 @@ import Testing
     ) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-12797-\(UUID().uuidString)")
-        let themes = root.appendingPathComponent("themes")
+        let themes = root.appendingPathComponent("ghostty/themes")
         try FileManager.default.createDirectory(at: themes, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         for (name, contents) in [

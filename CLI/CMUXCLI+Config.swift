@@ -489,31 +489,11 @@ extension CMUXCLI {
     }
 
     private func cmuxGhosttyConfigURLForCLI() throws -> URL {
-        let environment = ProcessInfo.processInfo.environment
         let fileManager = FileManager.default
-        let appSupportDirectories = CmuxApplicationSupportDirectories(environment: environment, fileManager: fileManager)
-            .userDirectories
-        guard let firstAppSupportDirectory = appSupportDirectories.first else {
-            throw CLIError(message: "Could not resolve the user Application Support directory")
-        }
-        let bundleIdentifier = normalizedConfigValue(environment["CMUX_BUNDLE_ID"])
-            ?? CLISocketPathResolver.currentAppBundleIdentifier()
-        // Prefer an existing config under any candidate root (the app loads config
-        // across all Application Support locations, including CFFIXED_USER_HOME),
-        // so `config get/set` touches the same file the app reads. Fall back to
-        // creating one under the first candidate when none exists yet.
-        for appSupportDirectory in appSupportDirectories {
-            if let existing = CmuxGhosttyConfigPathResolver().loadConfigURLs(
-                currentBundleIdentifier: bundleIdentifier,
-                appSupportDirectory: appSupportDirectory,
-                fileManager: fileManager
-            ).first {
-                return existing
-            }
-        }
+        // Prefer an existing config at the fixed location, so `config get/set`
+        // touches the same file the app reads. Fall back to the editable
+        // target when none exists yet.
         return CmuxGhosttyConfigPathResolver().activeOrEditableConfigURL(
-            currentBundleIdentifier: bundleIdentifier,
-            appSupportDirectory: firstAppSupportDirectory,
             fileManager: fileManager
         )
     }
@@ -540,12 +520,6 @@ extension CMUXCLI {
         } catch {
             return ("failed", Self.configDoctorErrorMessage(error))
         }
-    }
-
-    private func normalizedConfigValue(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
 }

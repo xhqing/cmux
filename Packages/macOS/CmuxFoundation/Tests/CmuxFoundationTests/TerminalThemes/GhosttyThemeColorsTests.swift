@@ -69,19 +69,15 @@ struct GhosttyThemeDirectoriesTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-theme-dirs-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let resources = root.appendingPathComponent("resources", isDirectory: true)
         let bundled = root.appendingPathComponent("bundle/ghostty/themes", isDirectory: true)
-        let xdg = root.appendingPathComponent("xdg", isDirectory: true)
         let home = root.appendingPathComponent("home", isDirectory: true)
-        let userThemes = home.appendingPathComponent(".config/ghostty/themes", isDirectory: true)
-        for directory in [resources.appendingPathComponent("themes"), bundled, xdg.appendingPathComponent("ghostty/themes"), userThemes] {
+        let userThemes = home.appendingPathComponent(".config/cmux/themes", isDirectory: true)
+        for directory in [bundled, userThemes] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
 
         let urls = GhosttyThemeDirectories(
             environment: [
-                "GHOSTTY_RESOURCES_DIR": resources.path,
-                "XDG_DATA_DIRS": "\(xdg.path)::\(root.appendingPathComponent("missing").path)",
                 "HOME": home.path,
             ],
             bundledThemeDirectories: [bundled, bundled, root.appendingPathComponent("absent")]
@@ -89,10 +85,37 @@ struct GhosttyThemeDirectoriesTests {
 
         let ours = urls.filter { $0.path.hasPrefix(root.standardizedFileURL.path) }
         #expect(ours == [
-            resources.appendingPathComponent("themes", isDirectory: true),
             bundled,
-            xdg.appendingPathComponent("ghostty/themes", isDirectory: true),
             userThemes,
         ].map(\.standardizedFileURL))
+    }
+
+    @Test("Ghostty's own theme locations are not searched")
+    func excludesGhosttyOwnLocations() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-theme-dirs-decoupled-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resources = root.appendingPathComponent("resources", isDirectory: true)
+        let xdg = root.appendingPathComponent("xdg", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        for directory in [
+            resources.appendingPathComponent("themes"),
+            xdg.appendingPathComponent("ghostty/themes"),
+            home.appendingPathComponent(".config/ghostty/themes"),
+        ] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        let urls = GhosttyThemeDirectories(
+            environment: [
+                "GHOSTTY_RESOURCES_DIR": resources.path,
+                "XDG_DATA_DIRS": xdg.path,
+                "HOME": home.path,
+            ],
+            bundledThemeDirectories: []
+        ).urls
+
+        let ours = urls.filter { $0.path.hasPrefix(root.standardizedFileURL.path) }
+        #expect(ours.isEmpty)
     }
 }

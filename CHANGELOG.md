@@ -28,6 +28,19 @@ All notable changes to cmux are documented here.
 - `PATCHES.md` 新增 P10 条目。
 - `LATENCY.md` 新增「Issue #44：终端获得焦点后的第一个按键」一节：探针口径怎么读、冷启动实测数字与测法、按键路径上谁在用这些 API、改了什么与为什么这样改、用户怎么验证与预期数字、以及这次没有解决的部分（首次 `interpretKeyEvents` 的文本输入上下文 / 输入法激活、启动期主线程忙碌）。
 
+### Changed
+- **cmux 与 Ghostty 的配置文件彻底解耦（Issue #70）：cmux 只读自己的配置，不再碰 Ghostty 的**：以前 cmux 直接复用 Ghostty 的配置加载链（`~/.config/ghostty/config`、Ghostty 的 App Support 目录），两个应用读同一份配置——任何一方为满足自己而改配置都会波及另一方（实例：为 cmux 加的 `font-family = PingFang SC` 在 Ghostty 里把 `Bold` 当样式名套用、匹配 0 个 face，中文退化成日文字形）。现在：
+  - **加载路径**：cmux 只加载 `~/.config/cmux/config.ghostty`（同目录的旧名 `config` 仍作为兼容兜底）；`GhosttyConfig.resolvedConfigPaths()`、`GhosttyConfigDiscovery.loadedGhosttyConfigScanPaths()`、`liveReloadTopLevelPaths()` 全部收敛到这一处。喂给 ghostty 内核的实际加载也换了：不再调用 `ghostty_config_load_default_files`（它会读 XDG 的 `~/.config/ghostty/*` 和 App Support），改成显式加载 cmux 自己的配置文件——往 `~/.config/ghostty/config` 写东西不再影响 cmux。
+  - **配置路径固定为 `~/.config/cmux/config.ghostty`**：不再按 bundle id 分目录（自定义构建与 release 构建共用一份配置，切换构建不再「丢配置」）；release-channel 回退（debug / nightly / rc / staging 读 release 配置）一并删除。**首次启动自动迁移**：旧位置（`~/Library/Application Support/<bundle-id>/config.ghostty`）存在且新路径缺失时复制过去，幂等、只在目标缺失时执行、绝不覆盖已有配置，旧文件保留不动。
+  - **主题目录**：只搜 cmux bundle 内置主题库（#71 的挂点，见下）+ `~/.config/cmux/themes`；删掉 `$GHOSTTY_RESOURCES_DIR`、`$XDG_DATA_DIRS/*/ghostty/themes`、`/Applications/Ghostty.app` 内置主题、`~/.config/ghostty/themes`、Ghostty 与 cmux 的 App Support themes 目录。`GhosttyThemeDirectories` 与 `GhosttyConfig.themeSearchPaths` 两套实现同步收敛（之前它们是两份重复逻辑）。
+  - **文案与设置界面**：CLI 的 import 帮助、task help、docs settings 里「cmux 会读 Ghostty 配置」的说法全部改掉；`cmux import ghostty` 的报错文案改为「cmux 不再自动读 Ghostty 配置，且尚未支持从 Ghostty 导入」；设置界面的配置编辑器删掉「synced」预览（那是 Ghostty 配置 + cmux 覆盖的合并视图，解耦后没有意义），只保留 cmux 自己的配置文件（显示 `~/.config/cmux/config.ghostty` 路径）。
+  - **已知行为变化（预期）**：cmux 不再自动跟随 Ghostty 的主题与侧边栏配色，两边外观各自维护。
+  - **给 #71 留的挂点**：bundle 内主题库的搜索路径保留（`GhosttyConfig.themeSearchPaths` 的 `bundleResourceURL/ghostty/themes/<name>` 与 `GhosttyThemeDirectories` 的 `bundledThemeDirectories`）；`cmuxDefaultFallbackConfigContents()` 与 `cmuxDefaultLight/DarkThemeName` 的语义这轮未动。
+  - **测试**：`GhosttyConfigTests` / `GhosttyConfigPathResolverTests` / `GhosttyConfigDiscoveryTests` / `GhosttyConfigLiveReloadSnapshotTests` 全部按新语义更新；新增迁移幂等性、旧位置不再被读、Ghostty 配置不再影响 cmux 等覆盖。
+
+### 工具
+- **PR 门禁 `checks` 的包检查适配「本地二进制 target」包（Issue #70 首次改到 CmuxTerminalCore 时暴露）**：`scripts/check-swift-packages.py` 会对改动涉及的 SwiftPM 包跑 `swift build`，而 CmuxTerminalCore 依赖本地 binaryTarget `GhosttyKit.xcframework`——该产物由 `scripts/setup.sh` 拉取，门禁刻意不跑 setup.sh，于是任何改这个包的 PR 都会在 build 步失败（不是代码错）。现在脚本会递归检查包及其同仓库本地依赖里的 `.binaryTarget(path:)`，本地产物缺失（无 `Info.plist`）就**显式跳过**该包的 build / test，打印包名、缺失产物路径与「由 build-macos 兜底」的理由——不静默跳过、不改变门禁 job 名、不让门禁变重（完整编译正确性仍由 `build-macos` 负责）。顺带修了脚本的失败诊断：原来失败时只打印「stdout+stderr 合并后的最后 40 行」，而 `swift test` 的失败断言打在 stdout、编译进度打在 stderr，合并后尾部全是编译输出、看不到失败详情；现在失败时分别打印两个流各自的尾部（各 120 行）。
+
 ## [0.65.2.2-r18] - 2026-11-10
 
 ### Fixed

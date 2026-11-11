@@ -21656,12 +21656,13 @@ struct CMUXCLI {
             blur, and scrollback.
 
             With no terminal, lists the terminals with settings on this Mac and, in a
-            TTY, asks which one to import. Ghostty needs no import: cmux already reads
-            ~/.config/ghostty/config.
+            TTY, asks which one to import. Ghostty import is not supported yet:
+            cmux no longer reads ~/.config/ghostty/config automatically.
 
             Colors go into a generated Ghostty theme in cmux's themes folder, which is
-            then selected. Other settings go into cmux's own Ghostty config. Your
-            ~/.config/ghostty/config and the other terminal's files are never changed.
+            then selected. Other settings go into cmux's own Ghostty config at
+            ~/.config/cmux/config.ghostty. Your ~/.config/ghostty/config and the other
+            terminal's files are never changed.
             The command prints each line it will write, with the previous value, and
             lists anything it could not import, then asks before writing. Without a
             terminal to ask in (scripts, pipes) or with --json, it writes only when

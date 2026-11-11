@@ -3,11 +3,12 @@ public import CoreText
 public import CmuxFoundation
 
 /// Resolves where cmux's Ghostty configuration lives and what it should inject,
-/// without touching the live `ghostty_config_t`. It discovers the ordered
-/// top-level config scan paths, scans those files (following `config-file`
-/// includes) for the font and appearance directives that drive cmux's
-/// managed-default-theme and CJK-fallback decisions, decides whether to load the
-/// legacy `config` file, and computes the conditional-theme override text.
+/// without touching the live `ghostty_config_t`. It discovers the top-level
+/// config scan paths (cmux's own `~/.config/cmux` files since the Ghostty-config
+/// decoupling patch), scans those files (following `config-file` includes) for
+/// the font and appearance directives that drive cmux's managed-default-theme
+/// and CJK-fallback decisions, and computes the conditional-theme override
+/// text.
 ///
 /// All work is pure with respect to the injected ``GhosttyConfigFileReading``
 /// and ``GhosttyFontProbing`` seams, so the C-API config-load methods that stay
@@ -15,11 +16,6 @@ public import CmuxFoundation
 /// actual `ghostty_config_load_*` calls themselves. The type is a value with
 /// injected collaborators (no globals), constructed at the composition root.
 public struct GhosttyConfigDiscovery {
-    /// The release bundle identifier whose Application Support config directory
-    /// is always included in the scan paths, regardless of the running build's
-    /// own identifier.
-    public static let releaseBundleIdentifier = CmuxGhosttyConfigPathResolver.releaseBundleIdentifier
-
     let fileReader: any GhosttyConfigFileReading
     private let fontProbe: any GhosttyFontProbing
     private let pathResolver: CmuxGhosttyConfigPathResolver
@@ -593,140 +589,36 @@ public struct GhosttyConfigDiscovery {
         recursiveConfigPaths.append(absolute)
     }
 
-    // MARK: - Scan paths and legacy config
+    // MARK: - Scan paths
 
-    /// Returns the top-level Ghostty config paths cmux may load before recursive
-    /// `config-file` processing, including native Ghostty, legacy, and cmux
-    /// Application Support locations.
+    /// Returns the top-level cmux config paths cmux may load before recursive
+    /// `config-file` processing. Since the Ghostty-config decoupling patch
+    /// these are only cmux's own candidates under `~/.config/cmux`; Ghostty's
+    /// own config locations (`~/.config/ghostty` and the Ghostty Application
+    /// Support directories) are never scanned.
     public func loadedGhosttyConfigScanPaths(
-        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
-        var paths = [
-            "~/.config/ghostty/config",
-            "~/.config/ghostty/config.ghostty",
+        let directory = pathResolver.configDirectoryURL(environment: environment)
+        return [
+            directory.appendingPathComponent("config", isDirectory: false).path,
+            directory.appendingPathComponent("config.ghostty", isDirectory: false).path,
         ]
-
-        guard let appSupportDirectory else { return paths }
-
-        let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-        let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        paths.append(nativeConfig.path)
-        if shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: fileReader.fileSize(atPath: nativeConfig.path),
-            legacyConfigFileSize: fileReader.fileSize(atPath: nativeLegacyConfig.path)
-        ) {
-            paths.append(nativeLegacyConfig.path)
-        }
-
-        guard let bundleId = currentBundleIdentifier,
-              !bundleId.isEmpty else { return paths }
-
-        let appSupportConfigURLs = cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: bundleId,
-            appSupportDirectory: appSupportDirectory
-        )
-        paths.append(contentsOf: appSupportConfigURLs.map(\.path))
-
-        let releaseDir = appSupportDirectory.appendingPathComponent(Self.releaseBundleIdentifier, isDirectory: true)
-        let releaseLegacyConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
-        let releaseConfig = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
-
-        let releaseConfigSize = fileReader.fileSize(atPath: releaseConfig.path)
-        let releaseLegacyConfigSize = fileReader.fileSize(atPath: releaseLegacyConfig.path)
-
-        if shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: releaseConfigSize,
-            legacyConfigFileSize: releaseLegacyConfigSize
-        ), !paths.contains(releaseLegacyConfig.path) {
-            paths.append(releaseLegacyConfig.path)
-        }
-
-        return paths
     }
 
     /// The config paths scanned for CJK font directives (identical to
-    /// ``loadedGhosttyConfigScanPaths(currentBundleIdentifier:appSupportDirectory:)``).
+    /// ``loadedGhosttyConfigScanPaths(environment:)``).
     public func loadedCJKScanPaths(
-        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
-        loadedGhosttyConfigScanPaths(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
+        loadedGhosttyConfigScanPaths(environment: environment)
     }
 
-    /// Whether cmux should load the legacy `config` file because the new
-    /// `config.ghostty` is empty (size 0). Only true when the legacy file is
-    /// non-empty and the new file is exactly empty.
-    ///
-    /// Pure with respect to its inputs; an instance method (not a static
-    /// namespace member) so call sites invoke it on the held discovery value
-    /// rather than as `GhosttyConfigDiscovery.shouldLoadLegacyGhosttyConfig(...)`.
-    public func shouldLoadLegacyGhosttyConfig(
-        newConfigFileSize: Int?,
-        legacyConfigFileSize: Int?
-    ) -> Bool {
-        guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
-        return newConfigFileSize == 0
-    }
-
-    /// Whether the legacy `config` path should be included in the scan paths:
-    /// true when the legacy file is non-empty and the new file is absent or
-    /// empty.
-    ///
-    /// Pure with respect to its inputs; an instance method (not a static
-    /// namespace member) so call sites invoke it on the held discovery value.
-    public func shouldIncludeLegacyGhosttyConfigInScanPaths(
-        newConfigFileSize: Int?,
-        legacyConfigFileSize: Int?
-    ) -> Bool {
-        guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
-        guard let newConfigFileSize else { return true }
-        return newConfigFileSize == 0
-    }
-
-    /// Whether the native Ghostty legacy baseline should be ignored when
-    /// resolving unparsed appearance: true only when both the native legacy and
-    /// native new config files are present and non-empty.
-    public func shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
-    ) -> Bool {
-        guard let appSupportDirectory else { return false }
-        let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-        let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        guard let legacyConfigSize = fileReader.fileSize(atPath: nativeLegacyConfig.path), legacyConfigSize > 0 else {
-            return false
-        }
-        guard let nativeConfigSize = fileReader.fileSize(atPath: nativeConfig.path), nativeConfigSize > 0 else {
-            return false
-        }
-        return true
-    }
-
-    /// Resolves the cmux Application Support Ghostty config file URLs for the
-    /// running build, via the shared ``CmuxGhosttyConfigPathResolver``.
-    public func cmuxAppSupportConfigURLs(
-        currentBundleIdentifier: String?,
-        appSupportDirectory: URL,
+    /// Resolves cmux's own Ghostty-format config file URLs from the fixed
+    /// `~/.config/cmux` directory, via the shared ``CmuxGhosttyConfigPathResolver``.
+    public func cmuxConfigURLs(
         fileManager: FileManager = .default
     ) -> [URL] {
-        pathResolver.loadConfigURLs(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory,
-            fileManager: fileManager
-        )
+        pathResolver.loadConfigURLs(fileManager: fileManager)
     }
 }

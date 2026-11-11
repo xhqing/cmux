@@ -119,6 +119,7 @@ open "/Applications/cmux.app"
 - 自建版是 **ad-hoc 签名**，没有 Developer ID 也没有公证，所以**必须先去掉隔离属性**（`xattr -dr com.apple.quarantine`），否则系统会报「已损坏」或「无法验证开发者」。
 - **浏览器下载的 zip 及其解压副本会带 `com.apple.quarantine`**（Chrome / Safari 会给下载文件打上这个标记），所以手工安装必须 `xattr -dr`；`curl` 下载不会带这个属性，上面的安装脚本就是用 `curl` 下载的。
 - 本项目用独立 bundle id（`com.xhqing.cmux`）与独立 Preferences 域，和官方版互不干扰；socket 用 app 自己的默认路径 `~/.local/state/cmux/cmux.sock`（见第一节「socket 位置不在构建期写死」）；从旧的 `com.cmuxterm.app.staging.xhqing` 身份切换过来时，偏好设置域和会话快照需要一次性迁移。
+- **socket 起不来时怎么查**：先看 `~/Library/Logs/cmux/startup-com.xhqing.cmux.log`（启动面包屑，2026-11-11 起 `com.xhqing.cmux` 身份默认开启）里有没有 `socket.listener.didStart`；没有的话按顺序看 `socket.listener.startAttempt`（记了 mode / path / source / socket 目录状态）与 `socket.listener.failed`（stage / errno / hint）。`socket.listener.failed` 的 `stage` 是 POSIX 阶段名（`create_lock_directory` 表示连 socket 目录都没建出来），`hint` 直接指出目录缺在哪。同样的失败还会以 error 级写进统一日志：`log show --predicate 'subsystem == "com.cmuxterm.app" AND category == "ControlSocket"' --last 10m`。
 
 ### 绝对不要做的事
 

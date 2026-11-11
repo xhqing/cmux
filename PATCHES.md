@@ -599,3 +599,39 @@ Issue #45：`.12` 版本采到 584 个按键，其中 4 例 ≥ 50 ms、2 例 �
 - `python3 scripts/check-latency-guardrails.py`、`python3 scripts/generate-cmux-config-schema.py --check`、`./scripts/lint-pbxproj-test-wiring.sh` 三项门禁本机全绿。
 - **行为验证由用户在本机装新版后跑探针完成**：`defaults write com.xhqing.cmux cmuxKeyLatencyProbe -bool true` → 冷启动 → 连敲 10 个以上可打印键 → 看 `~/.local/state/cmux/key-latency.log`。验收看「第 1、2 键合计」（应从约 182 ms 降到 130 ~ 150 ms 量级）、`keyDown.end` 的 `layoutIdMs` 应变成亚毫秒、`warmKeyboardLayout` 应只有一行。详见 [LATENCY.md](LATENCY.md) 的 Issue #44 一节。
 
+
+---
+
+## P12 — 控制 socket 启动链路在 Release 下可诊断（Issue #43 的后半段）
+
+**状态**：已实现
+
+### 要解决的问题
+
+Issue #43 的现象是「装在 `/Applications` 的 `com.xhqing.cmux` 永远不会创建控制 socket」。根因（发布包的 `Info.plist` 里烤进了构建机的 home）已经由 **P9 / #46** 修掉，但这次排查的代价说明另一半问题同样要修：
+
+- `SocketControlServer.start()` 的失败路径只有两处：`print(...)` 到 stderr（LaunchServices 启动的 app 没人看得到）和经 `SocketControlServerEvents.failure` 发往 Sentry 的 breadcrumb；本自建版没有 DSN，`SentrySDK.isEnabled == false` 时 `sentryBreadcrumb` / `sentryCaptureError` 全是空操作。
+- 文件启动日志 `StartupBreadcrumbLog` 只对 nightly / rc / debug 身份开启，`com.xhqing.cmux` 与 `com.cmuxterm.app` 都关着。
+- 结果：监听器在 bind 之前就失败（stage `create_lock_directory`、errno `EACCES`），用户机器上**一点痕迹都不留**；当时只能把发布 zip 的 `Info.plist` 抠出来才看到真实原因。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `Sources/App/StartupBreadcrumbLog.swift` | ① `isEnabled` 抽成可测纯函数 `isEnabled(bundleIdentifier:environment:)`，`com.xhqing.cmux`（含带 tag 变体）也开启文件日志（`~/Library/Logs/cmux/startup-com.xhqing.cmux.log`），`CMUX_DISABLE_STARTUP_BREADCRUMBS=1` / `CMUX_STARTUP_BREADCRUMBS=1` 覆盖规则不变；② 新增 `SocketStartupLog`：把监听器生命周期写进启动日志，失败另走 `os.Logger`（subsystem `com.cmuxterm.app`、category `ControlSocket`）打 error，附 stage / errno 文本 / hint；③ `socketDirectoryStatus(path:)` 给出 socket 目录状态（`missing` / `writable` / `read_only` / `not_a_directory` / `not_absolute`），目录不存在时 hint 直接点明「`CMUX_SOCKET_PATH` 可能在别的机器上烘焙过」。 |
+| `Sources/TerminalController+SocketServerEvents.swift` | `breadcrumb`（只转 `socket.listener.*`，避免每个连接的客户端级 breadcrumb 淹没启动日志）、`failure`、`listenerDidStart` 三个 seam 同时写 `SocketStartupLog`；Sentry 行为完全不变（有 DSN 时照旧上报）。 |
+| `Sources/AppDelegate+SocketConfiguration.swift` | 两条启动路径（`startSocketListenerIfEnabled` / `ensureSocketListenerIfEnabled`）各记一条 start attempt（mode / path / source / socket 目录状态；不健康时带 `health.failureSignals`）；访问模式为 `off` 时记 `socket.listener.disabled`（带用户配置的模式值）。 |
+| `cmuxTests/SocketConfigurationLifecycleTests.swift` | 新增四个用例：本仓库身份开启启动日志、上游 stable 保持关闭、显式环境开关生效、socket 目录状态识别（`writable` / `missing` / `not_absolute`）。 |
+| `DEVELOPMENT.md` / `CHANGELOG.md` | 写清「socket 起不来时怎么查」：启动日志里找 `socket.listener.didStart` / `startAttempt` / `failed`，统一日志用 `log show --predicate 'subsystem == "com.cmuxterm.app" AND category == "ControlSocket"'`。 |
+
+### 边界（刻意不做的部分）
+
+- **不改监听器的路径/回退策略**：P9 已经把「构建期写死路径」这个病灶从源头去掉；再给「路径不可用」加一层静默 fallback，会把「配置错了」伪装成「看起来能用」，并且自定义路径失去身份隔离后会和官方 app 抢同一个 socket。诊断信息足够让人一眼看出问题即可。
+- **不给客户端级 breadcrumb 加文件写入**：那类事件按连接重复，写盘会和真实流量成正比；只留 `socket.listener.*`。
+- **不动 Sentry 接线**：`sentryBreadcrumb` / `sentryCaptureError` 的调用与去重闸门（`SocketListenerFailureCaptureGate`）原样保留，新链路只是并列的本地出口。
+
+### 验证
+
+- `swiftc -parse` 通过（`Sources/App/StartupBreadcrumbLog.swift`、`Sources/AppDelegate+SocketConfiguration.swift`、`Sources/TerminalController+SocketServerEvents.swift`；`cmuxTests` 那个文件含 Swift Testing 宏，本机 Swift 5.7 解析不了既有内容，未作为判据）。
+- `./scripts/lint-pbxproj-test-wiring.sh`、`python3 scripts/generate-cmux-config-schema.py --check`、`python3 scripts/check-latency-guardrails.py` 本机全绿；完整编译与测试执行由 PR 门禁 `checks`（macos-26）与 `build-macos` 兜底。
+- 真机验收（装下一版后）：`~/Library/Logs/cmux/startup-com.xhqing.cmux.log` 里应出现 `socket.listener.startAttempt` 与 `socket.listener.didStart`（路径 `~/.local/state/cmux/cmux.sock`）；若监听器再失败，同一条日志链路会留下 `socket.listener.failed` 的 stage / errno / hint，不用再靠拆发布包取证。

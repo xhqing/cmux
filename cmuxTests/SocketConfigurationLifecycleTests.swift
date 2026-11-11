@@ -458,6 +458,66 @@ extension SocketACLReloadRegressionTests {
         #expect(markerPaths.contains(SocketPathMarkerFiles.stableTmpPath))
     }
 
+    @Test(arguments: [
+        ("com.xhqing.cmux", true),
+        ("com.xhqing.cmux.feature-x", true),
+        ("com.cmuxterm.app", false),
+        ("com.cmuxterm.app.nightly", true),
+        ("com.cmuxterm.app.debug.scratch", true),
+        ("com.example.unknown", false),
+    ])
+    func startupBreadcrumbLogIsEnabledForThisForksReleaseIdentity(
+        bundleIdentifier: String,
+        expected: Bool
+    ) {
+        // Issue #43: the self-built release identity is ad-hoc signed with no
+        // telemetry, so the file-backed startup log is the only launch trace it
+        // can leave — it must be on for `com.xhqing.cmux`.
+        #expect(
+            StartupBreadcrumbLog.isEnabled(
+                bundleIdentifier: bundleIdentifier,
+                environment: [:]
+            ) == expected
+        )
+        #expect(
+            !StartupBreadcrumbLog.isEnabled(
+                bundleIdentifier: bundleIdentifier,
+                environment: ["CMUX_DISABLE_STARTUP_BREADCRUMBS": "1"]
+            )
+        )
+    }
+
+    @Test func startupBreadcrumbLogHonorsTheExplicitEnableOverride() {
+        #expect(
+            StartupBreadcrumbLog.isEnabled(
+                bundleIdentifier: "com.example.unknown",
+                environment: ["CMUX_STARTUP_BREADCRUMBS": "1"]
+            )
+        )
+    }
+
+    @Test func socketDirectoryStatusIdentifiesAnUnreachableOverride() throws {
+        let directory = lifecycleTemporaryDirectory(prefix: "scfd")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(
+            SocketStartupLog.socketDirectoryStatus(
+                path: directory.appendingPathComponent("cmux.sock").path
+            ) == "writable"
+        )
+        // A build-machine path baked into a shipped Info.plist resolves to a
+        // directory this Mac cannot have (Issue #43: /Users/runner/...).
+        #expect(
+            SocketStartupLog.socketDirectoryStatus(
+                path: "/cmux-issue-43-does-not-exist/cmux.sock"
+            ) == "missing"
+        )
+        #expect(
+            SocketStartupLog.socketDirectoryStatus(path: "relative/cmux.sock") == "not_absolute"
+        )
+    }
+
     private func capturedSocketDefaults(_ defaults: UserDefaults) -> [(String, Any?)] {
         socketDefaultsKeys.map { ($0, defaults.object(forKey: $0)) }
     }

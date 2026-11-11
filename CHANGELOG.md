@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **`cmux config` / `cmux docs` 的帮助与 JSON 输出里仍引用已改名的 `ghosttyConfigDisplayPath`，导致 app 编译失败（`type 'CMUXCLI' has no member 'ghosttyConfigDisplayPath'`）**：Issue #70 把该常量改名为 `cmuxGhosttyConfigDisplayPath`（因为它现在指向 cmux 自己的 `~/.config/cmux/config.ghostty`），但 `CLI/CMUXCLI+Config.swift` 的三处引用没跟着改，`cmux-cli` target 在完整构建时报 3 个类型错误。PR 门禁只做 `swiftc -parse`（语法）与 SwiftPM 包的 build/test，`CLI/` 属 app target，类型错误只在 `build-macos` 暴露——这也是 `TODO.md` T10 记录的门禁缺口。修好引用的同时把这两处文案改成与 `cmux docs` 一致的口径（cmux 只读自己的 Ghostty 格式配置，不再读 Ghostty 的配置文件）。
+
 ## [0.65.2.2-r19] - 2026-11-11
 
 ### Fixed

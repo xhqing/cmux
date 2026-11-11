@@ -20164,6 +20164,10 @@ private extension NSWindow {
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
+        // First app-level point a keyDown reaches: comparing this with the
+        // `keyDown` phase splits "queue wait before our code" from "our
+        // key-equivalent routing was slow" (Issue #44).
+        KeyLatencyProbe.record(event: event, phase: "keyEquivalent")
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {

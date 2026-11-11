@@ -16,6 +16,12 @@ import Foundation
 /// (`recordActivity`) and for long main-thread turns (`mainTurn`). Key lines say
 /// how long an input waited; those lines say what was running at that instant,
 /// which is what turns "a spike happened" into "a spike happened while X ran".
+///
+/// Phases written for keystrokes: `keyEquivalent` (window-level key-equivalent
+/// routing entered), `keyDown` (the terminal handler entered), `keyDown.end`
+/// (that handler returned, plus the segments it measured) and
+/// `warmKeyboardLayout` (the one-time input-source warm-up). A slow key defers
+/// the *next* one, so `keyDown.end` is what attributes a first-keystroke spike.
 enum KeyLatencyProbe {
     static let isEnabled: Bool = {
         ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1"
@@ -50,6 +56,42 @@ enum KeyLatencyProbe {
             + " " + String(format: "%.2f", delayMs)
             + " " + String(event.keyCode)
             + " " + (event.isARepeat ? "1" : "0") + "\n"
+        queue.async { Self.append(line) }
+    }
+
+    /// Records how long one keystroke handler took, plus the segments measured
+    /// inside it. A slow key shows up as the *next* key's `delayMs` — the main
+    /// thread is busy until this handler returns — so attributing the handler
+    /// is what tells a cold first keystroke apart from an idle-queue delay.
+    static func recordPhases(
+        event: NSEvent,
+        phase: String,
+        totalMs: Double,
+        parts: [(String, Double)]
+    ) {
+        guard isEnabled, event.timestamp > 0 else { return }
+        let delayMs = max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000)
+        var line = String(format: "%.3f", Date().timeIntervalSince1970)
+            + " " + phase
+            + " " + String(format: "%.2f", delayMs)
+            + " " + String(event.keyCode)
+            + " " + (event.isARepeat ? "1" : "0")
+            + " total=" + String(format: "%.2f", totalMs)
+        for (name, value) in parts {
+            line += " " + name + "=" + String(format: "%.2f", value)
+        }
+        line += "\n"
+        queue.async { Self.append(line) }
+    }
+
+    /// Records a one-off cost (a warm-up) so the probe log also shows what was
+    /// moved off the keystroke path and how long it took.
+    static func recordCost(phase: String, milliseconds: Double) {
+        guard isEnabled else { return }
+        let line = String(format: "%.3f", Date().timeIntervalSince1970)
+            + " " + phase
+            + " " + String(format: "%.2f", max(0, milliseconds))
+            + " 0 0\n"
         queue.async { Self.append(line) }
     }
 

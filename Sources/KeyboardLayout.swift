@@ -252,4 +252,56 @@ class KeyboardLayout {
 
         return UInt32((carbonModifiers >> 8) & 0xFF)
     }
+
+    // MARK: - Cold-start warm-up (Issue #44)
+
+    /// Runs the input-source / layout lookups the keystroke path needs, on a
+    /// caller-chosen moment instead of on the first key the user types.
+    ///
+    /// Why: in a fresh process the first `TISCopyCurrentKeyboardInputSource()`
+    /// loads HIToolbox's input-source database and the first `LMGetKbdType()`
+    /// loads the keyboard-type globals. Measured on the Intel test machine
+    /// (macOS 12): 30 ms and 19 ms cold, then 0.00 ms — the same one-time cost
+    /// the first keystroke after launch was paying. AppKit's own
+    /// `NSEvent.characters(byApplyingModifiers:)` shares those caches, so this
+    /// also covers the translation AppKit performs before it delivers
+    /// `keyDown`.
+    ///
+    /// Read-only by design: it never creates or interprets an `NSEvent` and
+    /// never touches input state, so it cannot type, start an IME composition,
+    /// or move focus. Main thread only — `LMGetKbdType()` reads process-wide
+    /// Carbon globals, like every other call in this class.
+    static func warmCaches() {
+        _ = id
+        _ = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue()
+        _ = LMGetKbdType()
+        _ = character(forKeyCode: 0)
+        _ = character(forKeyCode: 49, modifierFlags: [.shift])
+        _ = textInputCharacter(forKeyCode: 0, modifierFlags: [])
+        _ = isDeadKey(forKeyCode: 0, modifierFlags: [])
+    }
+
+    /// Schedules ``warmCaches()`` once per app session.
+    ///
+    /// It runs a moment after the caller's turn has finished, so it never
+    /// extends surface creation or the first paint, and it is skipped entirely
+    /// when the caches are already warm — a repeated call measures 0.00 ms.
+    /// The delay is deliberately short: a keystroke typed within it would have
+    /// paid the same cost on the old path, so the only new risk is stacking it
+    /// with the first frame.
+    static func scheduleCacheWarmup(delay: TimeInterval = 0.25) {
+        guard !didScheduleCacheWarmup else { return }
+        didScheduleCacheWarmup = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            warmCaches()
+            KeyLatencyProbe.recordCost(
+                phase: "warmKeyboardLayout",
+                milliseconds: (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
+            )
+        }
+    }
+
+    /// Main thread only, like the Carbon layout calls it guards.
+    private static var didScheduleCacheWarmup = false
 }

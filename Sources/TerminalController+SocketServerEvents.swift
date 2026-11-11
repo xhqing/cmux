@@ -16,9 +16,22 @@ extension TerminalController {
         SocketControlServerEvents(
             breadcrumb: { message, data in
                 sentryBreadcrumb(message, category: "socket", data: data)
+                // Listener lifecycle only: client-level breadcrumbs repeat per
+                // connection and would drown the launch trace.
+                if message.hasPrefix("socket.listener.") {
+                    SocketStartupLog.record(message, data: data)
+                }
             },
             failure: { message, stage, errnoCode, data in
                 sentryBreadcrumb(message, category: "socket", data: data)
+                // The listener failure that stops the CLI from working at all
+                // must survive a build with no Sentry DSN (Issue #43).
+                SocketStartupLog.listenerFailure(
+                    message: message,
+                    stage: stage,
+                    errnoCode: errnoCode,
+                    data: data
+                )
                 guard failureCaptureGate.shouldCapture(
                     message: message,
                     stage: stage,
@@ -29,9 +42,10 @@ extension TerminalController {
                 }
                 sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
             },
-            listenerDidStart: { path, _ in
+            listenerDidStart: { path, generation in
                 // @MainActor closure, invoked synchronously inside start().
                 failureCaptureGate.listenerDidStart()
+                SocketStartupLog.listenerDidStart(path: path, generation: generation)
                 target.controller?.socketListenerDidStart(path: path)
             },
             recordLastSocketPath: { path in

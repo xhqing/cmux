@@ -12,11 +12,18 @@ All notable changes to cmux are documented here.
 ### Added
 - **探针日志现在能直接回答「这次尖峰是哪个后台任务造成的」**：`KeyLatencyProbe` 在同一个 `~/.local/state/cmux/key-latency.log` 里追加 span 行 `<unixTime> <activity> <durationMs> [detail]`，覆盖 `scrollbackExport`（一次检查点导出的主线程耗时）、`sessionAutosave`（一次自动保存 tick）与 `mainTurn`（主线程单回合 ≥ 20 ms，由一个只在探针开启时安装的 runloop 观察者记录，Release 版同样生效）。新增 `scripts/analyze-key-latency.py` 把尖峰与重叠 span 对起来：有 span 覆盖 → 就是它；只有 `mainTurn` → 主线程在跑没插桩的代码；连 `mainTurn` 都没有 → 事件进 app 之前就被拖住了，该去抓 `sample` / `spindump` 而不是改 cmux 代码。
 
+- **控制 socket 启动链路在 Release 下也能留下诊断信息（Issue #43 的后半段）**：本自建版是 ad-hoc 签名、没有遥测，`StartupBreadcrumbLog` 又只对 nightly / rc / debug 身份开启，所以「监听器一直没起来」这件事在用户机器上一点痕迹都不留（#43 的根因——发布包里烤进了构建机的 home——已由 #46 修掉，但当时取证只能靠把发布 zip 里的 `Info.plist` 抠出来看）。现在：
+  - `StartupBreadcrumbLog.isEnabled(bundleIdentifier:environment:)` 抽成可测的纯函数，`com.xhqing.cmux`（含带 tag 的变体）也开启启动日志，写入 `~/Library/Logs/cmux/startup-com.xhqing.cmux.log`；`CMUX_DISABLE_STARTUP_BREADCRUMBS=1` / `CMUX_STARTUP_BREADCRUMBS=1` 照旧可覆盖。
+  - 新增 `SocketStartupLog`：监听器生命周期（`socket.listener.*`）落启动日志；每次启动尝试额外记 `mode` / `path` / `source` / socket 目录状态（`missing` / `writable` / `read_only` / `not_a_directory` / `not_absolute`）；监听器失败另走 `os.Logger`（subsystem `com.cmuxterm.app`、category `ControlSocket`）打 error 级日志，附 stage、errno 文本与一句 hint——目录不存在时直接点明「可能是 `CMUX_SOCKET_PATH` 在别的机器上烘焙过」。查法：`log show --predicate 'subsystem == "com.cmuxterm.app" AND category == "ControlSocket"' --last 10m`。
+  - `AppDelegate` 的两条启动路径（bootstrap / `mainWindow.register`）都记一条 start attempt（不健康时带 `failureSignals`）；访问模式为 `off` 时记 `socket.listener.disabled`（带用户配置的模式值），不会再出现「什么都没发生」。
+  - `cmuxTests/SocketConfigurationLifecycleTests.swift` 新增四个用例：本仓库身份开启启动日志、上游 stable 保持关闭、显式环境开关生效、socket 目录状态识别。
+
 ### 工具
 - `scripts/check-latency-guardrails.py` 新增一组守卫：检查点导出必须走有界格式化，防止以后同步上游 tag 时被 rebase 掉。
 - `scripts/analyze-key-latency.py` 认识新加的三种探针行（`keyEquivalent` / `keyDown.end` / `warmKeyboardLayout`）：分别列成 `routing:` / `handler:` / `warm-up:` 三段、不计入 `keys:` 统计，也不会再被误当成后台 span；`--self-test` 覆盖这三种行的解析。首键慢的时候可以直接看出是「进入 `keyDown` 之前就慢了」还是「上一个键的处理器慢」（后者看该行 `total=`）。
 
 ### 文档
+- `DEVELOPMENT.md` 第二节补「socket 起不来时怎么查」：先看 `~/Library/Logs/cmux/startup-com.xhqing.cmux.log` 里有没有 `socket.listener.didStart`，再看 `socket.listener.startAttempt`（mode / path / socket 目录状态）与 `socket.listener.failed`（stage / errno / hint）；`PATCHES.md` 新增 P11 一条。
 - `LATENCY.md` 新增「Issue #45」一节：实测数据、逐项排除后的定位依据（含为什么是「整场只有两例」这个形状）、用户在本机怎么开探针采集、改后怎么判断尖峰是否消失（指标 + 阈值）、以及三种归因结果各自下一步该做什么。
 - `PATCHES.md` 新增 P10 条目。
 - `LATENCY.md` 新增「Issue #44：终端获得焦点后的第一个按键」一节：探针口径怎么读、冷启动实测数字与测法、按键路径上谁在用这些 API、改了什么与为什么这样改、用户怎么验证与预期数字、以及这次没有解决的部分（首次 `interpretKeyEvents` 的文本输入上下文 / 输入法激活、启动期主线程忙碌）。

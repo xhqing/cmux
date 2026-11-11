@@ -34,12 +34,17 @@ extension AppDelegate {
 
     func startSocketListenerIfEnabled(tabManager: TabManager, source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else {
+            SocketStartupLog.listenerDisabled(
+                source: source,
+                configuredMode: CmuxSettingsFileStore.configuredSocketMode().rawValue
+            )
             TerminalController.shared.stop(cleanupDiscoveryState: true)
             return
         }
         let path = TerminalController.shared.activeSocketPath(
             preferredPath: config.preferredSocketPath
         )
+        SocketStartupLog.startAttempt(mode: config.accessMode.rawValue, path: path, source: source)
         sentryBreadcrumb("socket.listener.start", category: "socket", data: [
             "mode": config.accessMode.rawValue,
             "path": path,
@@ -54,6 +59,10 @@ extension AppDelegate {
 
     func ensureSocketListenerIfEnabled(tabManager: TabManager, source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else {
+            SocketStartupLog.listenerDisabled(
+                source: source,
+                configuredMode: CmuxSettingsFileStore.configuredSocketMode().rawValue
+            )
             TerminalController.shared.stop(cleanupDiscoveryState: true)
             return
         }
@@ -71,6 +80,12 @@ extension AppDelegate {
             return
         }
 
+        SocketStartupLog.startAttempt(
+            mode: config.accessMode.rawValue,
+            path: path,
+            source: source,
+            failureSignals: health.failureSignals
+        )
         sentryBreadcrumb("socket.listener.ensure", category: "socket", data: [
             "mode": config.accessMode.rawValue,
             "path": path,

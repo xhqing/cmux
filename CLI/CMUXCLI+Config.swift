@@ -192,8 +192,8 @@ extension CMUXCLI {
           legacy config: \(Self.legacySettingsDisplayPath)
           legacy app support: \(Self.fallbackSettingsDisplayPath)
 
-        Related (not cmux-owned, but cmux reads it for terminal behavior):
-          \(Self.ghosttyConfigDisplayPath)
+        Related (cmux's own Ghostty-format terminal config):
+          \(Self.cmuxGhosttyConfigDisplayPath)
 
         Examples:
           cmux config get terminal.scrollSpeed
@@ -217,8 +217,8 @@ extension CMUXCLI {
             "legacy": Self.legacySettingsDisplayPath,
             "fallback": Self.fallbackSettingsDisplayPath,
             "ghostty_config": [
-                "path": Self.ghosttyConfigDisplayPath,
-                "note": "Not cmux-owned, but cmux reads it. Use for terminal transparency (background-opacity), blur, font, theme, etc.",
+                "path": Self.cmuxGhosttyConfigDisplayPath,
+                "note": "cmux's own Ghostty-format terminal config. Use for terminal transparency (background-opacity), blur, font, theme, etc. Ghostty's own config files are not read.",
             ],
             "docs_url": Self.settingsDocsURL,
             "schema_url": Self.settingsSchemaURL,
@@ -237,8 +237,8 @@ extension CMUXCLI {
         print("  legacy config: \(Self.legacySettingsDisplayPath)")
         print("  legacy app support: \(Self.fallbackSettingsDisplayPath)")
         print()
-        print("Related (not cmux-owned, but cmux reads it for terminal behavior):")
-        print("  \(Self.ghosttyConfigDisplayPath)")
+        print("Related (cmux's own Ghostty-format terminal config):")
+        print("  \(Self.cmuxGhosttyConfigDisplayPath)")
         print()
         print("Docs:")
         print("  \(Self.settingsDocsURL)")

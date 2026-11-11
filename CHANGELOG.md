@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [Unreleased]
+## [0.65.2.2-r19] - 2026-11-11
 
 ### Fixed
 - **后台忙碌时偶发的 50–115 ms 按键尖峰（Issue #45）：滚动回写检查点不再在主线程格式化整段 scrollback**。`.12` 版本的探针日志里 584 个按键有 2 例 53.70 ms / 101.41 ms 落在「后台忙碌」时段（开头两例属冷启动，归 Issue #44）。定位结论：`SessionScrollbackCheckpoint` 的导出走 Ghostty 的 `write_screen_file:copy,vt`，会把该终端**整段历史**格式化在主线程上，4000 行的上限是导出**之后**由非主线程读临时文件时才截断的——而检查点只对「有后台输出」的 pane 触发，所以它天然只在用户跑构建 / 日志在流时落到输入路径上；5 s 打字静默是「导出开始前」的一次性检查，挡不住「导出跑到一半用户重新开始敲键」。现在改走 Ghostty 的有界格式化（`readBoundedScreenTailVT`，只格式化最新 N 行），与 quit 快照路径早就采用的做法一致；运行时不支持时仍回退原来的临时文件导出。导出预算、每轮最多 3 个、超预算退避 600 s、打字静默期等既有约束一条没放松。
@@ -50,6 +50,11 @@ All notable changes to cmux are documented here.
 - **PR 门禁 `checks` 的包检查适配「本地二进制 target」包（Issue #70 首次改到 CmuxTerminalCore 时暴露）**：`scripts/check-swift-packages.py` 会对改动涉及的 SwiftPM 包跑 `swift build`，而 CmuxTerminalCore 依赖本地 binaryTarget `GhosttyKit.xcframework`——该产物由 `scripts/setup.sh` 拉取，门禁刻意不跑 setup.sh，于是任何改这个包的 PR 都会在 build 步失败（不是代码错）。现在脚本会递归检查包及其同仓库本地依赖里的 `.binaryTarget(path:)`，本地产物缺失（无 `Info.plist`）就**显式跳过**该包的 build / test，打印包名、缺失产物路径与「由 build-macos 兜底」的理由——不静默跳过、不改变门禁 job 名、不让门禁变重（完整编译正确性仍由 `build-macos` 负责）。顺带修了脚本的失败诊断：原来失败时只打印「stdout+stderr 合并后的最后 40 行」，而 `swift test` 的失败断言打在 stdout、编译进度打在 stderr，合并后尾部全是编译输出、看不到失败详情；现在失败时分别打印两个流各自的尾部（各 120 行）。
 - **`build.yml` 新增 bundle 主题库完整性校验（Issue #71）**：打包前数 bundle 内 `Contents/Resources/ghostty/themes` 的文件数并与仓库 `Resources/ghostty/themes` 比对、逐文件 diff；不一致直接失败，防止主题库漂移。
 
+### 构建与发布
+- **构建产物不再把构建机的 home 烧进 `LSEnvironment`（#46）**：`scripts/reloads.sh` 以前用 `$HOME/Library/Application Support/cmux` 算 socket 路径、再写进产物 `Info.plist` 的 `LSEnvironment`；这个值在构建期就固定下来，CI 上 `$HOME=/Users/runner`，于是每个用户装到的 app 都带着 `/Users/runner/Library/Application Support/cmux/...` 这种本机不可能存在的路径，socket 只能落到 fallback 或直接失败。现在产物只保留身份键（`CMUX_BUNDLE_ID`、`CMUX_ALLOW_SOCKET_OVERRIDE`），socket 位置由 app 启动时按真实账号 home 解析（`~/.local/state/cmux/cmux.sock`，CLI 用的也是这一条）；本地 `reloads.sh` 构建的身份专属路径改由启动环境传入，`--tag` 并行构建照样各用各的。新增 `scripts/check-bundle-home-paths.sh`，在构建末尾与 CI 打包前各断言一次「产物里没有任何 `/Users/` 绝对路径」，谁再把机器相关的值写回产物，构建就直接失败。`scripts/install-release.sh` 装到带这类路径的旧 Release 时会打印警告（不阻断）。
+  - 代价：分叉版与官方版从此共用同一个默认 socket 路径，两者并存时只能有一个占住它（本机只装本分叉，日常不受影响；需要并存时用 `CMUX_SOCKET_PATH` 手动换路径）。
+  - 文档：`DEVELOPMENT.md` 第一 / 二 / 三节、`README.md` / `README_cn.md`、`PATCHES.md`（新增 P9）同步这条口径。
+
 ## [0.65.2.2-r18] - 2026-11-10
 
 ### Fixed
@@ -62,9 +67,6 @@ All notable changes to cmux are documented here.
   - **一次性迁移**：r17 及更早版本里的公钥是上游的，Sparkle 校验更新包时用的是「当前安装版本」的公钥，ad-hoc 签名的 designated requirement 又是 cdhash，所以旧版无法自动跨到新公钥的版本——需要手动跑一次 `scripts/install-release.sh` 重装，之后的手动更新都能在应用内完成。
 
 ### 构建与发布
-- **构建产物不再把构建机的 home 烧进 `LSEnvironment`（#46）**：`scripts/reloads.sh` 以前用 `$HOME/Library/Application Support/cmux` 算 socket 路径、再写进产物 `Info.plist` 的 `LSEnvironment`；这个值在构建期就固定下来，CI 上 `$HOME=/Users/runner`，于是每个用户装到的 app 都带着 `/Users/runner/Library/Application Support/cmux/...` 这种本机不可能存在的路径，socket 只能落到 fallback 或直接失败。现在产物只保留身份键（`CMUX_BUNDLE_ID`、`CMUX_ALLOW_SOCKET_OVERRIDE`），socket 位置由 app 启动时按真实账号 home 解析（`~/.local/state/cmux/cmux.sock`，CLI 用的也是这一条）；本地 `reloads.sh` 构建的身份专属路径改由启动环境传入，`--tag` 并行构建照样各用各的。新增 `scripts/check-bundle-home-paths.sh`，在构建末尾与 CI 打包前各断言一次「产物里没有任何 `/Users/` 绝对路径」，谁再把机器相关的值写回产物，构建就直接失败。`scripts/install-release.sh` 装到带这类路径的旧 Release 时会打印警告（不阻断）。
-  - 代价：分叉版与官方版从此共用同一个默认 socket 路径，两者并存时只能有一个占住它（本机只装本分叉，日常不受影响；需要并存时用 `CMUX_SOCKET_PATH` 手动换路径）。
-  - 文档：`DEVELOPMENT.md` 第一 / 二 / 三节、`README.md` / `README_cn.md`、`PATCHES.md`（新增 P9）同步这条口径。
 - **`attach-release-asset` 的通知消息里有个 bash 引用写法错误（`${basename "…"}` → `bad substitution`），r18 构建成功但资产首次挂载中断**：改用命令替换 `$(basename …)`；随后用 `workflow_dispatch` 重跑 r18 那次构建的挂载（run 42824769839），zip / sha256 / `appcast.xml` 已补齐。r18 的安装包内容不受影响。
 
 ### 文档

@@ -5,9 +5,10 @@ import Foundation
 /// App-owned access to cmux's managed adaptive terminal palette preference.
 ///
 /// Ghostty's own `theme = light:X,dark:Y` setting remains independent and
-/// appearance-adaptive. This setting only controls whether cmux supplies its
-/// managed light/dark palette when the Ghostty config contains no authored
-/// theme or terminal colors. Non-color settings preserve the adaptive base.
+/// appearance-adaptive. Since Issue #71 the managed default appearance is
+/// GitHub Dark Default in both light and dark, so this preference no longer
+/// changes any behavior; the setting (and its UI row) is kept for
+/// compatibility and defaults to off.
 struct TerminalAdaptiveDefaultThemeSettings {
     private static let key = SettingCatalog().terminal.adaptiveDefaultTheme
 
@@ -48,10 +49,7 @@ extension GhosttyConfig {
         var loaded = load(
             preferredColorScheme: preferredColorScheme,
             useCache: useCache,
-            globalFontMagnificationPercent: globalFontMagnificationPercent,
-            adaptiveDefaultThemeEnabled:
-                TerminalAdaptiveDefaultThemeSettings(defaults: defaults)
-                    .isEnabled
+            globalFontMagnificationPercent: globalFontMagnificationPercent
         )
         if let value = defaults.object(forKey: CmuxJSONFontSettings.sidebarUserDefaultsKey) as? NSNumber {
             loaded.sidebarFontSize = Self.clampedSidebarFontSize(value.doubleValue)

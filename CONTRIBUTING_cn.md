@@ -10,7 +10,7 @@
 
 ## 你授予的许可
 
-提交 PR 即视为你同意：你的贡献以本项目的许可证——**GNU General Public License v3.0 or later（GPL-3.0-or-later）**（见 `LICENSE.md`）——授权给本项目使用、修改、再分发。
+提交 PR 即视为你同意：你的贡献以本项目的许可证——**GNU General Public License v3.0 or later（GPL-3.0-or-later）**（见 `LICENSE`）——授权给本项目使用、修改、再分发。
 
 这是**许可**，不是**转让**。你保留著作权，本项目获得的是按项目许可证使用、修改、再分发你这份贡献的权限。
 

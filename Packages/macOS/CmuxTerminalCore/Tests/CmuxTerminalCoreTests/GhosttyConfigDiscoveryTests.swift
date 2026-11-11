@@ -336,7 +336,8 @@ private struct NoFontProbe: GhosttyFontProbing {
         let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
         #expect(discovery.conditionalThemeOverrideConfigContents(
             preferredColorScheme: .dark,
-            configPaths: [path]
+            configPaths: [path],
+            environment: ["CFFIXED_USER_HOME": "/nonexistent"]
         ) == nil)
     }
 
@@ -346,7 +347,52 @@ private struct NoFontProbe: GhosttyFontProbing {
         let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
         #expect(discovery.conditionalThemeOverrideConfigContents(
             preferredColorScheme: .dark,
-            configPaths: [path]
+            configPaths: [path],
+            environment: ["CFFIXED_USER_HOME": "/nonexistent"]
         ) == nil)
+    }
+
+    @Test func plainThemeInUserDirectoryInjectsAbsolutePath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-discovery-user-theme-\(UUID().uuidString)")
+        let userThemeDir = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
+        try FileManager.default.createDirectory(at: userThemeDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "background = #123456\n".write(
+            to: userThemeDir.appendingPathComponent("Dracula", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let path = root.appendingPathComponent("config").path
+        let reader = FakeFileReader(contentsByPath: [path: "theme = Dracula"])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.conditionalThemeOverrideConfigContents(
+            preferredColorScheme: .dark,
+            configPaths: [path],
+            environment: ["CFFIXED_USER_HOME": root.path]
+        ) == "theme = \(userThemeDir.appendingPathComponent("Dracula").path)")
+    }
+
+    @Test func conditionalThemeInUserDirectoryInjectsAbsolutePath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-discovery-user-theme-pair-\(UUID().uuidString)")
+        let userThemeDir = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
+        try FileManager.default.createDirectory(at: userThemeDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "background = #123456\n".write(
+            to: userThemeDir.appendingPathComponent("Dracula", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let path = root.appendingPathComponent("config").path
+        let reader = FakeFileReader(contentsByPath: [path: "theme = light:Dracula,dark:Dracula"])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.conditionalThemeOverrideConfigContents(
+            preferredColorScheme: .dark,
+            configPaths: [path],
+            environment: ["CFFIXED_USER_HOME": root.path]
+        ) == "theme = \(userThemeDir.appendingPathComponent("Dracula").path)")
     }
 }

@@ -18,7 +18,7 @@ because their rights were signed over.
 
 By submitting a pull request, you agree that your contribution is licensed to
 this project under **the GNU General Public License v3.0 or later (GPL-3.0-or-later)** — the licence this project itself uses
-(see `LICENSE.md`).
+(see `LICENSE`).
 
 That is a licence, not an assignment. You keep the copyright; the project gains
 permission to use, modify and redistribute your work under that licence.

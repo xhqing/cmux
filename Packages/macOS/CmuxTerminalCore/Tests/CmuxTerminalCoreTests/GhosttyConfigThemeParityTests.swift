@@ -4,8 +4,9 @@ import Testing
 @testable import CmuxTerminalCore
 
 /// Verifies that cmux preserves configured Ghostty colors while retaining its
-/// adaptive managed palette for configurations without authored terminal colors
-/// (https://github.com/manaflow-ai/cmux/issues/10199).
+/// managed default appearance for configurations without authored terminal
+/// colors (https://github.com/manaflow-ai/cmux/issues/10199). Since Issue #71
+/// the managed default is GitHub Dark Default in both appearances.
 @Suite struct GhosttyConfigThemeParityTests {
     enum Scenario: String, CaseIterable, Sendable {
         case noConfig
@@ -40,18 +41,11 @@ import Testing
         "#7AA6DA", "#C397D8", "#70C0B1", "#EAEAEA",
     ]
 
-    private static let managedLightPalette = [
-        "#1A1A1A", "#CC372E", "#26A439", "#CDAC08",
-        "#0869CB", "#9647BF", "#479EC2", "#98989D",
-        "#464646", "#FF453A", "#32D74B", "#E5BC00",
-        "#0A84FF", "#BF5AF2", "#69C9F2", "#FFFFFF",
-    ]
-
-    private static let managedDarkPalette = [
-        "#1A1A1A", "#CC372E", "#26A439", "#CDAC08",
-        "#0869CB", "#9647BF", "#479EC2", "#98989D",
-        "#464646", "#FF453A", "#32D74B", "#FFD60A",
-        "#0A84FF", "#BF5AF2", "#76D6FF", "#FFFFFF",
+    private static let managedDefaultPalette = [
+        "#484F58", "#FF7B72", "#3FB950", "#D29922",
+        "#58A6FF", "#BC8CFF", "#39C5CF", "#B1BAC4",
+        "#6E7681", "#FFA198", "#56D364", "#E3B341",
+        "#79C0FF", "#D2A8FF", "#56D4DD", "#FFFFFF",
     ]
 
     private static let fullExplicitPalette = [
@@ -113,24 +107,24 @@ import Testing
             return ScenarioFixture(
                 configContents: scenario == .noConfig ? "# no Ghostty settings\n" : "font-family = Menlo\n",
                 light: snapshot(
-                    foreground: "#000000",
-                    background: "#FEFFFF",
-                    cursor: "#98989D",
-                    cursorText: "#FFFFFF",
-                    selectionBackground: "#ABD8FF",
-                    selectionForeground: "#000000",
-                    palette: Self.managedLightPalette
+                    foreground: "#E6EDF3",
+                    background: "#0D1117",
+                    cursor: "#2F81F7",
+                    cursorText: "#6FC1FF",
+                    selectionBackground: "#E6EDF3",
+                    selectionForeground: "#0D1117",
+                    palette: Self.managedDefaultPalette
                 ),
                 dark: snapshot(
-                    foreground: "#FFFFFF",
-                    background: "#1E1E1E",
-                    cursor: "#98989D",
-                    cursorText: "#FFFFFF",
-                    selectionBackground: "#3F638B",
-                    selectionForeground: "#FFFFFF",
-                    palette: Self.managedDarkPalette
+                    foreground: "#E6EDF3",
+                    background: "#0D1117",
+                    cursor: "#2F81F7",
+                    cursorText: "#6FC1FF",
+                    selectionBackground: "#E6EDF3",
+                    selectionForeground: "#0D1117",
+                    palette: Self.managedDefaultPalette
                 ),
-                changesWithAppearance: true
+                changesWithAppearance: false
             )
 
         case .partialExplicitColors:
@@ -225,7 +219,10 @@ import Testing
             configPaths: [configPath],
             preferredColorScheme: colorScheme,
             adaptiveDefaultThemeEnabled: true,
-            environment: [:],
+            // Point the user theme directory away from the real home so a
+            // real ~/.config/cmux/themes cannot shadow the managed default
+            // (the user directory is searched first since Issue #71).
+            environment: ["CFFIXED_USER_HOME": "/nonexistent"],
             bundleResourceURL: nil
         )
         let palette = try Dictionary(uniqueKeysWithValues: (0..<16).map { index in

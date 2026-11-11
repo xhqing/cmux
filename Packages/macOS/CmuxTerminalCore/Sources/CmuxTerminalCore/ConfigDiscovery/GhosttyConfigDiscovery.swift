@@ -305,8 +305,10 @@ public struct GhosttyConfigDiscovery {
     }
 
     /// Whether cmux should apply its managed default appearance across the
-    /// resolved config paths when enabled and no theme or terminal colors are set
-    /// (delegates to ``GhosttyConfig``).
+    /// resolved config paths when no theme or terminal colors are set
+    /// (delegates to ``GhosttyConfig``). The `adaptiveDefaultThemeEnabled`
+    /// parameter is kept for source compatibility; since Issue #71 the managed
+    /// default appearance no longer depends on that preference.
     public func shouldApplyManagedDefaultAppearance(
         configPaths: [String]? = nil,
         adaptiveDefaultThemeEnabled: Bool = false
@@ -321,9 +323,15 @@ public struct GhosttyConfigDiscovery {
     /// Computes the resolved plain-theme override cmux must inject when the
     /// user's last `theme` directive uses Ghostty's conditional
     /// `light:…`/`dark:…` syntax, returning `nil` when no override is needed.
+    ///
+    /// Issue #71 extends this to the user theme directory: when the resolved
+    /// theme name exists in `~/.config/cmux/themes` (which the embedded
+    /// engine does not search), the override injects the theme's absolute
+    /// path so a user file overrides a bundled theme with the same name.
     public func conditionalThemeOverrideConfigContents(
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
-        configPaths: [String]? = nil
+        configPaths: [String]? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String? {
         let configPaths = configPaths ?? loadedGhosttyConfigScanPaths()
         let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: configPaths)
@@ -339,22 +347,52 @@ public struct GhosttyConfigDiscovery {
         // https://github.com/manaflow-ai/cmux/issues/3459. Only override sides the
         // value explicitly specifies: a one-sided `light:X` must not force the
         // light theme onto dark appearances (which would clobber the inherited or
-        // default dark theme). Plain (non-conditional) theme values are applied
-        // correctly by ghostty, so they need no override.
-        guard let explicitTheme = GhosttyConfig.explicitConditionalThemeName(
+        // default dark theme).
+        let resolvedTheme: String
+        if let explicitTheme = GhosttyConfig.explicitConditionalThemeName(
             from: rawThemeValue,
             preferredColorScheme: preferredColorScheme
-        ) else {
+        ) {
+            resolvedTheme = explicitTheme.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if GhosttyConfig.isConditionalThemeValue(rawThemeValue) {
+            // Conditional syntax that does not explicitly name the requested
+            // side: let the engine resolve it (preserves the one-sided
+            // light:/dark: behavior above).
             return nil
+        } else {
+            // Plain (non-conditional) theme value.
+            resolvedTheme = rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
-        let resolvedTheme = explicitTheme.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !resolvedTheme.isEmpty,
               resolvedTheme.rangeOfCharacter(from: .newlines) == nil else {
             return nil
         }
 
-        return "theme = \(resolvedTheme)"
+        // Issue #71: the engine searches `~/.config/ghostty/themes` and the
+        // bundled library but not `~/.config/cmux/themes`. When the user theme
+        // directory resolves the name, inject its absolute path so the user
+        // file overrides a bundled theme with the same name. Absolute-path
+        // theme values need no override either (the engine reads them
+        // directly).
+        if NSString(string: resolvedTheme).isAbsolutePath {
+            return nil
+        }
+        if let userURL = GhosttyConfig.userThemeFileURL(
+            forThemeName: resolvedTheme,
+            environment: environment
+        ) {
+            return "theme = \(userURL.path)"
+        }
+
+        // The resolved name exists neither as an absolute path nor in the
+        // user theme directory. A conditional value still needs the plain
+        // name injected (the #3459 fix above); a plain value is applied
+        // correctly by the engine, which searches the bundled library via
+        // `GHOSTTY_RESOURCES_DIR`, so it needs no override.
+        if GhosttyConfig.isConditionalThemeValue(rawThemeValue) {
+            return "theme = \(resolvedTheme)"
+        }
+        return nil
     }
 
     // MARK: - Font resolution

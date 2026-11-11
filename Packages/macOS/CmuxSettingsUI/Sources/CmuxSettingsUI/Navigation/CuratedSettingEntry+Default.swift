@@ -47,7 +47,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .themes,
                 id: "adaptive-default-theme",
                 title: String(localized: "settings.terminal.adaptiveDefaultTheme", defaultValue: "Adapt Default Theme to Appearance"),
-                detailText: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "Matches terminal colors to the light or dark appearance when no Ghostty theme or colors are set."),
+                detailText: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "The default theme no longer differs between light and dark appearance, so this setting has no effect."),
                 paths: ["terminal.adaptiveDefaultTheme"],
                 synonyms: String(
                     localized: "settings.search.alias.setting.terminal.adaptive-default-theme",

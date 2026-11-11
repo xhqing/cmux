@@ -3,7 +3,9 @@ import Foundation
 import Testing
 @testable import CmuxTerminalCore
 
-/// Non-color settings must not opt an otherwise adaptive terminal out of Light mode.
+/// Non-color settings must not opt an otherwise default-themed terminal out
+/// of the managed default appearance. Since Issue #71 the managed default
+/// theme is GitHub Dark Default in both light and dark appearance.
 @Suite struct GhosttyConfigAdaptiveAppearanceRegressionTests {
     @Test(arguments: [
         "font-size = 17",
@@ -12,15 +14,16 @@ import Testing
         "background-opacity = 0.9",
         "working-directory = /tmp",
     ])
-    func unrelatedSettingsPreserveAdaptiveColors(setting: String) throws {
+    func unrelatedSettingsPreserveDefaultAppearance(setting: String) throws {
         try withFixture(setting) { path, resources in
             let dark = load(path, resources: resources, scheme: .dark)
             let light = load(path, resources: resources, scheme: .light)
 
             #expect(dark.backgroundColor.hexString() == "#101112")
             #expect(dark.foregroundColor.hexString() == "#F0F1F2")
-            #expect(light.backgroundColor.hexString() == "#FAFBFC")
-            #expect(light.foregroundColor.hexString() == "#202122")
+            // The default theme is the same in both appearances (Issue #71).
+            #expect(light.backgroundColor.hexString() == "#101112")
+            #expect(light.foregroundColor.hexString() == "#F0F1F2")
             if setting.hasPrefix("font-size") {
                 #expect(dark.fontSize == 17)
                 #expect(light.fontSize == 17)
@@ -28,14 +31,14 @@ import Testing
         }
     }
 
-    @Test func includedNonColorSettingsPreserveAdaptiveColors() throws {
+    @Test func includedNonColorSettingsPreserveDefaultAppearance() throws {
         try withFixture("config-file = fonts.conf") { path, resources in
             let included = URL(fileURLWithPath: path).deletingLastPathComponent()
                 .appendingPathComponent("fonts.conf")
             try "font-size = 17\n".write(to: included, atomically: true, encoding: .utf8)
             let light = load(path, resources: resources, scheme: .light)
-            #expect(light.backgroundColor.hexString() == "#FAFBFC")
-            #expect(light.foregroundColor.hexString() == "#202122")
+            #expect(light.backgroundColor.hexString() == "#101112")
+            #expect(light.foregroundColor.hexString() == "#F0F1F2")
             #expect(light.fontSize == 17)
         }
     }
@@ -61,7 +64,10 @@ import Testing
             configPaths: [path],
             preferredColorScheme: scheme,
             adaptiveDefaultThemeEnabled: true,
-            environment: [:],
+            // Point the user theme directory into the fixture so a real
+            // ~/.config/cmux/themes cannot shadow the bundled fixture files
+            // (the user directory is searched first since Issue #71).
+            environment: ["CFFIXED_USER_HOME": resources.path],
             bundleResourceURL: resources
         )
         return config
@@ -76,8 +82,9 @@ import Testing
         let themes = root.appendingPathComponent("ghostty/themes")
         try FileManager.default.createDirectory(at: themes, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        // Both default theme name constants resolve to the same name since
+        // Issue #71, so one theme file covers both appearances.
         for (name, contents) in [
-            (GhosttyConfig.cmuxDefaultLightThemeName, "background = #fafbfc\nforeground = #202122\n"),
             (GhosttyConfig.cmuxDefaultDarkThemeName, "background = #101112\nforeground = #f0f1f2\n"),
         ] {
             try contents.write(to: themes.appendingPathComponent(name), atomically: true, encoding: .utf8)

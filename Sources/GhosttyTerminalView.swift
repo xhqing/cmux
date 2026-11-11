@@ -1262,11 +1262,13 @@ class GhosttyApp {
         themeColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
         let appearanceSummary = Self.userAppearanceConfigSummary()
-        let adaptiveDefaultThemeEnabled =
-            TerminalAdaptiveDefaultThemeSettings().isEnabled
+        // Issue #71: the managed default appearance (GitHub Dark Default in
+        // both light and dark) applies whenever the user config has no authored
+        // theme or terminal colors. The "Adapt Default Theme to Appearance"
+        // preference no longer gates it: the default theme is the same in both
+        // appearances, so the preference has no effect.
         let shouldApplyManagedDefaultAppearance =
-            adaptiveDefaultThemeEnabled
-            && appearanceSummary.shouldApplyDefaultAppearance
+            appearanceSummary.shouldApplyDefaultAppearance
         if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
@@ -1528,12 +1530,11 @@ class GhosttyApp {
 
     static func shouldApplyManagedDefaultAppearance(
         configPaths: [String]? = nil,
-        adaptiveDefaultThemeEnabled: Bool =
-            TerminalAdaptiveDefaultThemeSettings().isEnabled
+        adaptiveDefaultThemeEnabled _: Bool = false
     ) -> Bool {
         configDiscovery.shouldApplyManagedDefaultAppearance(
             configPaths: configPaths,
-            adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled
+            adaptiveDefaultThemeEnabled: false
         )
     }
 
@@ -1543,11 +1544,13 @@ class GhosttyApp {
 
     static func conditionalThemeOverrideConfigContents(
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
-        configPaths: [String]? = nil
+        configPaths: [String]? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String? {
         configDiscovery.conditionalThemeOverrideConfigContents(
             preferredColorScheme: preferredColorScheme,
-            configPaths: configPaths
+            configPaths: configPaths,
+            environment: environment
         )
     }
 

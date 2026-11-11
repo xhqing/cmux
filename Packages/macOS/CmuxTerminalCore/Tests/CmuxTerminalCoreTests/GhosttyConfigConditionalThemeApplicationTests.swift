@@ -52,7 +52,7 @@ import Testing
         var darkConfig = GhosttyConfig()
         darkConfig.loadTheme(
             "light:Light Theme",
-            environment: [:],
+            environment: ["CFFIXED_USER_HOME": root.path],
             bundleResourceURL: root,
             preferredColorScheme: .dark
         )
@@ -72,7 +72,7 @@ import Testing
         var lightConfig = GhosttyConfig()
         lightConfig.loadTheme(
             "light:Light Theme",
-            environment: [:],
+            environment: ["CFFIXED_USER_HOME": root.path],
             bundleResourceURL: root,
             preferredColorScheme: .light
         )

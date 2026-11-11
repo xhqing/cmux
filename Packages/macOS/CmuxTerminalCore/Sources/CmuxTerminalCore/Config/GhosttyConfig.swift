@@ -20,12 +20,15 @@ public struct GhosttyConfig {
     /// terminal view/engine code.
     public typealias ColorSchemePreference = TerminalColorSchemePreference
 
-    /// Native fallback light theme name used for fresh installs before the user
-    /// has chosen terminal colors.
-    public static let cmuxDefaultLightThemeName = "Apple System Colors Light"
-    /// Native fallback dark theme name used for fresh installs before the user
-    /// has chosen terminal colors.
-    public static let cmuxDefaultDarkThemeName = "Apple System Colors"
+    /// The cmux managed default theme name, used for fresh installs before
+    /// the user has chosen terminal colors. Since Issue #71 both appearances
+    /// resolve to this one theme: the default appearance no longer differs
+    /// between light and dark.
+    public static let cmuxDefaultLightThemeName = "GitHub Dark Default"
+    /// The cmux managed default theme name for dark appearance. Same name as
+    /// ``cmuxDefaultLightThemeName``: the default appearance no longer differs
+    /// between light and dark (Issue #71).
+    public static let cmuxDefaultDarkThemeName = "GitHub Dark Default"
 
     private static let loadCacheLock = NSLock()
     // Every read/write of this cache is serialized by `loadCacheLock`; the
@@ -421,7 +424,8 @@ public struct GhosttyConfig {
         )
     }
 
-    /// The cmux managed default theme name for `preferredColorScheme`.
+    /// The cmux managed default theme name for `preferredColorScheme`. Both
+    /// appearances return the same "GitHub Dark Default" name (Issue #71).
     public static func cmuxDefaultThemeName(preferredColorScheme: ColorSchemePreference) -> String {
         switch preferredColorScheme {
         case .light:
@@ -450,6 +454,47 @@ public struct GhosttyConfig {
         return cmuxDefaultFallbackConfigContents(preferredColorScheme: preferredColorScheme)
     }
 
+    /// Whether `rawThemeValue` uses Ghostty's conditional
+    /// `light:<name>`/`dark:<name>` syntax in any comma-separated entry.
+    public static func isConditionalThemeValue(_ rawThemeValue: String) -> Bool {
+        rawThemeValue.split(separator: ",").map(String.init).contains { token in
+            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { return false }
+            switch parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "light", "dark":
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    /// The on-disk file for `themeName` inside the user theme directory
+    /// `~/.config/cmux/themes`, or `nil` when no readable non-empty file
+    /// exists there.
+    ///
+    /// The embedded ghostty engine searches `~/.config/ghostty/themes` and the
+    /// bundled library but not `~/.config/cmux/themes`, so the resolved URL is
+    /// injected as an absolute-path `theme` value when the user directory wins
+    /// (Issue #71: a user file overrides a bundled theme with the same name).
+    public static func userThemeFileURL(
+        forThemeName themeName: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        for candidateName in themeNameCandidates(from: themeName) {
+            let path = CmuxGhosttyConfigPathResolver.configHomeDirectory(environment: environment)
+                .appendingPathComponent("cmux", isDirectory: true)
+                .appendingPathComponent("themes", isDirectory: true)
+                .appendingPathComponent(candidateName, isDirectory: false)
+                .path
+            guard let contents = try? String(contentsOfFile: path, encoding: .utf8),
+                  !contents.isEmpty else { continue }
+            return URL(fileURLWithPath: path)
+        }
+        return nil
+    }
+
     /// The on-disk URL of the cmux managed default theme for `preferredColorScheme`,
     /// or `nil` when no candidate theme file exists.
     public static func cmuxDefaultThemeConfigURL(
@@ -472,60 +517,35 @@ public struct GhosttyConfig {
     }
 
     private static func cmuxDefaultFallbackConfigContents(
-        preferredColorScheme: ColorSchemePreference
+        preferredColorScheme _: ColorSchemePreference
     ) -> String {
-        switch preferredColorScheme {
-        case .light:
-            return """
-            palette = 0=#1a1a1a
-            palette = 1=#cc372e
-            palette = 2=#26a439
-            palette = 3=#cdac08
-            palette = 4=#0869cb
-            palette = 5=#9647bf
-            palette = 6=#479ec2
-            palette = 7=#98989d
-            palette = 8=#464646
-            palette = 9=#ff453a
-            palette = 10=#32d74b
-            palette = 11=#e5bc00
-            palette = 12=#0a84ff
-            palette = 13=#bf5af2
-            palette = 14=#69c9f2
-            palette = 15=#ffffff
-            background = #feffff
-            foreground = #000000
-            cursor-color = #98989d
-            cursor-text = #ffffff
-            selection-background = #abd8ff
-            selection-foreground = #000000
-            """
-        case .dark:
-            return """
-            palette = 0=#1a1a1a
-            palette = 1=#cc372e
-            palette = 2=#26a439
-            palette = 3=#cdac08
-            palette = 4=#0869cb
-            palette = 5=#9647bf
-            palette = 6=#479ec2
-            palette = 7=#98989d
-            palette = 8=#464646
-            palette = 9=#ff453a
-            palette = 10=#32d74b
-            palette = 11=#ffd60a
-            palette = 12=#0a84ff
-            palette = 13=#bf5af2
-            palette = 14=#76d6ff
-            palette = 15=#ffffff
-            background = #1e1e1e
-            foreground = #ffffff
-            cursor-color = #98989d
-            cursor-text = #ffffff
-            selection-background = #3f638b
-            selection-foreground = #ffffff
-            """
-        }
+        // Issue #71: the default appearance is GitHub Dark Default in both
+        // light and dark appearance, so the built-in fallback (used when the
+        // bundled theme library is unavailable) pins the same palette.
+        return """
+        palette = 0=#484f58
+        palette = 1=#ff7b72
+        palette = 2=#3fb950
+        palette = 3=#d29922
+        palette = 4=#58a6ff
+        palette = 5=#bc8cff
+        palette = 6=#39c5cf
+        palette = 7=#b1bac4
+        palette = 8=#6e7681
+        palette = 9=#ffa198
+        palette = 10=#56d364
+        palette = 11=#e3b341
+        palette = 12=#79c0ff
+        palette = 13=#d2a8ff
+        palette = 14=#56d4dd
+        palette = 15=#ffffff
+        background = #0d1117
+        foreground = #e6edf3
+        cursor-color = #2f81f7
+        cursor-text = #6fc1ff
+        selection-background = #e6edf3
+        selection-foreground = #0d1117
+        """
     }
 
     /// Parses ghostty-format config `contents` into this config. When
@@ -912,15 +932,19 @@ public struct GhosttyConfig {
         }
     }
 
-    /// Whether cmux should inject its managed default appearance: true only when
-    /// the caller enables it and the resolved user config contains no authored
-    /// theme or terminal colors.
+    /// Whether cmux should inject its managed default appearance: true when the
+    /// resolved user config contains no authored theme or terminal colors.
+    ///
+    /// The `adaptiveDefaultThemeEnabled` parameter is kept for source
+    /// compatibility but is no longer consulted: since Issue #71 the managed
+    /// default appearance is GitHub Dark Default in both light and dark, so
+    /// the "Adapt Default Theme to Appearance" preference has no effect and
+    /// the default appearance applies regardless of it.
     public static func shouldApplyManagedDefaultAppearance(
         configPaths: [String],
-        adaptiveDefaultThemeEnabled: Bool = false
+        adaptiveDefaultThemeEnabled _: Bool = false
     ) -> Bool {
-        adaptiveDefaultThemeEnabled
-            && userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
+        userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
     }
 
     /// Scans the given top-level config paths (following `config-file` includes)
@@ -1324,9 +1348,10 @@ public struct GhosttyConfig {
     }
 
     /// The ordered list of filesystem paths cmux searches for the given theme
-    /// name: the theme library bundled inside the running cmux app (Issue #71
-    /// ships the managed default theme library there), followed by the user
-    /// theme directory `~/.config/cmux/themes`. Ghostty's own theme locations
+    /// name: first the user theme directory `~/.config/cmux/themes` (a user
+    /// file with the same name overrides a bundled theme), then the theme
+    /// library bundled inside the running cmux app (Issue #71 ships the
+    /// managed default theme library there). Ghostty's own theme locations
     /// are no longer searched.
     public static func themeSearchPaths(
         forThemeName themeName: String,
@@ -1344,16 +1369,8 @@ public struct GhosttyConfig {
             }
         }
 
-        // 1) Theme library bundled inside the running cmux app.
-        if let bundleResourceURL {
-            appendUniquePath(
-                bundleResourceURL
-                    .appendingPathComponent("ghostty/themes/\(themeName)")
-                    .path
-            )
-        }
-
-        // 2) cmux's own user theme directory.
+        // 1) cmux's own user theme directory; user files override bundled
+        //    themes with the same name.
         appendUniquePath(
             CmuxGhosttyConfigPathResolver.configHomeDirectory(environment: environment)
                 .appendingPathComponent("cmux", isDirectory: true)
@@ -1361,6 +1378,15 @@ public struct GhosttyConfig {
                 .appendingPathComponent(themeName, isDirectory: false)
                 .path
         )
+
+        // 2) Theme library bundled inside the running cmux app.
+        if let bundleResourceURL {
+            appendUniquePath(
+                bundleResourceURL
+                    .appendingPathComponent("ghostty/themes/\(themeName)")
+                    .path
+            )
+        }
 
         return paths
     }

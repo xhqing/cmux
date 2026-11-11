@@ -84,9 +84,11 @@ struct GhosttyThemeDirectoriesTests {
         ).urls
 
         let ours = urls.filter { $0.path.hasPrefix(root.standardizedFileURL.path) }
+        // The user theme directory comes first so user files override bundled
+        // themes with the same name (Issue #71).
         #expect(ours == [
-            bundled,
             userThemes,
+            bundled,
         ].map(\.standardizedFileURL))
     }
 

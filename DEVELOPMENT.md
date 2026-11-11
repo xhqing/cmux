@@ -182,6 +182,14 @@ r17 及更早的 app 里装的是**上游的** `SUPublicEDKey`，我们手里没
 
 见 [SYNC.md](SYNC.md)。核心原则：**基线永远用上游 release tag，不用上游 main**（main 每天在动），我们的补丁保持一两个小提交，这样跟着新 tag rebase 成本很低。
 
+### 内置主题库怎么同步（Issue #71）
+
+`Resources/ghostty/themes` 的 463 个主题文件随上游 release tag 导入（当前 `v0.65.2.2`，见 `Resources/ghostty/README.md` 的来源记录），经 `cmux.xcodeproj` 里的 folder reference（`ghostty-themes`）整目录打包进 `cmux.app/Contents/Resources/ghostty/themes`。
+
+- **不要从上游 main 拉主题**：主题库固定在上游 tag 上，跟着 tag 走。换新 tag 时按 `SYNC.md` 重新导入上游该 tag 的 `Resources/ghostty/themes`，然后更新 `Resources/ghostty/README.md` 里的 tag 记录。
+- **不要在 `themes/` 里放非主题文件**：目录里的任何普通文件都会被 `cmux themes` 当主题列出（说明文档放在 `Resources/ghostty/README.md`，不在 `themes/` 内）。
+- **打包正确性由 `build-macos` 校验**：构建流水线里有一步逐文件比对 bundle 主题库与仓库源目录，数量或内容不一致会直接失败；不要删掉那个 step。
+
 ## 八、上游继承来的 workflow（历史遗留问题，已随脱离 fork 一并解决）
 
 **过去的麻烦**：GitHub 的 fork 会把上游 `.github/workflows/` 下的全部 workflow 一起继承过来（本仓当时 146 个），而且 `schedule`（定时）触发在 fork 里照样生效。上游那套是给他们的私有 runner 和 secrets 准备的：`Nightly macOS build` 每次是几小时的全量构建，`iOS TestFlight` 上传和公证续做在我们这里没有对应凭据，只会失败刷屏；这些 run 还会抢走我们 `build-macos` 的 macOS runner 队列。2026-11-01 的处理是「除 `build-macos` 外 145 个全部 `disabled_manually`」。

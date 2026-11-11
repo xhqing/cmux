@@ -382,21 +382,21 @@ final class GhosttyConfigTests: XCTestCase {
             GhosttyConfig.invalidateLoadCache()
         }
 
-        // The bundled theme library wins the first lookup slot; put an
-        // invalid-UTF8 file there and the valid file in the user theme
-        // directory, which is searched second.
+        // The user theme directory wins the first lookup slot (Issue #71);
+        // put an invalid-UTF8 file there and the valid file in the bundled
+        // theme library, which is searched second.
         let bundleResources = root.appendingPathComponent("bundle", isDirectory: true)
         let bundleThemeDir = bundleResources.appendingPathComponent("ghostty/themes", isDirectory: true)
         let userThemeDir = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
         try fileManager.createDirectory(at: bundleThemeDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: userThemeDir, withIntermediateDirectories: true)
 
-        let firstTheme = bundleThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
-        try Data([0xff, 0xfe]).write(to: firstTheme)
+        let userTheme = userThemeDir.appendingPathComponent("GitHub Dark Default", isDirectory: false)
+        try Data([0xff, 0xfe]).write(to: userTheme)
 
-        let secondTheme = userThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
+        let bundledTheme = bundleThemeDir.appendingPathComponent("GitHub Dark Default", isDirectory: false)
         let expected = "foreground = #123456\n"
-        try expected.write(to: secondTheme, atomically: true, encoding: .utf8)
+        try expected.write(to: bundledTheme, atomically: true, encoding: .utf8)
 
         let contents = GhosttyConfig.cmuxDefaultThemeConfigContents(
             preferredColorScheme: .light,
@@ -3755,7 +3755,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
             XCTAssertEqual(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
-                    configPaths: [path]
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
                 ),
                 "theme = Apple System Colors"
             )
@@ -3767,7 +3768,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
             XCTAssertEqual(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
-                    configPaths: [path]
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
                 ),
                 "theme = Catppuccin Latte"
             )
@@ -3779,10 +3781,81 @@ final class GhosttyMouseFocusTests: XCTestCase {
             XCTAssertNil(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
-                    configPaths: [path]
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
                 )
             )
         }
+    }
+
+    // Issue #71: the engine does not search ~/.config/cmux/themes, so a
+    // resolved plain theme that exists in the user theme directory must be
+    // injected as an absolute path (a user file overrides a bundled theme
+    // with the same name).
+    func testConditionalThemeOverrideInjectsUserDirectoryThemePath() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-user-theme-override-\(UUID().uuidString)")
+        let userThemeDir = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
+        try fileManager.createDirectory(at: userThemeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try "background = #123456\n".write(
+            to: userThemeDir.appendingPathComponent("Catppuccin Mocha", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try withTempConfig("theme = Catppuccin Mocha\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path],
+                    environment: ["CFFIXED_USER_HOME": root.path]
+                ),
+                "theme = \(userThemeDir.appendingPathComponent("Catppuccin Mocha").path)"
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideInjectsUserDirectoryPathForConditionalPair() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-user-theme-override-pair-\(UUID().uuidString)")
+        let userThemeDir = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
+        try fileManager.createDirectory(at: userThemeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try "background = #123456\n".write(
+            to: userThemeDir.appendingPathComponent("Catppuccin Mocha", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try withTempConfig("theme = light:Catppuccin Mocha,dark:Catppuccin Mocha\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path],
+                    environment: ["CFFIXED_USER_HOME": root.path]
+                ),
+                "theme = \(userThemeDir.appendingPathComponent("Catppuccin Mocha").path)"
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideSkipsAbsolutePathThemeValue() throws {
+        try withTempConfig("theme = /tmp/cmux-some-theme\n") { path in
+            XCTAssertNil(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
+                )
+            )
+        }
+    }
+
+    private static func noUserThemesEnvironment() -> [String: String] {
+        ["CFFIXED_USER_HOME": "/tmp/cmux-no-user-themes-\(UUID().uuidString)"]
     }
 
     // Regression: https://github.com/manaflow-ai/cmux/issues/3459
@@ -3796,7 +3869,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
             XCTAssertEqual(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
-                    configPaths: [path]
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
                 ),
                 "theme = Catppuccin Mocha"
             )
@@ -3812,14 +3886,16 @@ final class GhosttyMouseFocusTests: XCTestCase {
             XCTAssertEqual(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
-                    configPaths: [path]
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
                 ),
                 "theme = GitHub Light Default"
             )
             XCTAssertEqual(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
-                    configPaths: [path]
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
                 ),
                 "theme = GitHub Light Default"
             )
@@ -3836,14 +3912,16 @@ final class GhosttyMouseFocusTests: XCTestCase {
             XCTAssertEqual(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
-                    configPaths: [path]
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
                 ),
                 "theme = Catppuccin Latte"
             )
             XCTAssertNil(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
-                    configPaths: [path]
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
                 )
             )
         }
@@ -3856,14 +3934,16 @@ final class GhosttyMouseFocusTests: XCTestCase {
             XCTAssertEqual(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
-                    configPaths: [path]
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
                 ),
                 "theme = Catppuccin Mocha"
             )
             XCTAssertNil(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
-                    configPaths: [path]
+                    configPaths: [path],
+                    environment: Self.noUserThemesEnvironment()
                 )
             )
         }
@@ -3947,14 +4027,21 @@ final class GhosttyMouseFocusTests: XCTestCase {
         let previousProfile = GhosttyStartupAppearancePreviewState.profile
         GhosttyStartupAppearancePreviewState.profile = .freshInstall
         GhosttyConfig.invalidateLoadCache()
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", "/tmp/cmux-no-user-themes-fresh-install", 1)
         defer {
             GhosttyStartupAppearancePreviewState.profile = previousProfile
             GhosttyConfig.invalidateLoadCache()
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
         }
 
         let config = GhosttyConfig.load(preferredColorScheme: .light, useCache: false)
         XCTAssertNil(config.theme)
-        XCTAssertEqual(config.backgroundColor.hexString(), "#FEFFFF")
+        XCTAssertEqual(config.backgroundColor.hexString(), "#0D1117")
         #endif
     }
 }

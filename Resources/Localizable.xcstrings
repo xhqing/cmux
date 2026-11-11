@@ -560801,55 +560801,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Matches terminal colors to the light or dark appearance when no Ghostty theme or colors are set."
+            "value": "The default theme no longer differs between light and dark appearance, so this setting has no effect."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Passt die Terminalfarben an das helle oder dunkle Erscheinungsbild an, wenn in Ghostty kein Theme und keine Farben festgelegt sind."
+            "value": "Das Standard-Theme ist bei hellem und dunklem Erscheinungsbild gleich, daher hat diese Einstellung keine Wirkung mehr."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si aucun thème ni aucune couleur Ghostty n’est défini, les couleurs du terminal suivent l’apparence claire ou sombre."
+            "value": "Le thème par défaut est identique en apparence claire et sombre, ce réglage n’a donc plus d’effet."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عندما لا تكون هناك سمة أو ألوان محددة في Ghostty، تتوافق ألوان الطرفية مع المظهر الفاتح أو الداكن."
+            "value": "السمة الافتراضية هي نفسها في المظهر الفاتح والداكن، لذا لم يعد لهذا الإعداد أي تأثير."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si no hay ningún tema ni colores de Ghostty definidos, los colores de la terminal siguen la apariencia clara u oscura."
+            "value": "El tema predeterminado es el mismo en apariencia clara y oscura, por lo que este ajuste ya no tiene efecto."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未設定 Ghostty 主題或顏色時，終端機顏色會配合淺色或深色外觀。"
+            "value": "預設主題在淺色與深色外觀下相同，此設定不再生效。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未设置 Ghostty 主题或颜色时，终端颜色会随浅色或深色外观变化。"
+            "value": "默认主题在浅色与深色外观下相同，此设置不再生效。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 테마나 색상이 설정되어 있지 않으면 터미널 색상을 라이트 또는 다크 모드에 맞춥니다."
+            "value": "기본 테마가 라이트와 다크 외관에서 동일하므로 이 설정은 더 이상 효과가 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty のテーマや色が設定されていない場合、ターミナルの色をライトまたはダークの外観に合わせます。"
+            "value": "デフォルトテーマはライトとダークの外観で同じになり、この設定は効果がありません。"
           }
         }
       }

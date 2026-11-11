@@ -153,7 +153,7 @@ public struct ThemesSection: View {
                 localized: "settings.terminal.adaptiveDefaultTheme",
                 defaultValue: "Adapt Default Theme to Appearance"
             ),
-            subtitle: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "Matches terminal colors to the light or dark appearance when no Ghostty theme or colors are set.")
+            subtitle: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "The default theme no longer differs between light and dark appearance, so this setting has no effect.")
         ) {
             Toggle(
                 "",

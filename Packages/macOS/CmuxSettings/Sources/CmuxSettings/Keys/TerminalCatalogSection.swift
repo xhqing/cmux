@@ -104,12 +104,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textEditingGesturesInFullScreenApps"
     )
 
-    /// Whether cmux supplies its appearance-adaptive managed palette for an
-    /// Ghostty config without authored themes or terminal colors. Font and
-    /// behavior settings preserve the managed palette; it is enabled by default.
+    /// Kept for compatibility; since Issue #71 the managed default theme is
+    /// GitHub Dark Default in both light and dark appearance, so this
+    /// preference no longer changes any behavior. Off by default.
     public let adaptiveDefaultTheme = DefaultsKey<Bool>(
         id: "terminal.adaptiveDefaultTheme",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "terminal.adaptiveDefaultTheme"
     )
 

@@ -70,6 +70,37 @@ SOFTWARE.
 
 ---
 
+## Ghostty Theme Library (bundled `Resources/ghostty/themes`)
+
+- **License:** MIT License (the Ghostty theme pack; Ghostty is MIT-licensed, and the themes draw from the MIT-licensed `mbadolato/iTerm2-Color-Schemes` collection)
+- **Source:** upstream cmux release tag `v0.65.2.2` (commit `12023d89`), directory `Resources/ghostty/themes`; added upstream in commit `01a4797a` ("Bundle Ghostty themes in cmux", PR #1314)
+- **Copyright:** Ghostty theme contributors (see `CREDITS.md` in `mbadolato/iTerm2-Color-Schemes`)
+
+The 463 theme files in `Resources/ghostty/themes` are bundled into the cmux
+app as `Contents/Resources/ghostty/themes` (Issue #71) and are available to
+`theme = <name>` directives. See `Resources/ghostty/README.md` for the import
+and re-sync policy.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
 ## Bonsplit
 
 - **License:** MIT License

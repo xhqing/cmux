@@ -246,6 +246,30 @@ jobs:
             exit 1
           fi
 
+      - name: 校验 bundle 主题库完整（Issue #71）
+        run: |
+          set -euo pipefail
+          APP="/tmp/cmux-build/Build/Products/Release/cmux.app"
+          SRC="Resources/ghostty/themes"
+          BUNDLED="${APP}/Contents/Resources/ghostty/themes"
+          # 主题库经 folder reference（cmux.xcodeproj 里 ghostty-themes）整目录拷进
+          # bundle；这里断言拷贝结果与仓库源目录逐文件一致（数量 + 内容），防止
+          # 上游同步 / 工程改动让 bundle 主题库悄悄漂移。
+          if [ ! -d "${BUNDLED}" ]; then
+            echo "::error::bundle 内没有主题库目录 ${BUNDLED}（folder reference 未生效？）"
+            exit 1
+          fi
+          src_count="$(find "${SRC}" -type f | wc -l | tr -d ' ')"
+          bundled_count="$(find "${BUNDLED}" -type f | wc -l | tr -d ' ')"
+          echo "仓库主题文件数：${src_count}"
+          echo "bundle 主题文件数：${bundled_count}"
+          if [ "${src_count}" != "${bundled_count}" ]; then
+            echo "::error::主题文件数量不一致：仓库 ${src_count} vs bundle ${bundled_count}"
+            exit 1
+          fi
+          diff -r "${SRC}" "${BUNDLED}"
+          echo "主题库逐文件一致 ✓"
+
       - name: 打包
         run: |
           set -euo pipefail

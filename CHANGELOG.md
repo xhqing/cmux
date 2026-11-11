@@ -38,8 +38,17 @@ All notable changes to cmux are documented here.
   - **给 #71 留的挂点**：bundle 内主题库的搜索路径保留（`GhosttyConfig.themeSearchPaths` 的 `bundleResourceURL/ghostty/themes/<name>` 与 `GhosttyThemeDirectories` 的 `bundledThemeDirectories`）；`cmuxDefaultFallbackConfigContents()` 与 `cmuxDefaultLight/DarkThemeName` 的语义这轮未动。
   - **测试**：`GhosttyConfigTests` / `GhosttyConfigPathResolverTests` / `GhosttyConfigDiscoveryTests` / `GhosttyConfigLiveReloadSnapshotTests` 全部按新语义更新；新增迁移幂等性、旧位置不再被读、Ghostty 配置不再影响 cmux 等覆盖。
 
+- **内置 GitHub Dark Default 默认外观 + 打包完整主题库（Issue #71）**：接住 #70 留下的挂点，cmux 开箱即有一个确定的外观、且自带 463 个主题，不再依赖机器上有没有装 Ghostty：
+  - **默认外观写死为 GitHub Dark Default**：`cmuxDefaultLightThemeName` / `cmuxDefaultDarkThemeName` 都改为 `"GitHub Dark Default"`，`cmuxDefaultFallbackConfigContents()` 不再分亮 / 暗，固定返回 GitHub Dark Default 全套配色（与 bundle 内的同名主题文件逐字一致）——「有主题文件」与「无主题文件」两条路径得到同一个结果，全新环境启动、切亮色都保持同一外观。
+  - **`terminal.adaptiveDefaultTheme`（"Adapt Default Theme to Appearance"）保留设置项、默认改 `false`**：两种外观同色后该开关已无意义，managed 默认外观的注入不再受它门控（无 theme / 终端颜色时始终应用 GitHub Dark Default），描述文案改为「默认主题不再区分亮 / 暗」。schema 与生成 Swift、设置行副标题（9 种语言）同步更新。
+  - **主题库进 bundle**：`cmux.xcodeproj` 加 folder reference（蓝色文件夹）一次性引用 `Resources/ghostty/themes`，Xcode 每次构建自动把 463 个主题拷进 `cmux.app/Contents/Resources/ghostty/themes`；主题文件本身随基线（上游 v0.65.2.2）导入、无需另拉（来源与重新导入策略见 `Resources/ghostty/README.md`，许可证见 `THIRD_PARTY_LICENSES.md`）。`build.yml` 新增校验 step：bundle 主题库与仓库源目录逐文件一致，防止后续同步漂移。
+  - **主题搜索顺序**：① `~/.config/cmux/themes/<name>`（用户自定义，可覆盖内置同名主题）② bundle 内主题库 ③ 都没有 → GitHub Dark Default 兜底；`themeSearchPaths` 与 `GhosttyThemeDirectories.urls` 两套实现同步改成这个顺序。**引擎侧同样兑现**：vendored ghostty 引擎只搜 `~/.config/ghostty/themes` 与 bundle 库、不认识 `~/.config/cmux/themes`，因此 cmux 在加载配置时把解析出的主题名（用户目录命中时）以绝对路径注入引擎（`conditionalThemeOverrideConfigContents` 扩展，普通名与 light:/dark: 语法都覆盖；未命中时保持原行为）。
+  - **测试**：`GhosttyConfigManagedDefaultAppearanceTests` / `GhosttyConfigAdaptiveAppearanceRegressionTests` 改为「两外观同色、注入不再受开关门控」的新语义（新增 fallback == bundle 主题文件逐字对比、fallback 即 GitHub Dark Default 两个防漂移用例），`GhosttyThemeColorsTests` 顺序断言、`GhosttyConfigDiscoveryThemeOverrideTests`（新增用户目录命中注入绝对路径）、`cmuxTests/GhosttyConfigTests` 的无效候选跳过、用户目录覆盖与 fresh-install 预览断言同步更新。
+  - **边界**：CLI diff viewer 的默认外观未动（Issue #71 验收范围是终端配色）；PR 门禁 `checks` 不加打包校验（folder reference 的正确性由 `build-macos` 的新 step 兜底）。
+
 ### 工具
 - **PR 门禁 `checks` 的包检查适配「本地二进制 target」包（Issue #70 首次改到 CmuxTerminalCore 时暴露）**：`scripts/check-swift-packages.py` 会对改动涉及的 SwiftPM 包跑 `swift build`，而 CmuxTerminalCore 依赖本地 binaryTarget `GhosttyKit.xcframework`——该产物由 `scripts/setup.sh` 拉取，门禁刻意不跑 setup.sh，于是任何改这个包的 PR 都会在 build 步失败（不是代码错）。现在脚本会递归检查包及其同仓库本地依赖里的 `.binaryTarget(path:)`，本地产物缺失（无 `Info.plist`）就**显式跳过**该包的 build / test，打印包名、缺失产物路径与「由 build-macos 兜底」的理由——不静默跳过、不改变门禁 job 名、不让门禁变重（完整编译正确性仍由 `build-macos` 负责）。顺带修了脚本的失败诊断：原来失败时只打印「stdout+stderr 合并后的最后 40 行」，而 `swift test` 的失败断言打在 stdout、编译进度打在 stderr，合并后尾部全是编译输出、看不到失败详情；现在失败时分别打印两个流各自的尾部（各 120 行）。
+- **`build.yml` 新增 bundle 主题库完整性校验（Issue #71）**：打包前数 bundle 内 `Contents/Resources/ghostty/themes` 的文件数并与仓库 `Resources/ghostty/themes` 比对、逐文件 diff；不一致直接失败，防止主题库漂移。
 
 ## [0.65.2.2-r18] - 2026-11-10
 

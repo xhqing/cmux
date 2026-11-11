@@ -635,3 +635,50 @@ Issue #43 的现象是「装在 `/Applications` 的 `com.xhqing.cmux` 永远不�
 - `swiftc -parse` 通过（`Sources/App/StartupBreadcrumbLog.swift`、`Sources/AppDelegate+SocketConfiguration.swift`、`Sources/TerminalController+SocketServerEvents.swift`；`cmuxTests` 那个文件含 Swift Testing 宏，本机 Swift 5.7 解析不了既有内容，未作为判据）。
 - `./scripts/lint-pbxproj-test-wiring.sh`、`python3 scripts/generate-cmux-config-schema.py --check`、`python3 scripts/check-latency-guardrails.py` 本机全绿；完整编译与测试执行由 PR 门禁 `checks`（macos-26）与 `build-macos` 兜底。
 - 真机验收（装下一版后）：`~/Library/Logs/cmux/startup-com.xhqing.cmux.log` 里应出现 `socket.listener.startAttempt` 与 `socket.listener.didStart`（路径 `~/.local/state/cmux/cmux.sock`）；若监听器再失败，同一条日志链路会留下 `socket.listener.failed` 的 stage / errno / hint，不用再靠拆发布包取证。
+
+---
+
+## P13 — 内置 GitHub Dark Default 默认外观 + 打包完整主题库（Issue #71）
+
+**状态**：已实现
+
+### 要解决的问题
+
+- #70 把 cmux 配置与 Ghostty 彻底解耦后，默认外观仍靠 `cmuxDefaultFallbackConfigContents()` 里硬编码的「Apple System Colors」风格调色板（亮 / 暗各一套），而 bundle 里没有主题库——`theme = <name>` 能否解析完全取决于机器上有没有装 Ghostty。换设备 / 干净环境下 cmux 开箱没有确定的外观，也不带任何主题。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift` | ① `cmuxDefaultLightThemeName` / `cmuxDefaultDarkThemeName` 都改为 `"GitHub Dark Default"`，让「bundle 里有主题文件」与「无主题文件」两条路径得到同一结果；② `cmuxDefaultFallbackConfigContents()` 不再分亮 / 暗，固定返回 GitHub Dark Default 全套配色（palette 0–15、background `#0d1117`、foreground `#e6edf3`、cursor `#2f81f7` / `#6fc1ff`、selection `#e6edf3` / `#0d1117`，与 bundle 里的 `GitHub Dark Default` 主题文件逐字一致）；③ `shouldApplyManagedDefaultAppearance` 不再受 `adaptiveDefaultTheme` 开关门控——默认外观在用户没有写 theme / 终端颜色时**始终**应用，`adaptiveDefaultThemeEnabled` 参数保留但只作源码兼容、不再参与决策；④ `themeSearchPaths` 的搜索顺序改成「用户目录 `~/.config/cmux/themes/<name>` → bundle 内主题库 → 硬编码兜底」，同名主题以用户文件为准。 |
+| `Sources/GhosttyTerminalView.swift` | `loadRealUserGhosttyConfig` 与 `GhosttyApp.shouldApplyManagedDefaultAppearance` 同步解耦：注入 managed 默认外观只取决于「用户配置里有没有 theme / 终端颜色」，不再读 `TerminalAdaptiveDefaultThemeSettings.isEnabled`。 |
+| `Sources/TerminalAdaptiveDefaultThemeSettings.swift` | 「Adapt Default Theme to Appearance」设置项保留（UI 与通知原样），但 `loadForCmux` 不再把它传给 `GhosttyConfig.load`；注释写明该设置自 #71 起不再影响行为。 |
+| `Packages/macOS/CmuxSettings/Sources/CmuxSettings/Keys/TerminalCatalogSection.swift` | `terminal.adaptiveDefaultTheme` 默认值 `true` → `false`，注释注明「默认主题不再区分亮 / 暗、该设置已无效果」。 |
+| `schemas/config/cmux.schema.json` + `CmuxConfigSchema.generated.swift` | 同步 `default: false` 与描述（「Kept for compatibility…no longer differs between light and dark appearance」）。 |
+| `Resources/Localizable.xcstrings` / `ThemesSection.swift` / `CuratedSettingEntry+Default.swift` | 设置行副标题（9 种语言）改为「默认主题在浅色与深色外观下相同，此设置不再生效」。 |
+| `Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/TerminalThemes/GhosttyThemeDirectories.swift` | `urls` 顺序改为用户目录在前、bundle 主题库在后（与 `themeSearchPaths` 同一套顺序）；`GhosttyThemeCatalog` 的「先出现者胜」去重因此让用户同名主题覆盖内置。 |
+| `Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift`（续） | 新增 `isConditionalThemeValue(_:)` 与 `userThemeFileURL(forThemeName:environment:)`：后者在用户主题目录里按 `themeNameCandidates` 找可读文件，供引擎侧解析桥接用。 |
+| `Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift` | **引擎侧主题解析桥接**（验收第 5 条的关键）：vendored ghostty 引擎只搜 `~/.config/ghostty/themes` + `GHOSTTY_RESOURCES_DIR` 下的主题库，**不认识** `~/.config/cmux/themes`。`conditionalThemeOverrideConfigContents` 现在对「最后的 theme 指令」解析出的主题名（普通名与 light:/dark: 语法都覆盖）：用户主题目录命中 → 注入 `theme = <绝对路径>`（引擎直接读文件，用户文件覆盖内置同名主题）；绝对路径原值 → 不注入；未命中 → 条件语法照旧注入名字（#3459 修复），普通名不注入（引擎经 `GHOSTTY_RESOURCES_DIR` 能直接找到 bundle 库）。新增 `environment` 参数供测试固定 home。 |
+| `Sources/GhosttyTerminalView.swift`（续） | `GhosttyApp.conditionalThemeOverrideConfigContents` 转发新加的 `environment` 参数；引擎加载链不变（注入发生在 `ghostty_config_load_recursive_files` 之后、`loadCmuxDefaultAppearanceConfig` 的兜底断言之前）。 |
+| `cmux.xcodeproj/project.pbxproj` | 加 **folder reference** `ghostty-themes`（蓝色文件夹，`path = ghostty/themes`）挂进 Resources 组与主 app 的 Copy Bundle Resources——一次引用整个目录，不在工程里逐个列 463 个文件；Xcode 每次构建自动把 `Resources/ghostty/themes` 原样拷进 `cmux.app/Contents/Resources/ghostty/themes`。 |
+| `.github/workflows/build.yml` | 打包前新增校验 step「校验 bundle 主题库完整」：bundle 内主题文件数量必须等于仓库 `Resources/ghostty/themes`，且逐文件 diff 一致；防止上游同步或工程改动让 bundle 主题库悄悄漂移。 |
+| `Resources/ghostty/README.md` | 主题库来源说明（上游 cmux tag + 463 个文件 + 重新导入策略），放在 `ghostty/` 下而不是 `themes/` 内——`themes/` 里的任何普通文件都会被 `cmux themes` 当成主题列出来。 |
+| `THIRD_PARTY_LICENSES.md` | 补一条「Ghostty Theme Library」：来源为上游 cmux v0.65.2.2 的 `Resources/ghostty/themes`（上游 PR #1314 引入），Ghostty 主题包为 MIT，与 GPL-3.0-or-later 兼容。 |
+
+### 主题库来源（实测记录）
+
+- 主题文件**不是这次新拉的**：基线 `ef4b8cf`（上游 release tag `v0.65.2.2`，commit `12023d89`）自带 `Resources/ghostty/themes` 共 **463 个文件**，由上游 commit `01a4797a`（「Bundle Ghostty themes in cmux」，PR #1314，2026-03-13）引入；本次已抽样 diff 验证与上游 v0.65.2.2 逐字节一致。缺的只是「打包进 bundle」这一步（上游工程里有，本仓库的工程引用随基线裁剪丢失，由本次 folder reference 补回）。
+- 任务单里「ghostty 子模块 cb1ef70 的 themes 目录」这个出处不成立：实测该 commit 的树里没有 `themes/` 目录（ghostty-org/ghostty 的 main / v1.0.0 / v1.2.0 / v1.3.0 树也都没有）。主题包的源头是 ghostty 官方主题集（MIT，其数据源自 MIT 的 `mbadolato/iTerm2-Color-Schemes`）。文档按实测写成「上游 cmux v0.65.2.2」。
+
+### 边界（刻意不做的部分）
+
+- **CLI diff viewer 的默认外观不动**（`CLI/cmux_open.swift` 的 `diffViewerDefaultThemeConfigContents` 仍是亮 / 暗两套硬编码）：Issue #71 的验收范围是终端配色，diff 面板不在其中。
+- **`terminal.adaptiveDefaultTheme` 的设置项与 UI 保留**，只是不再影响行为；这是 issue 的明确要求（「保留代码与设置项，默认值改为 false」），不是半途而废。
+- **PR 门禁 `checks` 不改**：folder reference 的打包正确性由 `build-macos` 的新校验 step 兜底，不让轻量门禁去跑 bundle 打包。
+
+### 验证
+
+- `./scripts/lint-pbxproj-test-wiring.sh`、`python3 scripts/generate-cmux-config-schema.py --check`、`python3 scripts/check-latency-guardrails.py` 本机全绿。
+- 本机（Intel macOS 12 / Swift 5.7）`swiftc -parse` 对本次改动的全部源码文件通过；`GhosttyConfig.swift` 与 `GhosttyTerminalView.swift` 因**既存**的 Swift 6 `nonisolated(unsafe)` 语法被 Swift 5.7 误报（改动前后都存在），Swift 6 语法正确性由 PR 门禁 `checks`（macos-26）与 `build-macos` 兜底。
+- 测试更新：`GhosttyConfigManagedDefaultAppearanceTests`（开关不再门控注入、两外观同色）、`GhosttyConfigAdaptiveAppearanceRegressionTests`（亮 / 暗同色断言）、`GhosttyThemeColorsTests.ordersDirectories`（用户目录在前）、`cmuxTests/GhosttyConfigTests`（无效 UTF-8 候选跳过与 fresh-install 预览断言改为 `#0D1117`）。
+- 真机验收（装下一版后，见 `DEVELOPMENT.md` 第三节与 Issue #71 的 7 条清单）。

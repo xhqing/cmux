@@ -964,9 +964,9 @@
       "properties": {
         "adaptiveDefaultTheme": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "descriptionKey": "schemaDescriptions.terminal.adaptiveDefaultTheme",
-          "description": "When true (the default), cmux supplies an appearance-adaptive default palette unless a Ghostty theme or terminal colors are configured. Font and other settings are preserved. When false, Ghostty uses its fixed built-in palette. Explicit themes and colors always take precedence, including theme = light:X,dark:Y."
+          "description": "Kept for compatibility. Since Issue #71 the default theme no longer differs between light and dark appearance (both use GitHub Dark Default), so this preference has no effect; it is off by default. The managed default appearance applies whenever no Ghostty theme or terminal colors are configured. Explicit themes and colors always take precedence, including theme = light:X,dark:Y."
         },
         "showScrollBar": {
           "type": "boolean",

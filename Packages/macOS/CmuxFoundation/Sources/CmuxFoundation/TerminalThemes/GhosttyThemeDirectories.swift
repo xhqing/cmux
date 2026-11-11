@@ -3,9 +3,10 @@ public import Foundation
 /// The directories cmux searches for Ghostty theme files, in lookup order.
 ///
 /// Since the Ghostty-config decoupling patch these are only cmux's own
-/// locations: the theme library bundled inside the running cmux app (see
-/// Issue #71 for the managed default theme library) followed by the user
-/// theme directory `~/.config/cmux/themes`. Ghostty's own theme locations
+/// locations: the user theme directory `~/.config/cmux/themes` first (a user
+/// file overrides a bundled theme with the same name), followed by the theme
+/// library bundled inside the running cmux app (see Issue #71 for the managed
+/// default theme library). Ghostty's own theme locations
 /// (`$GHOSTTY_RESOURCES_DIR`, XDG data dirs, `/Applications/Ghostty.app`,
 /// `~/.config/ghostty`, the Ghostty App Support directories) are no longer
 /// searched.
@@ -55,11 +56,13 @@ public struct GhosttyThemeDirectories {
             }
         }
 
-        bundledThemeDirectories.forEach(append)
+        // The user theme directory comes first so a user file with the same
+        // name as a bundled theme wins (Issue #71 acceptance).
         append(
             CmuxGhosttyConfigPathResolver.configHomeDirectory(environment: environment)
                 .appendingPathComponent("cmux/themes", isDirectory: true)
         )
+        bundledThemeDirectories.forEach(append)
         return urls
     }
 }

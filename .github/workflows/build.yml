@@ -182,6 +182,15 @@ jobs:
           set -o pipefail
           ./scripts/reloads.sh --derived-data /tmp/cmux-build 2>&1 | tee /tmp/cmux-build-raw.log
 
+      - name: 校验产物不含构建机 home 路径
+        run: |
+          set -euo pipefail
+          # xhqing/cmux#46：reloads.sh 曾经把 "$HOME/Library/Application Support/cmux/..."
+          # 写进 Info.plist 的 LSEnvironment，CI 上 $HOME=/Users/runner，绝对路径被固化
+          # 进产物、装到任何用户机器上都不存在。这里对最终产物再断言一次。
+          APP="/tmp/cmux-build/Build/Products/Release/cmux.app"
+          ./scripts/check-bundle-home-paths.sh "${APP}"
+
       - name: 校验更新通道（feed / 公钥 / 版本）
         run: |
           set -euo pipefail

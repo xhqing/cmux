@@ -213,9 +213,9 @@ if [[ -z "${APP_PATH:-}" || ! -d "${APP_PATH}" ]]; then
   exit 1
 fi
 
-# Copy the built app and rewrite its identity: display name, bundle id and an
-# isolated socket path. This keeps this build's Preferences domain and sockets
-# separate from the official cmux app.
+# Copy the built app and rewrite its identity: display name, bundle id and the
+# identity keys that keep this build's Preferences domain separate from the
+# official cmux app. Socket paths are deliberately NOT baked in — see below.
 IDENTITY_APP_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
 # When APP_NAME already matches the product name (e.g. "cmux"), the identity path
 # IS the build product. Copying onto itself would run `rm -rf` on the source of
@@ -235,12 +235,24 @@ if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
 
-  # Inject this identity's socket paths via LSEnvironment. The Release binary
-  # would otherwise fall back to the per-user stable socket shared with the
-  # official app; CMUX_ALLOW_SOCKET_OVERRIDE lets a non-staging bundle id keep
-  # the override.
+  # LSEnvironment carries identity only — never a machine-specific path.
+  #
+  # https://github.com/xhqing/cmux/issues/46: this block used to bake
+  # "$HOME/Library/Application Support/cmux/cmux-<slug>.sock" into
+  # CMUX_SOCKET_PATH / CMUXD_UNIX_PATH. That value is frozen at build time, and
+  # it is the *build* machine's home: on CI $HOME=/Users/runner, so the shipped
+  # app carried a path that cannot exist on any user's machine, and even a
+  # locally built app could not survive being installed for another account.
+  #
+  # The app resolves its own default at launch instead — the real account home
+  # via FileManager.homeDirectoryForCurrentUser, i.e.
+  # ~/.local/state/cmux/cmux.sock (see CmuxStateDirectory) — and this script
+  # passes the identity-scoped paths through the launch environment below,
+  # where they describe the machine that actually runs the build.
+  # Do not put $HOME-derived values back into Info.plist: the check below fails
+  # the build when any /Users/ path is baked in.
   IDENTITY_SLUG="$(identity_slug_from_bundle_id "$BUNDLE_ID")"
-  APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
+  APP_SUPPORT_DIR="${_cmux_account_home:-$HOME}/Library/Application Support/cmux"
   SOCKET_SLUG="${IDENTITY_SLUG:-xhqing}"
   CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${SOCKET_SLUG}.sock"
   CMUX_SOCKET_PATH_VALUE="${APP_SUPPORT_DIR}/cmux-${SOCKET_SLUG}.sock"
@@ -248,12 +260,18 @@ if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_BUNDLE_ID \"${BUNDLE_ID}\"" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_BUNDLE_ID string \"${BUNDLE_ID}\"" "$INFO_PLIST"
-  /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
-    || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
-  /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_PATH \"${CMUX_SOCKET_PATH_VALUE}\"" "$INFO_PLIST" 2>/dev/null \
-    || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_PATH string \"${CMUX_SOCKET_PATH_VALUE}\"" "$INFO_PLIST"
+  # CMUX_ALLOW_SOCKET_OVERRIDE lets this non-staging bundle id honor the
+  # CMUX_SOCKET_PATH handed to it at launch (see the `open` call below).
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_ALLOW_SOCKET_OVERRIDE 1" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_ALLOW_SOCKET_OVERRIDE string 1" "$INFO_PLIST"
+  # Drop the path keys instead of trusting the build to start from a clean
+  # template: an incremental build into a reused derived-data directory does not
+  # always regenerate Info.plist, so an older revision's baked paths can survive
+  # in the product this script rewrites in place.
+  /usr/libexec/PlistBuddy -c "Delete :LSEnvironment:CMUXD_UNIX_PATH" "$INFO_PLIST" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Delete :LSEnvironment:CMUX_SOCKET_PATH" "$INFO_PLIST" 2>/dev/null || true
+  # Fail the build if a home path ever gets baked back in (issue #46).
+  "$(dirname "${BASH_SOURCE[0]}")/check-bundle-home-paths.sh" "$IDENTITY_APP_PATH"
   if [[ -S "$CMUXD_SOCKET" ]]; then
     for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
       kill "$PID" 2>/dev/null || true
@@ -307,8 +325,10 @@ OPEN_CLEAN_ENV=(
   -u XDG_DATA_DIRS
 )
 
-# Always inject staging socket paths via env to ensure they take effect
-# (LSEnvironment requires app restart to pick up plist changes).
+# The socket paths belong to the machine that launches the app, so they travel
+# in this launch environment instead of being baked into Info.plist (see the
+# LSEnvironment block above, https://github.com/xhqing/cmux/issues/46). Without
+# them the app falls back to its own default, ~/.local/state/cmux/cmux.sock.
 "${OPEN_CLEAN_ENV[@]}" CMUX_BUNDLE_ID="$BUNDLE_ID" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
 
 # Safety: ensure only one instance is running.

@@ -36,8 +36,10 @@ Behaviour differences from the official cmux build:
   update pill, but nothing is installed until you click Install; the feed never points at the
   official cmux repo.
 - The app is ad-hoc signed and uses this project's own identity — bundle id
-  `com.xhqing.cmux`, a dedicated socket and its own Preferences domain — so it never
-  shares state with the official cmux build.
+  `com.xhqing.cmux` and its own Preferences domain — so it never shares preferences or the
+  update channel with the official cmux build. The control socket uses the app's own default
+  location (`~/.local/state/cmux/cmux.sock`, resolved at launch), because a build-time path
+  cannot survive being installed on another machine.
 
 The patch list with the reasoning behind each change is in [PATCHES.md](PATCHES.md).
 

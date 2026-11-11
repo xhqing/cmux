@@ -408,6 +408,16 @@ if NEW_FULL_VERSION="$(read_plist CMUXVersion "$NEW_PLIST")"; then
     || die "完整版本号不匹配：期望 ${VERSION}，实际 ${NEW_FULL_VERSION}。"
 fi
 
+# 老构建（xhqing/cmux#46 修复之前）把构建机的 home 路径写进了 LSEnvironment，
+# 装到本机后那些路径必然不存在，socket 只能落到 fallback 或直接失败。修复后的
+# 产物不再注入这类路径，所以这里只提醒、不阻断——重装旧版本本身是合理需求。
+if plutil -convert xml1 -o - "$NEW_PLIST" | grep -q --fixed-strings '/Users/'; then
+  warn "这个安装包的 Info.plist 里固化了构建机的 home 路径（/Users/...），
+是 xhqing/cmux#46 修复之前的构建：那些路径在你的机器上不存在，控制 socket
+可能起不来或只能落到 fallback 路径（CLI 可用 --socket 手动指定）。
+建议换成包含该修复的新版本。这里只提醒、不阻断安装。"
+fi
+
 if ! codesign --verify --deep --strict "$NEW_APP"; then
   die "代码签名校验失败：${NEW_APP}。
 安装包可能不完整，请删掉 ${ZIP_PATH} 后重新下载。"

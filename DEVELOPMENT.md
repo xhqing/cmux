@@ -52,9 +52,11 @@ workflow 文件：`.github/workflows/build.yml`（我们自己的，不依赖上
   3. 装 Zig **0.16.0**（`ghostty/build.zig.zon` 里写的是 `minimum_zig_version = "0.16.0"`，`scripts/setup.sh` 的版本检查要求主次版本完全一致，所以**不能用 `brew install zig` 的 latest**——现在是 0.17.x，会直接报不兼容；workflow 里改成下载 ziglang.org 上固定的 0.16.0 tarball）；
   4. Rust 用 runner 自带的 rustup / cargo（`scripts/setup.sh` 会装固定版本工具链）；Go 用来编译 Cloud 隧道扩展里的 WireGuard 引擎，**Release 构建必须有**（runner 镜像一般自带，没有则 `brew install go`）；
   5. `./scripts/setup.sh`（初始化子模块、拉 checksum 固定的预编译 `GhosttyKit.xcframework`）；
-  6. `./scripts/reloads.sh --derived-data /tmp/cmux-build`（Release 配置 + 本项目正式身份构建）；
-  7. 打包 `.app` 为 zip 上传为 artifact。
-- 产物：`cmux-<版本>-macos-arm64.zip`，解压得到 `cmux.app`，bundle id `com.xhqing.cmux`，socket 走 `~/Library/Application Support/cmux/cmux-xhqing.sock` —— 这是本项目自己的正式身份，与官方 cmux（`com.cmuxterm.app`）不共用偏好设置域、socket 或更新通道。
+  6. `./scripts/reloads.sh --derived-data /tmp/cmux-build`（Release 配置 + 本项目正式身份构建；脚本末尾自己会跑一次 `scripts/check-bundle-home-paths.sh`，产物里一旦出现构建机的 `/Users/...` 绝对路径就直接失败）；
+  7. 对构建产物再断言一次「不含构建机 home 路径」（同一个检查脚本），然后打包 `.app` 为 zip 上传为 artifact。
+- 产物：`cmux-<版本>-macos-arm64.zip`，解压得到 `cmux.app`，bundle id `com.xhqing.cmux` —— 这是本项目自己的正式身份，与官方 cmux（`com.cmuxterm.app`）不共用偏好设置域或更新通道。
+  - **socket 位置不在构建期写死**（#46）：产物的 `Info.plist` 里，`LSEnvironment` 只带身份键（`CMUX_BUNDLE_ID`、`CMUX_ALLOW_SOCKET_OVERRIDE`），`CMUX_SOCKET_PATH` / `CMUXD_UNIX_PATH` 一律不注入 —— 构建机（CI runner）的 home 一旦被烤进产物，装到任何别的机器上都不存在。socket 由 app 启动时按真实账号 home 解析，落到 `~/.local/state/cmux/cmux.sock`（`CmuxStateDirectory`，不读 `$HOME`；CLI 找的也是这一条），换用户、换机器都成立。构建期守门是 `scripts/check-bundle-home-paths.sh`：产物 `Info.plist` 里出现任何 `/Users/` 绝对路径就让构建失败。
+  - 代价要说清楚：分叉版与官方版因此**共用同一个默认 socket 路径**。两者同时装、同时跑时只能有一个占住它（本机只装本分叉，日常不受影响；真要并存，用 `CMUX_SOCKET_PATH` 手动给其中一个换路径）。本地 `reloads.sh` 构建的身份专属路径不靠产物、而靠启动环境传入（见第二节），不受这条影响。
 
 ### 2. 本机构建（退路）
 
@@ -73,6 +75,8 @@ CMUX_DEV_BACKEND_MODE=local ./scripts/reloads.sh --tag xhqing
 ```
 
 `setup.sh` 会初始化子模块、装固定版本 Rust 工具链、拉 checksum 固定的预编译 `GhosttyKit.xcframework`（拉取失败才回退到用 Zig 从源码构建，可用 `CMUX_GHOSTTYKIT_NO_PREBUILT=1` 强制源码构建）。
+
+`reloads.sh` 不再把 socket 路径写进产物的 `Info.plist`（#46）：身份专属路径（`~/Library/Application Support/cmux/cmux-<身份>.sock`、tag 构建是 `cmux-<tag>.sock`）改由启动时的环境变量传给 app，`--tag` 并行构建之间照样互不干扰。从 Finder 直接双击打开这类本地产物时，app 会退回自己的默认路径 `~/.local/state/cmux/cmux.sock`。
 
 ## 二、安装与验证（重要）
 
@@ -99,6 +103,7 @@ bash /tmp/cmux-install.sh
 - 校验：会下载同名 `.sha256` 资产并用 `shasum -a 256` 比对，校验失败直接中止；只有 `--skip-checksum` 能跳过（仅限应急）。
 - 安装：zip 缓存在 `~/Library/Caches/cmux/releases/`，校验一致时复用；先 `ditto` 到 `<dest>/.cmux.app.new` 再原子替换，失败会回滚，成功后不留下备用副本。
 - 保护：如果目标位置（如 `/Applications/cmux.app`）里已有 cmux 在运行，脚本会拒绝安装并提示先退出——绝不强行替换运行中的实例，没有强制开关。
+- 提示：如果下载到的包 `Info.plist` 里带 `/Users/...`（#46 修复之前的旧 Release），脚本会打印一条警告，说明这个包的 socket 路径在本机不存在、建议换成含修复的新版本；只提醒、不阻断安装。
 - 只有装到 `/Applications` 才会跑 `lsregister -f` 注册 LaunchServices；装到测试目录不会污染系统数据库。
 
 ### 2. 手工安装（兜底）
@@ -113,7 +118,7 @@ open "/Applications/cmux.app"
 
 - 自建版是 **ad-hoc 签名**，没有 Developer ID 也没有公证，所以**必须先去掉隔离属性**（`xattr -dr com.apple.quarantine`），否则系统会报「已损坏」或「无法验证开发者」。
 - **浏览器下载的 zip 及其解压副本会带 `com.apple.quarantine`**（Chrome / Safari 会给下载文件打上这个标记），所以手工安装必须 `xattr -dr`；`curl` 下载不会带这个属性，上面的安装脚本就是用 `curl` 下载的。
-- 本项目用独立 bundle id（`com.xhqing.cmux`）与独立 socket，和官方版互不干扰；从旧的 `com.cmuxterm.app.staging.xhqing` 身份切换过来时，偏好设置域和会话快照需要一次性迁移。
+- 本项目用独立 bundle id（`com.xhqing.cmux`）与独立 Preferences 域，和官方版互不干扰；socket 用 app 自己的默认路径 `~/.local/state/cmux/cmux.sock`（见第一节「socket 位置不在构建期写死」）；从旧的 `com.cmuxterm.app.staging.xhqing` 身份切换过来时，偏好设置域和会话快照需要一次性迁移。
 
 ### 绝对不要做的事
 

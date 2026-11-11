@@ -27,7 +27,7 @@
 
 - **关掉工作区 / 标签页 / 窗口时，不再因为「里面有进程在跑」就弹确认框**（设置键 `app.confirmCloseRunningProcess`，默认关闭）。未保存内容、pinned 工作区、进行中的 agent 会话的保护照旧生效。
 - **更新永远不会自动安装，而且只从本仓库获取**：应用内「Check for Updates…」读取随本仓库 Release 发布的签名 appcast。应用也可能按上游默认在后台检查更新、并在侧边栏显示更新提示；但你不点安装就不会有任何东西被替换。更新源永远不会指向官方 cmux 仓库。
-- 用的是 ad-hoc 签名，并采用本项目自己的正式身份：bundle id `com.xhqing.cmux`、独立 socket、独立偏好设置域，不再与官方版共用任何状态。
+- 用的是 ad-hoc 签名，并采用本项目自己的正式身份：bundle id `com.xhqing.cmux`、独立偏好设置域，不再与官方版共用偏好设置与更新通道。控制 socket 用 app 自己的默认位置（`~/.local/state/cmux/cmux.sock`，启动时解析）——构建期写死的路径装到别的机器上必然不存在。
 
 每个补丁要解决什么问题、根因是什么，都写在 [PATCHES.md](PATCHES.md) 里。
 

@@ -14,6 +14,9 @@ All notable changes to cmux are documented here.
   - **一次性迁移**：r17 及更早版本里的公钥是上游的，Sparkle 校验更新包时用的是「当前安装版本」的公钥，ad-hoc 签名的 designated requirement 又是 cdhash，所以旧版无法自动跨到新公钥的版本——需要手动跑一次 `scripts/install-release.sh` 重装，之后的手动更新都能在应用内完成。
 
 ### 构建与发布
+- **构建产物不再把构建机的 home 烧进 `LSEnvironment`（#46）**：`scripts/reloads.sh` 以前用 `$HOME/Library/Application Support/cmux` 算 socket 路径、再写进产物 `Info.plist` 的 `LSEnvironment`；这个值在构建期就固定下来，CI 上 `$HOME=/Users/runner`，于是每个用户装到的 app 都带着 `/Users/runner/Library/Application Support/cmux/...` 这种本机不可能存在的路径，socket 只能落到 fallback 或直接失败。现在产物只保留身份键（`CMUX_BUNDLE_ID`、`CMUX_ALLOW_SOCKET_OVERRIDE`），socket 位置由 app 启动时按真实账号 home 解析（`~/.local/state/cmux/cmux.sock`，CLI 用的也是这一条）；本地 `reloads.sh` 构建的身份专属路径改由启动环境传入，`--tag` 并行构建照样各用各的。新增 `scripts/check-bundle-home-paths.sh`，在构建末尾与 CI 打包前各断言一次「产物里没有任何 `/Users/` 绝对路径」，谁再把机器相关的值写回产物，构建就直接失败。`scripts/install-release.sh` 装到带这类路径的旧 Release 时会打印警告（不阻断）。
+  - 代价：分叉版与官方版从此共用同一个默认 socket 路径，两者并存时只能有一个占住它（本机只装本分叉，日常不受影响；需要并存时用 `CMUX_SOCKET_PATH` 手动换路径）。
+  - 文档：`DEVELOPMENT.md` 第一 / 二 / 三节、`README.md` / `README_cn.md`、`PATCHES.md`（新增 P9）同步这条口径。
 - **`attach-release-asset` 的通知消息里有个 bash 引用写法错误（`${basename "…"}` → `bad substitution`），r18 构建成功但资产首次挂载中断**：改用命令替换 `$(basename …)`；随后用 `workflow_dispatch` 重跑 r18 那次构建的挂载（run 42824769839），zip / sha256 / `appcast.xml` 已补齐。r18 的安装包内容不受影响。
 
 ### 文档

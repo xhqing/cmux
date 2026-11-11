@@ -439,3 +439,67 @@ Sparkle 校验更新包时用的是**当前安装版本**的 `SUPublicEDKey`：r
 - 发布侧已验到「签名 appcast + zip 全部正确」；应用内的「检测到新版本 → 下载 → 安装 → 重启」要等下一次 tag（r19）发布后实测——本次没有比 r18 更新的版本可测。
 - r18 的 tag 构建（run 42824769839）成功，artifact 里已包含 `appcast.xml`；首次资产挂载因 attach workflow 通知消息里的 `bad substitution` 中断，修复后（PR #74）用 `workflow_dispatch` 重跑同一个 run 的挂载，Release 资产补齐。
 - 发布后的实测：`https://github.com/xhqing/cmux/releases/latest/download/appcast.xml` 返回 200；`sparkle:version` = `20261110024`、显示版本 `0.65.2.2-r18`、下载地址指向本 tag 的 zip。把 zip 下载回来复算：sha256 与 Release 里的 `.sha256` 一致，EdDSA 签名用 app 内公钥（CryptoKit `Curve25519.Signing.PublicKey`）验证通过；zip 内 app 的 `CFBundleIdentifier` / `CMUXVersion` / `SUPublicEDKey` / `SUFeedURL` / `CFBundleVersion` 全部与预期一致，`codesign --verify --deep --strict` 通过（ad-hoc，符合预期）。
+
+---
+
+## P9 — 构建产物不再把构建机的 home 烧进 `LSEnvironment`（#46）
+
+**状态**：已实现
+
+### 要解决的问题
+
+CI 构建出来的 `cmux.app`，`Info.plist` 的 `LSEnvironment` 里写死了 CI runner 的 home：
+
+```
+CMUX_SOCKET_PATH = /Users/runner/Library/Application Support/cmux/cmux-xhqing.sock
+CMUXD_UNIX_PATH  = /Users/runner/Library/Application Support/cmux/cmuxd-xhqing.sock
+```
+
+装到任何用户机器上，这两个路径都不存在（`/Users/runner` 根本不属于该用户），socket 只能落到 fallback 路径或直接失败。
+
+### 根因
+
+`scripts/reloads.sh` 在「改身份」那一段用 `$HOME/Library/Application Support/cmux` 算出 socket 路径，再用 `PlistBuddy` 写进 `LSEnvironment`。`LSEnvironment` 是**构建期**写进产物、**运行期**由 LaunchServices 注入的，值一旦写死就跟着产物走：本地构建时它恰好等于构建者自己的 home（所以本机看不出来），CI 上 `$HOME=/Users/runner`，于是每个用户都拿到一个别人机器上的路径。
+
+顺带记一笔：这条路还绕回了 `~/Library/Application Support`——上游从 0.64.20 起特意把控制 socket 迁到 `~/.local/state/cmux`，就是为了避开「别的签名的二进制读写另一个 app 的 Application Support 会触发 TCC 弹窗」（上游 issue #5146）。我们的注入把它又推了回去。
+
+### 改法
+
+按 issue 里的方向①（构建期不注入绝对路径，app 启动时按自己的 home 算默认路径）实施，身份键照旧保留：
+
+| 文件 | 改动 |
+| --- | --- |
+| `scripts/reloads.sh` | `LSEnvironment` 只注入 `CMUX_BUNDLE_ID` 与 `CMUX_ALLOW_SOCKET_OVERRIDE`；`CMUX_SOCKET_PATH` / `CMUXD_UNIX_PATH` 不再写进产物（还会显式 `Delete` 掉旧值，防止复用的 DerivedData 里增量构建没重写 plist 保留上一版烤进去的路径）。身份专属路径改由已有的启动环境传递（`env … CMUX_SOCKET_PATH=… open -g`），`--tag` 并行构建照样各用各的 socket。 |
+| `scripts/check-bundle-home-paths.sh`（新增） | 检查产物 `Info.plist` 里有没有任何 `/Users/` 绝对路径：有就打印命中行并退出 1。`reloads.sh` 改完 plist 立刻调它，构建期就把规则守住。 |
+| `.github/workflows/build.yml` | 构建完、打包前再加一步对最终产物跑同一个检查（CI 日志里同时打印 `LSEnvironment` 的键值，作为发布证据）。 |
+| `scripts/install-release.sh` | 不参与改写（见下），只加一条提示：装到本机的包如果 `Info.plist` 里带 `/Users/...`，说明是 #46 修复之前的旧 Release，打印警告提醒（不阻断安装）。 |
+| `DEVELOPMENT.md` / `README.md` / `README_cn.md` / `PATCHES.md` | 同步「socket 位置不在构建期写死、改用 app 默认路径」的口径与代价。 |
+
+### 为什么选方向①，不选「CI 不注入」或「安装脚本改写」
+
+- **方向②（只让 CI 不注入）**同样可行，但两条构建路径会分叉：本机构建的产物仍然带着构建者的 home，一旦这个产物被装到别的机器（或另一个账号）上，同一个 bug 照样复现。#46 的病灶是「构建期把机器相关的值烤进产物」，不是「CI 特有问题」，所以按病灶本身修——所有入口统一不注入。
+- **方向③（安装脚本改写 plist）**不可靠：`Info.plist` 在 ad-hoc 签名的封签范围内，改写就得重新签名；而且走 Sparkle 的应用内更新**不经过**安装脚本，用户装到的又是未改写的产物——同一个 app 会因升级路径不同而有两种 socket 行为。`install-release.sh` 还支持「只下载这一个脚本、不 clone 仓库」的用法，不适合再给它加改写职责。
+- **不改 Swift**：默认路径逻辑（`SocketControlSettings` / `SocketPathMarkerFiles` / `CmuxStateDirectory`）本来就是对的——它按 `FileManager.homeDirectoryForCurrentUser` 解析、根本不受 `$HOME` 影响。需要改的只是「我们把一个构建期常量塞给它」这件事，所以一行 Swift 都不用动，也就不会碰到 #43 正在改的 socket 启动流程与访问策略。
+
+### 默认路径在所有身份下都可靠（issue 列的待确认项）
+
+读代码确认（`Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/`）：
+
+1. `SocketPathMarkerFiles.variant()` 只把上游那几个身份（`com.cmuxterm.app` / `.nightly` / `.rc` / `.staging` / `.debug`）映射到各自通道；`com.xhqing.cmux` 与 `com.xhqing.cmux.<tag>` 都落进 `.stable`。
+2. `.stable` 的默认路径是 `resolvedStableDefaultSocketPath()` → `CmuxStateDirectory`（`<home>/.local/state/cmux/cmux.sock`），home 由 `FileManager.homeDirectoryForCurrentUser`（getpwuid）给出，**不读 `$HOME`**；主路径被别人占用 / 不可访问时回退到同目录的 `cmux-<uid>.sock`，所以多账号机器也不会互相踩。
+3. CLI 侧（`CLI/CLISocketPathResolver.swift`）第一顺位候选就是同一个 `~/.local/state/cmux/cmux.sock`，其次才是 marker 文件与 `/tmp` 别名——app 用默认路径时，CLI 不需要任何额外配置就能找到它。
+4. 这条路在 TCC 上也是安全的：`CmuxStateDirectory` 的注释解释了为什么必须离开 `Application Support`。
+
+### 代价（诚实记录）
+
+分叉版与官方版因此共用同一个默认 socket 路径。本机只装本分叉，日常没有影响；万一两者并存，只有一个能占住它——需要并存时用 `CMUX_SOCKET_PATH` 给其中一个换路径（`CMUX_ALLOW_SOCKET_OVERRIDE=1` 仍在产物里，override 依然生效）。想换成「分叉专属且可移植」的固定路径（如 `/tmp/cmux-xhqing.sock`）是另一条路，但会牺牲多账号安全与 app 自己的路径策略，本次不取。
+
+### 验证
+
+- 用假 `xcodebuild`（只负责把产物放到 `-derivedDataPath` 下）实跑了 `scripts/reloads.sh` 的三条路径：
+  - 默认身份：产物 `LSEnvironment` 只剩 `CMUX_BUNDLE_ID = com.xhqing.cmux` 与 `CMUX_ALLOW_SOCKET_OVERRIDE = 1`，脚本内置的检查通过；假 app 记录的启动环境仍是 `CMUX_SOCKET_PATH=/Users/<构建者>/Library/Application Support/cmux/cmux-xhqing.sock`（本机行为不变）。
+  - `--tag feature-xyz`：产物 `LSEnvironment` 同样干净，启动环境为 `cmux-feature-xyz.sock`（并行构建仍互不干扰）。
+  - 「增量构建没重写 plist」场景（预先把上一版烤进去的 `/Users/runner/...` 放回产物，用 `SHIM_KEEP_PLIST=1` 模拟）：检查脚本先报错（退出 1），`reloads.sh` 跑完后两个键被删掉、检查通过（退出 0）。
+- 手工对照：同一份旧式 plist（`/Users/runner/...`）直接喂给检查脚本 → 退出 1 并打印命中行；干净 plist（XML 与 binary 两种格式都试）→ 退出 0。
+- `bash -n` 过了 `reloads.sh` / `install-release.sh` / 新脚本；`build.yml` 用 Ruby YAML 解析器校验通过。
+- CI 侧的实际断言在 `build-macos` 里（`校验产物不含构建机 home 路径` 步骤）；PR 门禁 `checks` 没有改动（job 名与步骤都不变）。真正的 Release 产物验证要等下一次 tag 构建——本机是 Intel macOS 12 + CommandLineTools，跑不了完整构建。

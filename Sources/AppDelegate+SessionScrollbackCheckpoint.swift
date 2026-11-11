@@ -268,12 +268,39 @@ extension AppDelegate {
     }
 }
 
-/// Splits the quit path's VT-export capture so only the Ghostty call runs on main.
+/// Splits a scrollback checkpoint capture so only Ghostty's formatting runs on main.
 enum TerminalScrollbackCheckpointExport {
-    /// Main-thread half: Ghostty formats the terminal's scrollback into a temp
-    /// file. Returns the off-main reader, or nil when the export failed.
+    /// Main-thread half: Ghostty formats the newest `lineLimit` rows into a string
+    /// (or, on runtimes that reject the bounded request, formats the whole
+    /// scrollback into a temp file). Returns the off-main reader, or nil when both
+    /// paths failed.
+    ///
+    /// The bounded form is what keeps a checkpoint off the input path.
+    /// `write_screen_file:copy,vt` formats the terminal's entire history while it
+    /// holds the surface lock, so its cost grows with however much output the pane
+    /// has produced — and checkpoints only capture panes that produced output since
+    /// the last one. The expensive export therefore lands exactly on the pane the
+    /// user is watching, and the 5 s typing-quiet gate cannot prevent a collision
+    /// with a key that arrives while an export is already running.
     @MainActor
     static func begin(terminal: TerminalPanel, lineLimit: Int) -> SessionScrollbackCheckpointExport? {
+        if lineLimit > 0,
+           let bounded = terminal.surface.readBoundedScreenTailVT(
+               maxRows: lineLimit,
+               maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4
+           ) {
+            return SessionScrollbackCheckpointExport(
+                finish: {
+                    TerminalController.tailTerminalLines(
+                        TerminalController.normalizedMobileVTExportText(bounded),
+                        maxLines: lineLimit
+                    )
+                },
+                discard: {}
+            )
+        }
+
+        // Compatibility fallback for runtimes that reject the bounded request.
         let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
             terminal.performInternalBindingAction("write_screen_file:copy,vt")
         }

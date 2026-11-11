@@ -10,6 +10,12 @@ import Foundation
 /// between the system event timestamp and the moment the terminal handles it.
 /// This is the segment an out-of-process CLI probe cannot measure (physical key /
 /// IME / event routing -> app). When disabled it costs one static check.
+///
+/// The same log also receives two kinds of correlation lines while the probe is
+/// enabled: `<unixTime> <activity> <durationMs> [detail]` for background phases
+/// (`recordActivity`) and for long main-thread turns (`mainTurn`). Key lines say
+/// how long an input waited; those lines say what was running at that instant,
+/// which is what turns "a spike happened" into "a spike happened while X ran".
 enum KeyLatencyProbe {
     static let isEnabled: Bool = {
         ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1"
@@ -23,6 +29,18 @@ enum KeyLatencyProbe {
         return (dir as NSString).appendingPathComponent("key-latency.log")
     }()
 
+    /// Appends one line. Always runs on `queue`, so callers never touch the file.
+    private static func append(_ line: String) {
+        let data = Data(line.utf8)
+        if let handle = FileHandle(forWritingAtPath: logPath) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            _ = FileManager.default.createFile(atPath: logPath, contents: data)
+        }
+    }
+
     @inline(__always)
     static func record(event: NSEvent, phase: String) {
         guard isEnabled, event.timestamp > 0 else { return }
@@ -32,15 +50,106 @@ enum KeyLatencyProbe {
             + " " + String(format: "%.2f", delayMs)
             + " " + String(event.keyCode)
             + " " + (event.isARepeat ? "1" : "0") + "\n"
-        queue.async {
-            let data = Data(line.utf8)
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                defer { try? handle.close() }
-                _ = try? handle.seekToEnd()
-                try? handle.write(contentsOf: data)
-            } else {
-                _ = FileManager.default.createFile(atPath: logPath, contents: data)
-            }
+        queue.async { Self.append(line) }
+    }
+
+    /// Records one background phase that just finished.
+    ///
+    /// - Parameters:
+    ///   - phase: Stable activity name (`scrollbackExport`, `sessionAutosave`).
+    ///   - startedAt: `ProcessInfo.processInfo.systemUptime` when the phase began.
+    ///   - detail: Optional short, space-free fields (`overBudget=1`).
+    ///
+    /// The span is recovered from the line as `[unixTime - durationMs, unixTime]`.
+    nonisolated static func recordActivity(
+        _ phase: String,
+        startedAt: TimeInterval,
+        detail: String? = nil
+    ) {
+        guard isEnabled, startedAt > 0 else { return }
+        let durationMs = max(0, (ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
+        var line = String(format: "%.3f", Date().timeIntervalSince1970)
+            + " " + phase
+            + " " + String(format: "%.2f", durationMs)
+        if let detail, !detail.isEmpty {
+            line += " " + detail
+        }
+        line += "\n"
+        queue.async { Self.append(line) }
+    }
+
+    /// Starts the release-safe main-thread turn monitor that emits `mainTurn` lines.
+    ///
+    /// A key event waits in AppKit's queue while the main thread is busy, so a long
+    /// main-thread turn is the in-app cause of a spike. Comparing a key line against
+    /// the surrounding `mainTurn` line separates "our main thread was busy" from "the
+    /// event reached a responsive main thread late anyway" (another process holding
+    /// the CPU, or the window server). Those two need different fixes, and a spike
+    /// log alone cannot tell them apart. Does nothing unless the probe is enabled.
+    static func installMainThreadTurnMonitorIfNeeded() {
+        KeyLatencyMainTurnMonitor.shared.installIfNeeded()
+    }
+}
+
+/// Logs main-thread turns long enough to delay a key event.
+///
+/// Release-safe counterpart of the DEBUG-only runloop monitors in `AppDelegate`:
+/// the same runloop activity bookkeeping, but started only when the key-latency
+/// probe is enabled, and written into the probe log so everything needed to
+/// attribute a spike sits in one file instead of os_log plus a log stream.
+final class KeyLatencyMainTurnMonitor {
+    static let shared = KeyLatencyMainTurnMonitor()
+
+    /// Shorter turns cannot explain a spike by themselves, and logging every turn
+    /// would both bury the signal and add file I/O to the main thread.
+    private let thresholdMs: Double = 20.0
+    private var observer: CFRunLoopObserver?
+    private var installed = false
+    private var turnStart: TimeInterval?
+
+    private init() {}
+
+    func installIfNeeded() {
+        guard KeyLatencyProbe.isEnabled, !installed else { return }
+
+        var context = CFRunLoopObserverContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+        observer = CFRunLoopObserverCreate(
+            kCFAllocatorDefault,
+            CFRunLoopActivity.allActivities.rawValue,
+            true,
+            CFIndex.max,
+            { _, activity, info in
+                guard let info else { return }
+                let monitor = Unmanaged<KeyLatencyMainTurnMonitor>.fromOpaque(info).takeUnretainedValue()
+                monitor.handle(activity: activity)
+            },
+            &context
+        )
+
+        guard let observer else { return }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        installed = true
+    }
+
+    private func handle(activity: CFRunLoopActivity) {
+        let now = ProcessInfo.processInfo.systemUptime
+        switch activity {
+        case .entry, .afterWaiting:
+            turnStart = now
+        case .beforeWaiting, .exit:
+            guard let start = turnStart else { return }
+            turnStart = nil
+            let elapsedMs = max(0, (now - start) * 1000.0)
+            guard elapsedMs >= thresholdMs else { return }
+            KeyLatencyProbe.recordActivity("mainTurn", startedAt: start)
+        default:
+            break
         }
     }
 }

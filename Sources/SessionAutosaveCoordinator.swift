@@ -214,6 +214,18 @@ final class SessionAutosaveCoordinator {
     }
 
     private func finish(source: String, generation: UInt64) async {
+        let activityStart = ProcessInfo.processInfo.systemUptime
+        // The tick's main-actor parts (TTY bindings, fingerprint, snapshot build)
+        // publish no state during typing, but they still run on the main thread
+        // once the quiet window opened. Log the span so a key spike in the probe
+        // log can be matched to the autosave tick that overlapped it.
+        defer {
+            KeyLatencyProbe.recordActivity(
+                "sessionAutosave",
+                startedAt: activityStart,
+                detail: "source=\(source)"
+            )
+        }
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
         let phaseStart = ProcessInfo.processInfo.systemUptime

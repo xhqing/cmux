@@ -1835,6 +1835,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
+        // Release-safe: no-ops unless the key-latency probe is enabled. A key event
+        // waits in AppKit's queue while the main thread is busy, so the probe log
+        // needs the long main-thread turns to attribute a spike.
+        KeyLatencyProbe.installMainThreadTurnMonitorIfNeeded()
+
         if sentryStartupPolicy.shouldStart {
             // Pre-warm locale before Sentry to avoid a startup data race.
             // Locale initialization (os.locale.ensureLocale / NSLocale._preferredLanguages)

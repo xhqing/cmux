@@ -32,6 +32,122 @@
 
 ---
 
+## Issue #45：后台负载下的按键尖峰（50–115 ms，2026-11-11）
+
+这一节记录本仓库 Issue #45 的定位、改法与验收口径。上一节（2026-11-06）的「还没有做」第 1 条是「装自建版跑一轮探针」，用户已经跑了，数据在下面。
+
+### 实测数据
+
+`.12` 版本的探针日志共 584 个按键（`~/.local/state/cmux/key-latency.log`）：
+
+| 时段 | 样本 | 结论 |
+| --- | --- | --- |
+| 开头冷启动 | 66.30 ms / 115.71 ms 各一例 | 冷启动首键，归 **#44**，本节不碰 |
+| 中间稳定期 | p50 6~8 ms，几乎无 > 20 ms | 正常 |
+| 结尾后台忙碌时 | 53.70 ms / 101.41 ms 各一例 | 本节要解决的两例 |
+
+关键形状不是「普遍变慢」，而是**整场只有两例、都在有后台输出的时段**。任何「后台任务一直在抢 CPU」的解释都跟这个形状不符——那会表现为尖峰数量多、幅度分散。
+
+### 定位：逐项排除后剩下的唯一候选
+
+先按数据形状排除，再落到代码：
+
+| 候选 | 周期 / 触发 | 为什么不是它 |
+| --- | --- | --- |
+| 后台 Git 元数据探测 | 启动、新建、文件事件 | 已有 0.65 s 打字静默期（探测前 + 发布前两处）与进程级限流；读取走 `.utility` detached 任务，`.sidebar` 还是 cheap 读取（P3）。解释不了「只有 2 例」 |
+| 会话自动保存 | 固定 8 s | tick 是 8 s 周期的，十几分钟会有上百次；如果它是主因，样本里应该有很多 10~50 ms 的尖峰，而不是 2 例 |
+| 标题刷新 | 输出驱动 | `NotificationBurstCoalescer` + churn 过滤已合并，spinner 帧走便宜路径（`stableTitle` 不变） |
+| **滚动回写检查点（scrollback checkpoint）的 Ghostty 导出** | **只在有输出的终端上、60 s 一次** | **特征全部对上，见下** |
+
+滚动回写检查点（`Sources/SessionScrollbackCheckpoint.swift`）为什么对得上：
+
+1. **只对「有后台输出」的终端触发**：`TerminalScrollbackCheckpointActivity.hasPendingOutput` 为真才排 capture。所以它天然只出现在用户跑构建 / 流式日志的时段，静默期一次都不排——与「只在结尾后台忙碌时出现」一致。
+2. **主线程同步、成本随累计输出增长**：`TerminalScrollbackCheckpointExport.begin` 调的是 `write_screen_file:copy,vt`，Ghostty 会**格式化该终端整段历史**（持 surface 锁）。4000 行 / 40 万字符的上限是在导出**之后**、由非主线程读临时文件时截断的——主线程已经付掉了整段格式化的时间。一个已经跑了几分钟构建日志的 pane，导出几十毫秒到一百多毫秒完全合理。
+3. **打字静默期挡不住碰撞**：`typingQuietPeriod = 5` 是「导出**开始前**」的一次性检查（`captureNext` 里每个 capture 前查一次）。无法阻止「导出跑到一半，用户重新开始敲键」——而这正是探针会记录成一例孤立尖峰的情形。
+4. **预算与退避解释了「只有 2 例」**：`mainThreadCaptureBudget = 50 ms`，超预算的终端被 `slowCaptureBackoff = 600 s` 退避。一次 53.70 ms、一次 101.41 ms，各自触发一次退避、10 分钟内不再导出该 pane——正好是整场两例、且相隔很久。
+
+还有一条旁证：**quit / 快照路径早就改用了有界格式化**。`Sources/TerminalController.swift` 的 `readTerminalTextFromVTExportForSnapshot` 注释原文是「Use Ghostty's bounded formatter so quit does not format an unbounded history and discard most of it afterward. Keep the export path as a compatibility fallback」。也就是说「整段格式化再丢掉」这件事在快照路径上已被认定为浪费，只是检查点这条路径当时没跟上。
+
+**诚实边界**：以上是「读代码 + 数据形状」推出的最符合候选，不是实机 profile 出来的结论（本机没有完整 Xcode、也跑不了 GUI 实测）。所以这次同时把「怎么在用户机器上证明 / 证伪」做进了探针，见下一节与「怎么判断改动生效」。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `Sources/AppDelegate+SessionScrollbackCheckpoint.swift` | `TerminalScrollbackCheckpointExport.begin` 先走 `readBoundedScreenTailVT(maxRows: lineLimit, maxBytes: 400_000 * 4)`（Ghostty 只在持锁期间格式化最新 N 行），失败才回退原来的 `write_screen_file:copy,vt` 临时文件路径。行尾归一化与截断仍在非主线程做 |
+| `Sources/GhosttyTitleUpdateIngress.swift` | `KeyLatencyProbe` 新增 `recordActivity(_:startedAt:detail:)`：同一个日志里写 `<unixTime> <activity> <durationMs> [detail]` 的 span 行；新增 `KeyLatencyMainTurnMonitor`（只在探针开启时安装的 runloop 观察者），主线程单回合 ≥ 20 ms 记一行 `mainTurn` |
+| `Sources/SessionScrollbackCheckpoint.swift` | 每次导出记一行 `scrollbackExport`（超过 50 ms 预算时带 `overBudget=1`） |
+| `Sources/SessionAutosaveCoordinator.swift` | 每个 autosave tick 记一行 `sessionAutosave`（带 `source=`） |
+| `Sources/AppDelegate.swift` | `didFinishLaunching` 里安装主线程回合监视器（探针未开启时立即返回） |
+| `scripts/analyze-key-latency.py` | 把尖峰与重叠的 span 对起来；没有 span 覆盖的尖峰判为「不是 cmux 主线程自己忙」，直接指向 `sample` / `spindump` |
+| `scripts/check-latency-guardrails.py` | 新增一组守卫：检查点导出必须走有界格式化，防以后 rebase 掉 |
+
+保留的行为：每次 checkpoint 仍然最多 `maxCapturesPerCheckpoint = 3` 个导出、仍然一次 main-queue turn 只做一个、仍然超预算就退避 600 s、仍然要求 5 s 打字静默；导出内容仍是「最新 ~4000 行 VT 文本」，与 quit 快照同口径。
+
+### 用户在本机怎么采（Release 版同样生效）
+
+```bash
+# 1. 打开探针（重启 cmux 生效；注意是退出 app 再打开，不要 kill 进程）
+defaults write com.xhqing.cmux cmuxKeyLatencyProbe -bool true
+
+# 2. 正常用几小时（建议挑「会在别的 pane 跑构建 / 长任务」的时段，那正是要抓的场景）
+#    日志：~/.local/state/cmux/key-latency.log
+tail -f ~/.local/state/cmux/key-latency.log
+
+# 3. 采集完关掉（这一步别忘：探针开着一键一行日志）
+defaults delete com.xhqing.cmux cmuxKeyLatencyProbe
+```
+
+`CMUX_KEY_LATENCY_PROBE=1` 环境变量启动同样生效，适合只想采一次的场景。
+
+日志现在有两种行（同一个文件、按第一列时间排序）：
+
+```
+<unixTime> keyDown  <delayMs> <keyCode> <isRepeat>   每个按键一行
+<unixTime> <activity> <durationMs> [detail]          每个后台 span 一行
+```
+
+span 覆盖的时间窗是 `[unixTime - durationMs, unixTime]`。`activity` 目前有三种：`mainTurn`（主线程单回合 ≥ 20 ms）、`scrollbackExport`（一次检查点导出的主线程耗时）、`sessionAutosave`（一次自动保存 tick）。
+
+### 怎么判断改动生效
+
+```bash
+python3 scripts/analyze-key-latency.py ~/.local/state/cmux/key-latency.log
+```
+
+判定标准（后台忙碌时段，即日志里存在 `scrollbackExport` / `sessionAutosave` 行的那段）：
+
+| 指标 | 改前 | 改后通过线 |
+| --- | --- | --- |
+| `keyDown` ≥ 30 ms 的样本数 | 2（53.70 / 101.41） | **0**（冷启动首键属 #44，按第一分钟排除） |
+| `keyDown` p99 | 101.41 ms | **< 20 ms** |
+| `keyDown` p50 | 6~8 ms | 不回退（仍 6~8 ms） |
+| `scrollbackExport` 单次耗时 | 可达 50~120 ms | **≤ 约 20 ms**，且不再出现 `overBudget=1` |
+| 无 span 覆盖的 ≥ 30 ms 尖峰 | 2 | 0；若仍有，按下一节抓 `sample` |
+
+判读规则：
+
+- 尖峰的时间点落在某个 span 的窗口内 → 这次就是那个后台任务造成的，看 span 名就知道是哪类；
+- 尖峰**没有**任何 span 覆盖，但同时间有一条 `mainTurn` → 主线程在跑没被插桩的代码（例如 SwiftUI 布局、Ghostty 渲染），下一步该去 profile 那段；
+- 尖峰**连 `mainTurn` 都没有** → 主线程当时是空闲的，事件是在进 app 之前就被拖住了（别的进程占满 CPU、窗口服务器、键盘链路），改 cmux 代码没用。
+
+最后一种情况怎么抓主线程现场（用户机器上，ad-hoc 版不需要调试权限）：
+
+```bash
+# 连续抓 5 秒堆栈；尖峰反复出现时连抓几次更有用
+sample $(pgrep -f 'cmux.app/Contents/MacOS/cmux' | head -1) 5 -file /tmp/cmux-sample.txt
+# 重量级但能抓到「谁在等谁」
+spindump -o /tmp/cmux-spindump.txt $(pgrep -f 'cmux.app/Contents/MacOS/cmux' | head -1)
+```
+
+抓的时候记下墙上时间（`date +%T`），回来和日志第一列对齐即可。
+
+### 与 Issue #44 的分工
+
+冷启动首键（66.30 / 115.71 ms）不在这里处理：那是首次按键时 surface / 输入法 / 渲染首次初始化的一次性成本，另一个 Worker 在 `fix/keystroke-cold-first-key` 上做。两边都碰 `KeyLatencyProbe` 附近，但改的是不同函数（本节只**新增** `recordActivity` 与回合监视器，没动 `record(event:phase:)` 的行为）。
+
+---
+
 ## 先说清楚这 9 条 Issue 是什么
 
 它们不是本仓库的 bug 报告，而是 2026-11-04 对上游做的一次调研记录：用多组关键词扫上游 Issue 与 PR，筛出「coding-agent 的 TUI 输入框打字延迟」及其直接根因，逐条记下上游编号、状态、实测数据和「本地意义」。#18 是汇总，#10 ~ #17 是其中单独建条目的上游项（7 条 Issue + 2 条未合并 PR）。
@@ -142,6 +258,8 @@
 | 远程终端预测性本地回显（默认开，排除本地 / alternate screen） | `Packages/Shared/CmuxTerminalPrediction/Sources/CmuxTerminalPrediction/TerminalPredictionEngine.swift` 的 `status(at:)`、`TerminalCatalogSection.swift:125` | #13914 / #13967 / #15217、#25089 |
 | TextBox 自动显示 / 聚焦（新建终端）与 Cmd+Shift+A 手动开关 | `TerminalCatalogSection.swift:220, 226`、`Sources/Workspace.swift:5093`、`Sources/Panels/TerminalPanel.swift:277, 286` | #25089 方案 2 的粗粒度版本 |
 | shell 集成双开时的 hook 饱和守卫、免 fork 等待、socket 保序 | `Resources/shell-integration/cmux-zsh-integration.zsh:19, 76, 903` | #2195 |
+| 滚动回写检查点导出改走有界格式化（不再在主线程格式化整段历史） | `Sources/AppDelegate+SessionScrollbackCheckpoint.swift` 的 `TerminalScrollbackCheckpointExport.begin`、`Packages/macOS/CmuxTerminal/.../TerminalSurface+TextCapture.swift` 的 `readBoundedScreenTailVT` | 本仓库 Issue #45 |
+| 探针日志带后台 span（`mainTurn` / `scrollbackExport` / `sessionAutosave`） | `Sources/GhosttyTitleUpdateIngress.swift` 的 `KeyLatencyProbe.recordActivity`、`scripts/analyze-key-latency.py` | 本仓库 Issue #45 |
 | 隐藏 renderer 内存回收、主线程视图与标签栏路径修复 | CHANGELOG 中 `#20238` / `#12521` / `#8998` / `#7496` / `#5857` 的已合并 PR 条目 | #1519 / #4705 建议 4 |
 
 ---
@@ -179,7 +297,7 @@
 
 ## 回归防护：守卫脚本
 
-`scripts/check-latency-guardrails.py` 在 PR 门禁 `checks` 里作为一步运行：静态检查上面「证据清单」里的关键守卫是否还在（打字静默期两处判断、Git 探测限流、查表编码、标题合并、预测回显的 alternate-screen 排除、TextBox 设置、shell 集成守卫、输入时间戳）。检查前会去掉注释，避免「注释里还写着、代码已经删了」造成假绿。
+`scripts/check-latency-guardrails.py` 在 PR 门禁 `checks` 里作为一步运行：静态检查上面「证据清单」里的关键守卫是否还在（打字静默期两处判断、Git 探测限流、查表编码、标题合并、预测回显的 alternate-screen 排除、TextBox 设置、shell 集成守卫、输入时间戳、滚动回写导出走有界格式化）。检查前会去掉注释，避免「注释里还写着、代码已经删了」造成假绿。
 
 **它防的是什么**：按 [SYNC.md](SYNC.md) 同步上游新 tag 时，上游可能重构这些路径、把守卫悄悄换掉或删掉；这些防护本身不产生可见功能，回归了不会有人立刻发现，只会在「打字又变卡」时才被察觉。脚本让 PR 直接变红，把回归拦在合并前。
 

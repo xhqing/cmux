@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -52,8 +53,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
-        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        let themesURL = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
         try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
         try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
 
@@ -73,7 +73,6 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
         environment["CFFIXED_USER_HOME"] = root.path
         environment["HOME"] = root.path
-        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLE_ID"] = bundleIdentifier
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -96,17 +95,16 @@ extension CMUXCLIErrorOutputRegressionTests {
         let configPath = try XCTUnwrap(payload["config_path"] as? String, result.diagnostics)
         XCTAssertEqual(payload["reload_target_bundle_id"] as? String, bundleIdentifier)
 
-        let appSupportDirectory = root
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-        let expectedConfigURL = appSupportDirectory
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+        let expectedConfigURL = root
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("config.ghostty", isDirectory: false)
         XCTAssertEqual(configPath, expectedConfigURL.path)
 
-        let appReadablePaths = GhosttyApp.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
+        // The app resolves the same fixed location from the same fixed home, so
+        // the override the CLI just wrote is exactly what the app will read.
+        let appReadablePaths = CmuxGhosttyConfigPathResolver().loadConfigURLs(
+            environment: ["CFFIXED_USER_HOME": root.path]
         ).map(\.path)
         XCTAssertEqual(appReadablePaths, [expectedConfigURL.path])
     }

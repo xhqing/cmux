@@ -94,46 +94,45 @@ final class RCChannelIdentityTests: XCTestCase {
 }
 
 extension GhosttyConfigPathResolverTests {
-    func testCmuxAppSupportConfigURLsUseReleaseConfigForRCWithoutCurrentConfig() throws {
-        try withTemporaryAppSupportDirectory { appSupportDirectory in
-            let releaseConfigURL = try writeAppSupportConfig(
-                appSupportDirectory: appSupportDirectory,
-                bundleIdentifier: "com.cmuxterm.app",
+    func testCmuxConfigURLsUseFixedLocationRegardlessOfChannel() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let fileManager = FileManager.default
+            let configURL = try writeConfig(
+                homeDirectory: homeDirectory,
                 filename: "config.ghostty",
                 contents: "font-size = 13\n"
             )
 
             XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
-                    currentBundleIdentifier: "com.cmuxterm.app.rc",
-                    appSupportDirectory: appSupportDirectory
+                CmuxGhosttyConfigPathResolver().loadConfigURLs(
+                    environment: ["CFFIXED_USER_HOME": homeDirectory.path],
+                    fileManager: fileManager
                 ),
-                [releaseConfigURL]
+                [configURL]
             )
         }
     }
 
-    func testCmuxAppSupportConfigURLsUseRCConfigWhenPresent() throws {
-        try withTemporaryAppSupportDirectory { appSupportDirectory in
+    func testCmuxConfigURLsIgnoreRCConfigLeftInLegacyAppSupport() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let fileManager = FileManager.default
+            let appSupportDirectory = homeDirectory
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Application Support", isDirectory: true)
             _ = try writeAppSupportConfig(
-                appSupportDirectory: appSupportDirectory,
-                bundleIdentifier: "com.cmuxterm.app",
-                filename: "config.ghostty",
-                contents: "font-size = 13\n"
-            )
-            let rcConfigURL = try writeAppSupportConfig(
                 appSupportDirectory: appSupportDirectory,
                 bundleIdentifier: "com.cmuxterm.app.rc",
                 filename: "config.ghostty",
                 contents: "font-size = 15\n"
             )
 
-            XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
-                    currentBundleIdentifier: "com.cmuxterm.app.rc",
-                    appSupportDirectory: appSupportDirectory
-                ),
-                [rcConfigURL]
+            // The legacy App Support location is only a migration source; it is
+            // never read directly, whatever the channel of the running build.
+            XCTAssertTrue(
+                CmuxGhosttyConfigPathResolver().loadConfigURLs(
+                    environment: ["CFFIXED_USER_HOME": homeDirectory.path],
+                    fileManager: fileManager
+                ).isEmpty
             )
         }
     }

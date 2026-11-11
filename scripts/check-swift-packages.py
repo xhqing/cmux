@@ -34,12 +34,56 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED_PREFIXES = ("ghostty/", "vendor/")
+
+# How many trailing lines of each stream a failed build/test prints.
+FAIL_LINES = 120
+
+
+def local_binary_target_missing(package: Path) -> list[str]:
+    """Collect local `.binaryTarget(path:)` artifacts that are missing on disk.
+
+    Walks the package and its same-repository `.package(path:)` dependencies so
+    a package that only *consumes* a binary target (like CmuxTerminalCore via
+    CmuxGhosttyKit) is still detected. Only path-based binary targets whose
+    file does not exist are reported; URL-based targets are ignored because
+    SwiftPM fetches them itself.
+    """
+    missing: list[str] = []
+    seen_packages: set[Path] = set()
+
+    def visit(package_dir: Path) -> None:
+        resolved_dir = package_dir.resolve()
+        if resolved_dir in seen_packages:
+            return
+        seen_packages.add(resolved_dir)
+        manifest = resolved_dir / "Package.swift"
+        if not manifest.is_file():
+            return
+        try:
+            text = manifest.read_text(encoding="utf-8")
+        except OSError:
+            return
+        for raw_path in re.findall(r'\.binaryTarget\([^)]*?path:\s*"([^"]+)"', text):
+            artifact = (resolved_dir / raw_path).resolve()
+            # A valid xcframework carries its own Info.plist; an empty or
+            # half-created directory without one is treated as missing (the
+            # PR gate does not run scripts/setup.sh that populates it).
+            if not (artifact / "Info.plist").is_file():
+                missing.append(str(artifact))
+        for dep in re.findall(r'\.package\(path:\s*"([^"]+)"', text):
+            dep_dir = resolved_dir / dep
+            if (dep_dir / "Package.swift").is_file():
+                visit(dep_dir)
+
+    visit(package)
+    return sorted(set(missing))
 
 
 def changed_paths(explicit_file: Path | None) -> list[str]:
@@ -79,6 +123,9 @@ def has_tests(package: Path) -> bool:
 
 
 def run(command: list[str], timeout: int) -> tuple[bool, str]:
+    """Runs a command; on failure returns the trailing lines of stdout and
+    stderr separately (swift build/test print results on stdout and compile
+    progress on stderr, so a single combined tail hides the failing line)."""
     try:
         result = subprocess.run(
             command,
@@ -90,10 +137,24 @@ def run(command: list[str], timeout: int) -> tuple[bool, str]:
         )
     except subprocess.TimeoutExpired:
         return False, f"timed out after {timeout}s"
-    output = (result.stdout + result.stderr).strip()
-    if result.returncode != 0:
-        return False, "\n".join(output.splitlines()[-40:])
-    return True, "\n".join(output.splitlines()[-3:])
+    if result.returncode == 0:
+        combined = (result.stdout + result.stderr).strip()
+        return True, "\n".join(combined.splitlines()[-3:])
+
+    parts: list[str] = []
+    if result.stdout.strip():
+        parts.append(
+            "---- stdout (last %d lines) ----" % FAIL_LINES
+            + "\n"
+            + "\n".join(result.stdout.splitlines()[-FAIL_LINES:])
+        )
+    if result.stderr.strip():
+        parts.append(
+            "---- stderr (last %d lines) ----" % FAIL_LINES
+            + "\n"
+            + "\n".join(result.stderr.splitlines()[-FAIL_LINES:])
+        )
+    return False, "\n".join(parts)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -136,6 +197,19 @@ def main(argv: list[str] | None = None) -> int:
     for package in ordered:
         relative = package.relative_to(ROOT)
         print(f"== {relative} ==")
+        missing = local_binary_target_missing(package)
+        if missing:
+            # The PR gate intentionally does not run scripts/setup.sh, so local
+            # binary targets (prebuilt frameworks) are absent here. Skip
+            # loudly instead of failing: the full build is covered by
+            # build-macos, which does run setup.sh.
+            print(
+                "  SKIP  build/test: depends on local binary target(s) not "
+                "present in the PR gate; covered by build-macos"
+            )
+            for artifact in missing:
+                print(f"        missing artifact: {artifact}")
+            continue
         ok, detail = run(["swift", "build", "--package-path", str(package)], args.timeout)
         print(f"  {'PASS' if ok else 'FAIL'}  swift build")
         if not ok:

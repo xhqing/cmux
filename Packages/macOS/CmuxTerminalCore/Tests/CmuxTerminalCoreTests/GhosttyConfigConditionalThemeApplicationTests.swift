@@ -21,13 +21,13 @@ import Testing
 /// producing the unreadable white-on-white terminals reported in #6411.
 @Suite struct GhosttyConfigConditionalThemeApplicationTests {
     /// A light theme directory (light background, dark foreground) reachable via
-    /// `GHOSTTY_RESOURCES_DIR`.
+    /// the injected `bundleResourceURL`.
     private static let lightThemeBackgroundHex = "#FDF6E3"
 
     private func makeThemesRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-6411-\(UUID().uuidString)", isDirectory: true)
-        let themesDir = root.appendingPathComponent("themes", isDirectory: true)
+        let themesDir = root.appendingPathComponent("ghostty/themes", isDirectory: true)
         try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
         try """
         background = #fdf6e3
@@ -52,8 +52,8 @@ import Testing
         var darkConfig = GhosttyConfig()
         darkConfig.loadTheme(
             "light:Light Theme",
-            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
-            bundleResourceURL: nil,
+            environment: [:],
+            bundleResourceURL: root,
             preferredColorScheme: .dark
         )
 
@@ -72,8 +72,8 @@ import Testing
         var lightConfig = GhosttyConfig()
         lightConfig.loadTheme(
             "light:Light Theme",
-            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
-            bundleResourceURL: nil,
+            environment: [:],
+            bundleResourceURL: root,
             preferredColorScheme: .light
         )
 

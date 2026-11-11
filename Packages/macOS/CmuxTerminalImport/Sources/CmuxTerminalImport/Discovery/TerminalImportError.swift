@@ -26,7 +26,7 @@ public enum TerminalImportError: Error, Equatable, Sendable {
         case .unreadable(let url):
             return "Could not read \(url.path)."
         case .ghosttyAlreadyLoaded:
-            return "cmux already reads your Ghostty config (~/.config/ghostty/config), so there is nothing to import."
+            return "cmux no longer reads Ghostty's config automatically, and importing from Ghostty is not supported yet."
         }
     }
 }

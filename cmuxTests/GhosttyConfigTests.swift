@@ -253,17 +253,27 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertTrue(candidates.contains("iTerm2 Solarized Dark"))
     }
 
-    func testThemeSearchPathsIncludeXDGDataDirsThemes() {
+    func testThemeSearchPathsExcludeGhosttyOwnLocations() {
         let pathA = "/tmp/cmux-theme-a"
-        let pathB = "/tmp/cmux-theme-b"
         let paths = GhosttyConfig.themeSearchPaths(
             forThemeName: "Solarized Light",
-            environment: ["XDG_DATA_DIRS": "\(pathA):\(pathB)"],
+            environment: ["XDG_DATA_DIRS": "\(pathA):/tmp/cmux-theme-b", "GHOSTTY_RESOURCES_DIR": "/tmp/cmux-resources"],
             bundleResourceURL: nil
         )
 
-        XCTAssertTrue(paths.contains("\(pathA)/ghostty/themes/Solarized Light"))
-        XCTAssertTrue(paths.contains("\(pathB)/ghostty/themes/Solarized Light"))
+        XCTAssertFalse(paths.contains("\(pathA)/ghostty/themes/Solarized Light"))
+        XCTAssertFalse(paths.contains("/tmp/cmux-resources/themes/Solarized Light"))
+        XCTAssertFalse(paths.contains("/Applications/Ghostty.app/Contents/Resources/ghostty/themes/Solarized Light"))
+        XCTAssertFalse(
+            paths.contains(
+                "\(NSHomeDirectory())/.config/ghostty/themes/Solarized Light"
+            )
+        )
+        XCTAssertFalse(
+            paths.contains(
+                "\(NSHomeDirectory())/Library/Application Support/com.mitchellh.ghostty/themes/Solarized Light"
+            )
+        )
     }
 
     func testThemeSearchPathsIncludeCmuxUserThemesDirectory() {
@@ -275,7 +285,7 @@ final class GhosttyConfigTests: XCTestCase {
 
         XCTAssertTrue(
             paths.contains(
-                "\(NSHomeDirectory())/Library/Application Support/com.cmuxterm.app/themes/Zag Light"
+                "\(NSHomeDirectory())/.config/cmux/themes/Zag Light"
             )
         )
     }
@@ -290,7 +300,22 @@ final class GhosttyConfigTests: XCTestCase {
 
         XCTAssertTrue(
             paths.contains(
-                "\(fixedHome)/Library/Application Support/com.cmuxterm.app/themes/Zag Light"
+                "\(fixedHome)/.config/cmux/themes/Zag Light"
+            )
+        )
+    }
+
+    func testThemeSearchPathsIncludeBundledThemeLibrary() {
+        let bundleResourceURL = URL(fileURLWithPath: "/tmp/cmux-bundle-resources")
+        let paths = GhosttyConfig.themeSearchPaths(
+            forThemeName: "Zag Light",
+            environment: [:],
+            bundleResourceURL: bundleResourceURL
+        )
+
+        XCTAssertTrue(
+            paths.contains(
+                "/tmp/cmux-bundle-resources/ghostty/themes/Zag Light"
             )
         )
     }
@@ -303,15 +328,15 @@ final class GhosttyConfigTests: XCTestCase {
         defer { try? fileManager.removeItem(at: root) }
 
         let themesDirectory = root
-            .appendingPathComponent("Library/Application Support/com.cmuxterm.app/themes", isDirectory: true)
+            .appendingPathComponent(".config/cmux/themes", isDirectory: true)
         try fileManager.createDirectory(at: themesDirectory, withIntermediateDirectories: true)
         try "background = #ffffff\nforeground = #1f2328\n".write(
             to: themesDirectory.appendingPathComponent("Zag Light", isDirectory: false),
             atomically: true,
             encoding: .utf8
         )
-        let configURL = themesDirectory
-            .deletingLastPathComponent()
+        let configURL = root
+            .appendingPathComponent(".config/cmux", isDirectory: true)
             .appendingPathComponent("config.ghostty", isDirectory: false)
         try "theme = Zag Light\n".write(to: configURL, atomically: true, encoding: .utf8)
 
@@ -346,33 +371,46 @@ final class GhosttyConfigTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let firstDataDir = root.appendingPathComponent("first", isDirectory: true)
-        let secondDataDir = root.appendingPathComponent("second", isDirectory: true)
-        let firstThemeDir = firstDataDir.appendingPathComponent("ghostty/themes", isDirectory: true)
-        let secondThemeDir = secondDataDir.appendingPathComponent("ghostty/themes", isDirectory: true)
-        try fileManager.createDirectory(at: firstThemeDir, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: secondThemeDir, withIntermediateDirectories: true)
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
 
-        let firstTheme = firstThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
+        // The bundled theme library wins the first lookup slot; put an
+        // invalid-UTF8 file there and the valid file in the user theme
+        // directory, which is searched second.
+        let bundleResources = root.appendingPathComponent("bundle", isDirectory: true)
+        let bundleThemeDir = bundleResources.appendingPathComponent("ghostty/themes", isDirectory: true)
+        let userThemeDir = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
+        try fileManager.createDirectory(at: bundleThemeDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: userThemeDir, withIntermediateDirectories: true)
+
+        let firstTheme = bundleThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
         try Data([0xff, 0xfe]).write(to: firstTheme)
 
-        let secondTheme = secondThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
+        let secondTheme = userThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
         let expected = "foreground = #123456\n"
         try expected.write(to: secondTheme, atomically: true, encoding: .utf8)
 
         let contents = GhosttyConfig.cmuxDefaultThemeConfigContents(
             preferredColorScheme: .light,
-            environment: ["XDG_DATA_DIRS": "\(firstDataDir.path):\(secondDataDir.path)"],
-            bundleResourceURL: nil
+            environment: [:],
+            bundleResourceURL: bundleResources
         )
 
         XCTAssertEqual(contents, expected)
     }
 
-    func testLoadReadsSymlinkedGhosttyConfigFile() throws {
+    func testLoadReadsSymlinkedCmuxConfigFile() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ghostty-config-symlink-\(UUID().uuidString)")
+            .appendingPathComponent("cmux-config-symlink-\(UUID().uuidString)")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -387,16 +425,16 @@ final class GhosttyConfigTests: XCTestCase {
             GhosttyConfig.invalidateLoadCache()
         }
 
-        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
-        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
+        let cmuxConfigDir = root.appendingPathComponent(".config/cmux", isDirectory: true)
+        try fileManager.createDirectory(at: cmuxConfigDir, withIntermediateDirectories: true)
 
-        let dotfilesDir = root.appendingPathComponent("dotfiles/ghostty", isDirectory: true)
+        let dotfilesDir = root.appendingPathComponent("dotfiles/cmux", isDirectory: true)
         try fileManager.createDirectory(at: dotfilesDir, withIntermediateDirectories: true)
 
         let targetConfig = dotfilesDir.appendingPathComponent("config", isDirectory: false)
         try "font-size = 15\n".write(to: targetConfig, atomically: true, encoding: .utf8)
 
-        let symlinkedConfig = ghosttyConfigDir.appendingPathComponent("config", isDirectory: false)
+        let symlinkedConfig = cmuxConfigDir.appendingPathComponent("config", isDirectory: false)
         try fileManager.createSymbolicLink(
             atPath: symlinkedConfig.path,
             withDestinationPath: targetConfig.path
@@ -464,7 +502,7 @@ final class GhosttyConfigTests: XCTestCase {
             GhosttyConfig.invalidateLoadCache()
         }
 
-        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        let ghosttyConfigDir = root.appendingPathComponent(".config/cmux", isDirectory: true)
         try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
 
         try "background = #123456\nforeground = #abcdef\n".write(
@@ -502,7 +540,7 @@ final class GhosttyConfigTests: XCTestCase {
             GhosttyConfig.invalidateLoadCache()
         }
 
-        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        let ghosttyConfigDir = root.appendingPathComponent(".config/cmux", isDirectory: true)
         try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
         let configFile = ghosttyConfigDir.appendingPathComponent("config.ghostty", isDirectory: false)
 
@@ -537,7 +575,7 @@ final class GhosttyConfigTests: XCTestCase {
             GhosttyConfig.invalidateLoadCache()
         }
 
-        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        let ghosttyConfigDir = root.appendingPathComponent(".config/cmux", isDirectory: true)
         try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
         let legacyConfig = ghosttyConfigDir.appendingPathComponent("config", isDirectory: false)
         try "background = #111111\n".write(to: legacyConfig, atomically: true, encoding: .utf8)
@@ -574,7 +612,7 @@ final class GhosttyConfigTests: XCTestCase {
             GhosttyConfig.invalidateLoadCache()
         }
 
-        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        let ghosttyConfigDir = root.appendingPathComponent(".config/cmux", isDirectory: true)
         try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
 
         try "background = #334455\nforeground = #ddeeff\n".write(
@@ -594,10 +632,10 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(loaded.foregroundColor.hexString(), "#DDEEFF")
     }
 
-    func testLoadIgnoresLegacyAppSupportConfigWhenConfigGhosttyIsNonEmpty() throws {
+    func testLoadIgnoresGhosttyAppSupportConfig() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ghostty-app-support-legacy-skip-\(UUID().uuidString)")
+            .appendingPathComponent("cmux-ghostty-app-support-decoupled-\(UUID().uuidString)")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -615,12 +653,7 @@ final class GhosttyConfigTests: XCTestCase {
         let ghosttyConfigDir = root
             .appendingPathComponent("Library/Application Support/com.mitchellh.ghostty", isDirectory: true)
         try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
-        try "background = #112233\n".write(
-            to: ghosttyConfigDir.appendingPathComponent("config", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
-        try "font-size = 13\n".write(
+        try "background = #112233\nfont-size = 13\n".write(
             to: ghosttyConfigDir.appendingPathComponent("config.ghostty", isDirectory: false),
             atomically: true,
             encoding: .utf8
@@ -632,10 +665,10 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertNotEqual(loaded.backgroundColor.hexString(), "#112233")
     }
 
-    func testLoadUsesLegacyAppSupportConfigWhenConfigGhosttyIsEmpty() throws {
+    func testLoadIgnoresGhosttyXDGConfig() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ghostty-app-support-legacy-fallback-\(UUID().uuidString)")
+            .appendingPathComponent("cmux-ghostty-xdg-decoupled-\(UUID().uuidString)")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -650,23 +683,19 @@ final class GhosttyConfigTests: XCTestCase {
             GhosttyConfig.invalidateLoadCache()
         }
 
-        let ghosttyConfigDir = root
-            .appendingPathComponent("Library/Application Support/com.mitchellh.ghostty", isDirectory: true)
+        // Acceptance criterion: writing `background = #ff0000` into Ghostty's
+        // own `~/.config/ghostty/config` must not affect cmux.
+        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
         try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
-        try "background = #112233\n".write(
+        try "background = #ff0000\n".write(
             to: ghosttyConfigDir.appendingPathComponent("config", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
-        try "".write(
-            to: ghosttyConfigDir.appendingPathComponent("config.ghostty", isDirectory: false),
             atomically: true,
             encoding: .utf8
         )
 
         let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
 
-        XCTAssertEqual(loaded.backgroundColor.hexString(), "#112233")
+        XCTAssertNotEqual(loaded.backgroundColor.hexString(), "#FF0000")
     }
 
     func testLoadAppliesThemeBeforeLaterCursorColorOverride() throws {
@@ -676,21 +705,18 @@ final class GhosttyConfigTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let resourcesDir = root.appendingPathComponent("resources", isDirectory: true)
-        let themesDir = resourcesDir.appendingPathComponent("themes", isDirectory: true)
-        let configDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        let themesDir = root.appendingPathComponent(".config/cmux/themes", isDirectory: true)
+        let configDir = root.appendingPathComponent(".config/cmux", isDirectory: true)
         try fileManager.createDirectory(at: themesDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: configDir, withIntermediateDirectories: true)
 
-        let environmentKeys: [String] = ["CFFIXED_USER_HOME", "GHOSTTY_RESOURCES_DIR"]
-        let originalEnvironment = environmentKeys.map { key in
-            (key, getenv(key).map { String(cString: $0) })
-        }
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
         setenv("CFFIXED_USER_HOME", root.path, 1)
-        setenv("GHOSTTY_RESOURCES_DIR", resourcesDir.path, 1)
         defer {
-            for (key, value) in originalEnvironment {
-                if let value { setenv(key, value, 1) } else { unsetenv(key) }
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
             }
             GhosttyConfig.invalidateLoadCache()
         }
@@ -739,8 +765,8 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testLoadThemeResolvesPairedThemeValueByColorScheme() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-ghostty-theme-pair-\(UUID().uuidString)")
-        let themesDir = root.appendingPathComponent("themes")
+            .appendingPathComponent("cmux-theme-pair-\(UUID().uuidString)")
+        let themesDir = root.appendingPathComponent("ghostty/themes")
         try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -765,8 +791,8 @@ final class GhosttyConfigTests: XCTestCase {
         var lightConfig = GhosttyConfig()
         lightConfig.loadTheme(
             "light:Light Theme,dark:Dark Theme",
-            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
-            bundleResourceURL: nil,
+            environment: [:],
+            bundleResourceURL: root,
             preferredColorScheme: .light
         )
         XCTAssertEqual(rgb255(lightConfig.backgroundColor), RGB(red: 253, green: 246, blue: 227))
@@ -774,8 +800,8 @@ final class GhosttyConfigTests: XCTestCase {
         var darkConfig = GhosttyConfig()
         darkConfig.loadTheme(
             "light:Light Theme,dark:Dark Theme",
-            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
-            bundleResourceURL: nil,
+            environment: [:],
+            bundleResourceURL: root,
             preferredColorScheme: .dark
         )
         XCTAssertEqual(rgb255(darkConfig.backgroundColor), RGB(red: 0, green: 43, blue: 54))
@@ -811,7 +837,7 @@ final class GhosttyConfigTests: XCTestCase {
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")
-        let themesDir = root.appendingPathComponent("themes")
+        let themesDir = root.appendingPathComponent("ghostty/themes")
         try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -825,8 +851,8 @@ final class GhosttyConfigTests: XCTestCase {
         var config = GhosttyConfig()
         config.loadTheme(
             "Builtin Solarized Light",
-            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
-            bundleResourceURL: nil
+            environment: [:],
+            bundleResourceURL: root
         )
 
         XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
@@ -835,7 +861,7 @@ final class GhosttyConfigTests: XCTestCase {
     func testLoadThemeResolvesITerm2SolarizedLightAliasToLegacyThemeName() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-solarized-light-\(UUID().uuidString)")
-        let themesDir = root.appendingPathComponent("themes")
+        let themesDir = root.appendingPathComponent("ghostty/themes")
         try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -851,8 +877,8 @@ final class GhosttyConfigTests: XCTestCase {
         var config = GhosttyConfig()
         config.loadTheme(
             "iTerm2 Solarized Light",
-            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
-            bundleResourceURL: nil
+            environment: [:],
+            bundleResourceURL: root
         )
 
         XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
@@ -861,7 +887,7 @@ final class GhosttyConfigTests: XCTestCase {
     func testLoadThemeResolvesITerm2SolarizedDarkAliasToLegacyThemeName() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-solarized-dark-\(UUID().uuidString)")
-        let themesDir = root.appendingPathComponent("themes")
+        let themesDir = root.appendingPathComponent("ghostty/themes")
         try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -877,8 +903,8 @@ final class GhosttyConfigTests: XCTestCase {
         var config = GhosttyConfig()
         config.loadTheme(
             "iTerm2 Solarized Dark",
-            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
-            bundleResourceURL: nil
+            environment: [:],
+            bundleResourceURL: root
         )
 
         XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 0, green: 43, blue: 54))
@@ -948,74 +974,6 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(second.fontFamily, "reload-2")
     }
 
-    func testLegacyConfigFallbackUsesLegacyFileWhenConfigGhosttyIsEmpty() {
-        XCTAssertTrue(
-            GhosttyApp.shouldLoadLegacyGhosttyConfig(
-                newConfigFileSize: 0,
-                legacyConfigFileSize: 42
-            )
-        )
-    }
-
-    func testLegacyConfigFallbackDoesNotReloadLegacyFileWhenConfigGhosttyIsMissing() {
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadLegacyGhosttyConfig(
-                newConfigFileSize: nil,
-                legacyConfigFileSize: 42
-            )
-        )
-    }
-
-    func testLegacyConfigScanPathsIncludeLegacyFileWhenConfigGhosttyIsMissing() {
-        XCTAssertTrue(
-            GhosttyApp.shouldIncludeLegacyGhosttyConfigInScanPaths(
-                newConfigFileSize: nil,
-                legacyConfigFileSize: 42
-            )
-        )
-    }
-
-    func testLegacyConfigFallbackSkipsWhenNewFileHasContentsOrLegacyEmpty() {
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadLegacyGhosttyConfig(
-                newConfigFileSize: 10,
-                legacyConfigFileSize: 42
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadLegacyGhosttyConfig(
-                newConfigFileSize: 0,
-                legacyConfigFileSize: 0
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadLegacyGhosttyConfig(
-                newConfigFileSize: 0,
-                legacyConfigFileSize: nil
-            )
-        )
-    }
-
-    func testUnparsedAppearanceFallbackIgnoresNativeLegacyBaselineWhenCurrentConfigExists() throws {
-        let appSupport = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-test-native-legacy-baseline-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: appSupport) }
-
-        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
-        try "background = #112233\n"
-            .write(to: ghosttyDir.appendingPathComponent("config", isDirectory: false), atomically: true, encoding: .utf8)
-        try "background = black\n"
-            .write(to: ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false), atomically: true, encoding: .utf8)
-
-        XCTAssertTrue(
-            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
-                appSupportDirectory: appSupport
-            )
-        )
-    }
-
     func testUnparsedAppearanceDirectiveIsTrackedSeparatelyFromParsedHexColor() {
         var config = GhosttyConfig()
 
@@ -1026,33 +984,6 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertTrue(config.hasForegroundColorDirective)
         XCTAssertTrue(config.hasParsedForegroundColor)
         XCTAssertEqual(config.foregroundColor.hexString(), "#DDEEFF")
-    }
-
-    func testUnparsedAppearanceFallbackKeepsNativeLegacyBaselineWhenCurrentConfigIsMissingOrEmpty() throws {
-        let appSupport = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-test-native-legacy-baseline-empty-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: appSupport) }
-
-        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
-        let currentConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        try "background = #112233\n"
-            .write(to: ghosttyDir.appendingPathComponent("config", isDirectory: false), atomically: true, encoding: .utf8)
-
-        XCTAssertFalse(
-            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
-                appSupportDirectory: appSupport
-            )
-        )
-
-        try "".write(to: currentConfig, atomically: true, encoding: .utf8)
-
-        XCTAssertFalse(
-            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
-                appSupportDirectory: appSupport
-            )
-        )
     }
 
     func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
@@ -3675,33 +3606,33 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testLoadedCJKScanPathsIncludesNativeGhosttyAppSupportWhenTaggedConfigExists() throws {
-        let appSupport = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-test-cjk-app-support-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: appSupport) }
+    func testLoadedCJKScanPathsReadsCmuxConfigForFontFallbackDecisions() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-config-home-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
 
-        let taggedDir = appSupport.appendingPathComponent("com.example.cmux-dev", isDirectory: true)
-        try FileManager.default.createDirectory(at: taggedDir, withIntermediateDirectories: true)
-        let taggedConfig = taggedDir.appendingPathComponent("config", isDirectory: false)
-        try "font-family = JetBrains Mono\n"
-            .write(to: taggedConfig, atomically: true, encoding: .utf8)
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
 
-        let releaseDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        try FileManager.default.createDirectory(at: releaseDir, withIntermediateDirectories: true)
-        let releaseConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
-        let releaseConfigGhostty = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        let cmuxDir = root.appendingPathComponent(".config/cmux", isDirectory: true)
+        try fileManager.createDirectory(at: cmuxDir, withIntermediateDirectories: true)
+        let cmuxConfig = cmuxDir.appendingPathComponent("config", isDirectory: false)
         try "font-family = LXGW WenKai Mono TC\n"
-            .write(to: releaseConfig, atomically: true, encoding: .utf8)
+            .write(to: cmuxConfig, atomically: true, encoding: .utf8)
 
-        let paths = GhosttyApp.loadedCJKScanPaths(
-            currentBundleIdentifier: "com.example.cmux-dev",
-            appSupportDirectory: appSupport
-        )
+        let paths = GhosttyApp.loadedCJKScanPaths()
 
-        XCTAssertTrue(paths.contains(taggedConfig.path))
-        XCTAssertTrue(paths.contains(releaseConfig.path))
-        XCTAssertTrue(paths.contains(releaseConfigGhostty.path))
+        XCTAssertTrue(paths.contains(cmuxConfig.path))
         XCTAssertFalse(
             GhosttyApp.shouldInjectCJKFontFallback(
                 preferredLanguages: ["zh-Hans-CN"],
@@ -3710,58 +3641,68 @@ final class GhosttyMouseFocusTests: XCTestCase {
         )
     }
 
-    func testShouldApplyManagedDefaultAppearanceScansNativeGhosttyAppSupport() throws {
-        let appSupport = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-test-appearance-app-support-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: appSupport) }
+    func testShouldApplyManagedDefaultAppearanceScansCmuxConfig() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-test-appearance-config-home-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
 
-        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
-        let nativeConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-        let currentConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let cmuxDir = root.appendingPathComponent(".config/cmux", isDirectory: true)
+        try fileManager.createDirectory(at: cmuxDir, withIntermediateDirectories: true)
         try "theme = Dracula\n"
-            .write(to: nativeConfig, atomically: true, encoding: .utf8)
-        try "".write(to: currentConfig, atomically: true, encoding: .utf8)
+            .write(to: cmuxDir.appendingPathComponent("config", isDirectory: false), atomically: true, encoding: .utf8)
 
-        let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
-            currentBundleIdentifier: "com.example.cmux-dev",
-            appSupportDirectory: appSupport
-        )
+        let paths = GhosttyApp.loadedGhosttyConfigScanPaths()
 
-        XCTAssertTrue(paths.contains(nativeConfig.path))
         XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
             configPaths: paths,
             adaptiveDefaultThemeEnabled: true
         ))
     }
 
-    func testLoadedGhosttyConfigScanPathsSkipsNativeLegacyConfigWhenCurrentConfigIsNonEmpty() throws {
-        let appSupport = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-test-appearance-app-support-current-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: appSupport) }
+    func testLoadPrefersCmuxConfigGhosttyOverLegacyConfig() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-test-config-preference-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
 
-        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
-        let legacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-        let currentConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let cmuxDir = root.appendingPathComponent(".config/cmux", isDirectory: true)
+        try fileManager.createDirectory(at: cmuxDir, withIntermediateDirectories: true)
+        let legacyConfig = cmuxDir.appendingPathComponent("config", isDirectory: false)
+        let currentConfig = cmuxDir.appendingPathComponent("config.ghostty", isDirectory: false)
         try "theme = Dracula\n"
             .write(to: legacyConfig, atomically: true, encoding: .utf8)
         try "font-size = 13\n"
             .write(to: currentConfig, atomically: true, encoding: .utf8)
 
-        let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
-            currentBundleIdentifier: "com.example.cmux-dev",
-            appSupportDirectory: appSupport
-        )
+        let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
 
-        XCTAssertTrue(paths.contains(currentConfig.path))
-        XCTAssertFalse(paths.contains(legacyConfig.path))
-        XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(
-            configPaths: paths,
-            adaptiveDefaultThemeEnabled: true
-        ))
+        XCTAssertEqual(loaded.fontSize, CGFloat(13), accuracy: 0.0001)
+        XCTAssertNil(loaded.theme)
     }
 
     // MARK: shouldApplyManagedDefaultAppearance

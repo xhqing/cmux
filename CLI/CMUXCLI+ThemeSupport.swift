@@ -62,11 +62,8 @@ extension CMUXCLI {
 
     func themeConfigSearchURLs(targetBundleIdentifier: String) -> [URL] {
         let fileManager = FileManager.default
-        var urls = [
-            configURL("~/.config/ghostty/config"),
-            configURL("~/.config/ghostty/config.ghostty"),
-        ]
-        var seen = Set(urls.map { $0.standardizedFileURL.path })
+        var urls: [URL] = []
+        var seen = Set<String>()
 
         func append(_ url: URL) {
             let standardized = url.standardizedFileURL
@@ -75,68 +72,13 @@ extension CMUXCLI {
             }
         }
 
-        for appSupportDirectory in CmuxApplicationSupportDirectories(
-            environment: ProcessInfo.processInfo.environment
-        ).userDirectories {
-            let ghosttyDirectory = appSupportDirectory.appendingPathComponent(
-                "com.mitchellh.ghostty",
-                isDirectory: true
-            )
-            let legacyGhosttyConfigURL = ghosttyDirectory.appendingPathComponent("config", isDirectory: false)
-            let currentGhosttyConfigURL = ghosttyDirectory.appendingPathComponent("config.ghostty", isDirectory: false)
-
-            append(currentGhosttyConfigURL)
-            if shouldLoadLegacyGhosttyConfig(
-                newConfigURL: currentGhosttyConfigURL,
-                legacyConfigURL: legacyGhosttyConfigURL,
-                fileManager: fileManager
-            ) {
-                append(legacyGhosttyConfigURL)
-            }
-
-            for url in CmuxGhosttyConfigPathResolver().loadConfigURLs(
-                currentBundleIdentifier: targetBundleIdentifier,
-                appSupportDirectory: appSupportDirectory,
-                fileManager: fileManager
-            ) {
-                append(url)
-            }
+        for url in CmuxGhosttyConfigPathResolver().loadConfigURLs(
+            fileManager: fileManager
+        ) {
+            append(url)
         }
 
         return urls
-    }
-
-    private func configURL(_ rawPath: String) -> URL {
-        homeExpandedURL(rawPath, isDirectory: false)
-    }
-
-    private func homeExpandedURL(_ rawPath: String, isDirectory: Bool) -> URL {
-        if rawPath.hasPrefix("~/"),
-           let home = ProcessInfo.processInfo.environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !home.isEmpty {
-            let relativePath = String(rawPath.dropFirst(2))
-            return URL(fileURLWithPath: home, isDirectory: true)
-                .appendingPathComponent(relativePath, isDirectory: isDirectory)
-        }
-        return URL(fileURLWithPath: NSString(string: rawPath).expandingTildeInPath, isDirectory: isDirectory)
-    }
-
-    private func shouldLoadLegacyGhosttyConfig(
-        newConfigURL: URL,
-        legacyConfigURL: URL,
-        fileManager: FileManager
-    ) -> Bool {
-        guard let newConfigFileSize = configFileSize(at: newConfigURL, fileManager: fileManager),
-              newConfigFileSize == 0 else { return false }
-        guard let legacyConfigFileSize = configFileSize(at: legacyConfigURL, fileManager: fileManager),
-              legacyConfigFileSize > 0 else { return false }
-        return true
-    }
-
-    private func configFileSize(at url: URL, fileManager: FileManager) -> Int? {
-        guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
-              let size = attrs[.size] as? NSNumber else { return nil }
-        return size.intValue
     }
 
     func lastThemeDirective(in contents: String) -> String? {
@@ -164,13 +106,7 @@ extension CMUXCLI {
     }
 
     func cmuxThemeOverrideConfigURL(targetBundleIdentifier: String) throws -> URL {
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw CLIError(message: "Failed to locate the Application Support directory")
-        }
-        return CmuxGhosttyConfigPathResolver().editableConfigURL(
-            currentBundleIdentifier: targetBundleIdentifier,
-            appSupportDirectory: appSupport
-        )
+        CmuxGhosttyConfigPathResolver().editableConfigURL()
     }
 
     func writeManagedThemeOverride(

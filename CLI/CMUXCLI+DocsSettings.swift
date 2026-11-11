@@ -6,7 +6,7 @@ extension CMUXCLI {
     static let primarySettingsDisplayPath = "~/.config/cmux/cmux.json"
     static let legacySettingsDisplayPath = "~/.config/cmux/settings.json"
     static let fallbackSettingsDisplayPath = "~/Library/Application Support/com.cmuxterm.app/settings.json"
-    static let ghosttyConfigDisplayPath = "~/.config/ghostty/config"
+    static let cmuxGhosttyConfigDisplayPath = "~/.config/cmux/config.ghostty"
 
     private struct DocsResource {
         let label: String
@@ -566,8 +566,8 @@ extension CMUXCLI {
                 "fallback": Self.fallbackSettingsDisplayPath,
             ]
             payload["ghostty_config"] = [
-                "path": Self.ghosttyConfigDisplayPath,
-                "note": "Not cmux-owned, but cmux reads it. Use for terminal transparency (background-opacity), blur, font, theme, etc.",
+                "path": Self.cmuxGhosttyConfigDisplayPath,
+                "note": "cmux's own Ghostty-format terminal config. Use for terminal transparency (background-opacity), blur, font, theme, etc. Ghostty's own config files are not read.",
             ]
             payload["backup"] = "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert."
             payload["reload_command"] = "cmux reload-config"
@@ -621,8 +621,8 @@ extension CMUXCLI {
             print("  legacy config: \(Self.legacySettingsDisplayPath)")
             print("  legacy app support: \(Self.fallbackSettingsDisplayPath)")
             print()
-            print("Related (not cmux-owned, but cmux reads it for terminal behavior):")
-            print("  \(Self.ghosttyConfigDisplayPath)")
+            print("Related (cmux's own Ghostty-format terminal config):")
+            print("  \(Self.cmuxGhosttyConfigDisplayPath)")
             print("  Use this for terminal transparency (background-opacity), blur, font, theme, etc.")
             print()
             print("Before editing cmux.json:")
@@ -779,8 +779,8 @@ extension CMUXCLI {
           legacy config: \(Self.legacySettingsDisplayPath)
           legacy app support: \(Self.fallbackSettingsDisplayPath)
 
-        Related (not cmux-owned, but cmux reads it for terminal behavior):
-          \(Self.ghosttyConfigDisplayPath)
+        Related (cmux's own Ghostty-format terminal config):
+          \(Self.cmuxGhosttyConfigDisplayPath)
 
         Before editing cmux.json:
           Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.

@@ -163,9 +163,9 @@ extension CMUXCLI {
           cmux cloud guide | cmux cloud --skill
           Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`.
           Before editing, back up any existing cmux.json file to a timestamped .bak copy.
-          Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports.
-          Ghostty config lives at ~/.config/ghostty/config (terminal transparency, blur, font, theme, keybinds, etc.).
-          `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
+          Use printed curl commands to fetch the latest docs/schema; put terminal behavior that cmux supports through Ghostty config directives in cmux's own config file.
+          cmux's terminal config lives at ~/.config/cmux/config.ghostty (terminal transparency, blur, font, theme, keybinds, etc.); Ghostty's own config is not read.
+          `cmux reload-config` reloads BOTH cmux's terminal config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
 
         \(String(localized: "cli.help.taskHelp.heading", defaultValue: "Task Help:"))
           cmux help <\(Self.taskHelpTopicNames)>

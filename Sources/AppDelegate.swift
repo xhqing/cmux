@@ -901,11 +901,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var ghosttyConfigLiveReloadCoordinator: GhosttyConfigLiveReloadCoordinator = {
         GhosttyConfigLiveReloadCoordinator(
             snapshotReader: DiscoveryGhosttyConfigLiveReloadSnapshotReader(
-                currentBundleIdentifier: Bundle.main.bundleIdentifier,
-                appSupportDirectory: FileManager.default.urls(
-                    for: .applicationSupportDirectory,
-                    in: .userDomainMask
-                ).first,
                 configHomeDirectory: DiscoveryGhosttyConfigLiveReloadSnapshotReader.configHomeDirectory(
                     environment: ProcessInfo.processInfo.environment
                 )

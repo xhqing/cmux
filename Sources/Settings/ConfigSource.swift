@@ -3,68 +3,40 @@ import CmuxFoundation
 
 struct ConfigSourceEnvironment {
     let homeDirectoryURL: URL
-    let previewDirectoryURL: URL
     let fileManager: FileManager
-    let currentBundleIdentifier: String?
 
     init(
         homeDirectoryURL: URL,
-        currentBundleIdentifier: String? = CmuxGhosttyConfigPathResolver.releaseBundleIdentifier,
-        previewDirectoryURL: URL? = nil,
         fileManager: FileManager = .default
     ) {
         let standardizedHome = homeDirectoryURL.standardizedFileURL
         self.homeDirectoryURL = standardizedHome
         self.fileManager = fileManager
-        self.currentBundleIdentifier = currentBundleIdentifier
-        self.previewDirectoryURL = previewDirectoryURL?.standardizedFileURL
-            ?? CmuxGhosttyConfigPathResolver().configDirectoryURL(
-                currentBundleIdentifier: currentBundleIdentifier,
-                appSupportDirectory: standardizedHome
-                    .appendingPathComponent("Library", isDirectory: true)
-                    .appendingPathComponent("Application Support", isDirectory: true)
-            )
     }
 
     static func live(fileManager: FileManager = .default) -> Self {
         Self(
             homeDirectoryURL: fileManager.homeDirectoryForCurrentUser,
-            currentBundleIdentifier: Bundle.main.bundleIdentifier,
             fileManager: fileManager
         )
     }
 
+    /// The process environment with the fixed home pinned to this
+    /// environment's `homeDirectoryURL`, so every path resolver call and every
+    /// resolver-based read/write agree on one home directory.
+    private var resolverEnvironment: [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["CFFIXED_USER_HOME"] = homeDirectoryURL.path
+        return environment
+    }
+
+    /// cmux's config file at the fixed `~/.config/cmux/config.ghostty` path
+    /// (or the legacy `config` name when it is the one on disk).
     var cmuxConfigURL: URL {
         CmuxGhosttyConfigPathResolver().activeOrEditableConfigURL(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectoryURL,
+            environment: resolverEnvironment,
             fileManager: fileManager
         )
-    }
-
-    var standaloneGhosttyDisplayURL: URL {
-        existingRegularFileURL(in: standaloneGhosttyDisplayCandidates) ?? standaloneGhosttyDisplayCandidates[0]
-    }
-
-    var standaloneGhosttyDisplayCandidates: [URL] {
-        [
-            homeDirectoryURL
-                .appendingPathComponent(".config", isDirectory: true)
-                .appendingPathComponent("ghostty", isDirectory: true)
-                .appendingPathComponent("config", isDirectory: false),
-            homeDirectoryURL
-                .appendingPathComponent(".config", isDirectory: true)
-                .appendingPathComponent("ghostty", isDirectory: true)
-                .appendingPathComponent("config.ghostty", isDirectory: false),
-            applicationSupportDirectoryURL(forBundleIdentifier: "com.mitchellh.ghostty")
-                .appendingPathComponent("config", isDirectory: false),
-            applicationSupportDirectoryURL(forBundleIdentifier: "com.mitchellh.ghostty")
-                .appendingPathComponent("config.ghostty", isDirectory: false),
-        ]
-    }
-
-    var syncedPreviewURL: URL {
-        previewDirectoryURL.appendingPathComponent("config.synced-preview", isDirectory: false)
     }
 
     func materializeCmuxConfigFileIfNeeded() throws -> URL {
@@ -83,13 +55,8 @@ struct ConfigSourceEnvironment {
         )
         collector.append(cmuxURL)
 
-        for url in standaloneGhosttyDisplayCandidates where isRegularFile(at: url) {
-            collector.append(url)
-        }
-
         for url in CmuxGhosttyConfigPathResolver().loadConfigURLs(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectoryURL,
+            environment: resolverEnvironment,
             fileManager: fileManager
         ) {
             collector.append(url)
@@ -171,21 +138,6 @@ struct ConfigSourceEnvironment {
         return type == .typeRegular
     }
 
-    var appSupportDirectoryURL: URL {
-        homeDirectoryURL
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-    }
-
-    private func applicationSupportDirectoryURL(forBundleIdentifier bundleIdentifier: String) -> URL {
-        appSupportDirectoryURL
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
-    }
-
-    private func existingRegularFileURL(in urls: [URL]) -> URL? {
-        urls.first(where: isRegularFile(at:))
-    }
-
     private func configWriteURL(for url: URL) -> URL {
         guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
             return url
@@ -207,12 +159,10 @@ struct ConfigSourceSnapshot {
     let contents: String
     let isEditable: Bool
     let hasBackingFile: Bool
-    let hasStandaloneGhosttyConfig: Bool
 }
 
 enum ConfigSource: String, CaseIterable, Identifiable {
     case cmux
-    case synced
 
     var id: Self { self }
 
@@ -230,34 +180,7 @@ enum ConfigSource: String, CaseIterable, Identifiable {
                 displayPaths: [url.path],
                 contents: Self.readContents(at: url),
                 isEditable: true,
-                hasBackingFile: environment.isRegularFile(at: url),
-                hasStandaloneGhosttyConfig: environment.isRegularFile(at: environment.standaloneGhosttyDisplayURL)
-            )
-        case .synced:
-            let ghosttyURL = environment.standaloneGhosttyDisplayURL
-            let hasStandaloneGhosttyConfig = environment.isRegularFile(at: ghosttyURL)
-            let renderedContents = Self.renderSyncedPreview(
-                ghosttyURL: hasStandaloneGhosttyConfig ? ghosttyURL : nil,
-                cmuxURLs: CmuxGhosttyConfigPathResolver().loadConfigURLs(
-                    currentBundleIdentifier: environment.currentBundleIdentifier,
-                    appSupportDirectory: environment.appSupportDirectoryURL,
-                    fileManager: environment.fileManager
-                ),
-                environment: environment
-            )
-            Self.materializeSyncedPreview(
-                contents: renderedContents,
-                previewURL: environment.syncedPreviewURL,
-                fileManager: environment.fileManager
-            )
-            return ConfigSourceSnapshot(
-                source: self,
-                primaryURL: environment.syncedPreviewURL,
-                displayPaths: [environment.syncedPreviewURL.path],
-                contents: renderedContents,
-                isEditable: false,
-                hasBackingFile: environment.isRegularFile(at: environment.syncedPreviewURL),
-                hasStandaloneGhosttyConfig: hasStandaloneGhosttyConfig
+                hasBackingFile: environment.isRegularFile(at: url)
             )
         }
     }
@@ -268,82 +191,6 @@ enum ConfigSource: String, CaseIterable, Identifiable {
         }
         return contents
     }
-
-    private static func materializeSyncedPreview(
-        contents: String,
-        previewURL: URL,
-        fileManager: FileManager
-    ) {
-        do {
-            try fileManager.createDirectory(
-                at: previewURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            try contents.write(to: previewURL, atomically: true, encoding: .utf8)
-        } catch {
-            // Best-effort preview materialization. The in-memory snapshot remains usable.
-        }
-    }
-
-    private static func renderSyncedPreview(
-        ghosttyURL: URL?,
-        cmuxURLs: [URL],
-        environment: ConfigSourceEnvironment
-    ) -> String {
-        // Preserve Ghostty key order, then overlay cmux entries using last-wins precedence.
-        var effectiveEntriesByKey: [String: ParsedConfigEntry] = [:]
-        var orderedKeys: [String] = []
-
-        for sourceURL in ([ghosttyURL].compactMap { $0 } + cmuxURLs) {
-            for entry in parsedEntries(from: sourceURL) {
-                if effectiveEntriesByKey[entry.key] == nil {
-                    orderedKeys.append(entry.key)
-                }
-                effectiveEntriesByKey[entry.key] = entry
-            }
-        }
-
-        return orderedKeys.compactMap { key in
-            guard let entry = effectiveEntriesByKey[key] else { return nil }
-            let sourceLabel = environment.abbreviatedPath(for: entry.sourceURL)
-            return "\(entry.key) = \(entry.value)  # from: \(sourceLabel):\(entry.lineNumber)"
-        }
-        .joined(separator: "\n")
-    }
-
-    private static func parsedEntries(from sourceURL: URL) -> [ParsedConfigEntry] {
-        let contents = readContents(at: sourceURL)
-        guard !contents.isEmpty else { return [] }
-
-        return contents
-            .components(separatedBy: .newlines)
-            .enumerated()
-            .compactMap { index, line in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else {
-                    return nil
-                }
-                let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-                guard parts.count == 2 else { return nil }
-                let key = parts[0].trimmingCharacters(in: .whitespaces)
-                let value = parts[1].trimmingCharacters(in: .whitespaces)
-                guard !key.isEmpty else { return nil }
-                return ParsedConfigEntry(
-                    key: key,
-                    value: value,
-                    sourceURL: sourceURL,
-                    lineNumber: index + 1
-                )
-            }
-    }
-}
-
-private struct ParsedConfigEntry {
-    let key: String
-    let value: String
-    let sourceURL: URL
-    let lineNumber: Int
 }
 
 private struct GhosttySettingsConfigFileCollector {

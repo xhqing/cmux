@@ -1249,9 +1249,13 @@ class GhosttyApp {
         )
     }
 
-    /// Loads the user's resolved Ghostty config. When enabled, cmux's managed
+    /// Loads the user's resolved cmux config. When enabled, cmux's managed
     /// default appearance applies unless the config authors a theme or terminal
     /// colors. Typography and other behavior settings keep the adaptive base.
+    ///
+    /// Since the Ghostty-config decoupling patch only cmux's own config file
+    /// (`~/.config/cmux/config.ghostty`) is loaded; Ghostty's own config files
+    /// are never read.
     private func loadRealUserGhosttyConfig(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
@@ -1266,15 +1270,12 @@ class GhosttyApp {
         if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
-        ghostty_config_load_default_files(config)
-        loadLegacyGhosttyConfigIfNeeded(config)
-        loadCmuxAppSupportGhosttyConfigIfNeeded(config)
+        loadCmuxConfigFileIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadConditionalThemeOverrideIfNeeded(config, preferredColorScheme: themeColorScheme)
-        // Ghostty's own default-file load also reads the native legacy app-support
-        // `config` that cmux's scan-path policy treats as stale when `config.ghostty`
-        // is non-empty. For a config without authored colors, re-assert the managed
-        // default so that skipped legacy-file colors cannot override it.
+        // The config files cmux loads are exactly the ones the scan-path policy
+        // sees, so re-asserting the managed default after the load is enough to
+        // keep authored colors from being overridden by a legacy `config` file.
         if shouldApplyManagedDefaultAppearance {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
@@ -1569,75 +1570,24 @@ class GhosttyApp {
         configDiscovery.discoveredFont(named: name, size: size, weightTrait: weightTrait)
     }
 
-    /// Returns the top-level Ghostty config paths cmux may load before recursive
+    /// Returns the top-level cmux config paths cmux may load before recursive
     /// `config-file` processing. Forwards to ``GhosttyConfigDiscovery``.
     static func loadedGhosttyConfigScanPaths(
-        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
-        configDiscovery.loadedGhosttyConfigScanPaths(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
+        configDiscovery.loadedGhosttyConfigScanPaths(environment: environment)
     }
 
     static func loadedCJKScanPaths(
-        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
-        configDiscovery.loadedCJKScanPaths(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
+        configDiscovery.loadedCJKScanPaths(environment: environment)
     }
 
-    static func shouldLoadLegacyGhosttyConfig(
-        newConfigFileSize: Int?,
-        legacyConfigFileSize: Int?
-    ) -> Bool {
-        configDiscovery.shouldLoadLegacyGhosttyConfig(
-            newConfigFileSize: newConfigFileSize,
-            legacyConfigFileSize: legacyConfigFileSize
-        )
-    }
-
-    static func shouldIncludeLegacyGhosttyConfigInScanPaths(
-        newConfigFileSize: Int?,
-        legacyConfigFileSize: Int?
-    ) -> Bool {
-        configDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: newConfigFileSize,
-            legacyConfigFileSize: legacyConfigFileSize
-        )
-    }
-
-    static func shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
-    ) -> Bool {
-        configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    static func cmuxAppSupportConfigURLs(
-        currentBundleIdentifier: String?,
-        appSupportDirectory: URL,
+    static func cmuxConfigURLs(
         fileManager: FileManager = .default
     ) -> [URL] {
-        configDiscovery.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory,
-            fileManager: fileManager
-        )
+        configDiscovery.cmuxConfigURLs(fileManager: fileManager)
     }
 
     static func shouldApplyDefaultBackgroundUpdate(
@@ -1765,17 +1715,29 @@ class GhosttyApp {
         return true
     }
 
-    private func loadCmuxAppSupportGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
+    /// Migrates the pre-decoupling App Support config to `~/.config/cmux` on
+    /// first launch, then loads `~/.config/cmux/config.ghostty` (the legacy
+    /// `config` name in the same directory is honored as a fallback).
+    private func loadCmuxConfigFileIfNeeded(_ config: ghostty_config_t) {
         #if os(macOS)
         let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
-        guard let currentBundleIdentifier = Bundle.main.bundleIdentifier,
-              !currentBundleIdentifier.isEmpty else { return }
-        let urls = Self.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupport,
-            fileManager: fm
-        )
+        let resolver = CmuxGhosttyConfigPathResolver()
+        if let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            var bundleIdentifiers: [String] = []
+            if let currentBundleIdentifier = Bundle.main.bundleIdentifier,
+               !currentBundleIdentifier.isEmpty {
+                bundleIdentifiers.append(currentBundleIdentifier)
+            }
+            if !bundleIdentifiers.contains(resolver.releaseBundleIdentifier) {
+                bundleIdentifiers.append(resolver.releaseBundleIdentifier)
+            }
+            resolver.migrateLegacyAppSupportConfigIfNeeded(
+                bundleIdentifiers: bundleIdentifiers,
+                appSupportDirectory: appSupport,
+                fileManager: fm
+            )
+        }
+        let urls = Self.cmuxConfigURLs(fileManager: fm)
         guard !urls.isEmpty else { return }
 
         for url in urls {
@@ -1786,7 +1748,7 @@ class GhosttyApp {
 
 #if DEBUG
         cmuxDebugLog(
-            "loaded cmux app support ghostty config from: \(urls.map(\.path).joined(separator: ", "))"
+            "loaded cmux ghostty config from: \(urls.map(\.path).joined(separator: ", "))"
         )
         #endif
         #endif
@@ -1795,14 +1757,7 @@ class GhosttyApp {
     private func currentCmuxAppSupportThemeValue() -> String? {
         #if os(macOS)
         let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let urls = Self.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: Bundle.main.bundleIdentifier,
-            appSupportDirectory: appSupport,
-            fileManager: fm
-        )
+        let urls = Self.cmuxConfigURLs(fileManager: fm)
 
         var lastValue: String?
         for url in urls {
@@ -1815,38 +1770,6 @@ class GhosttyApp {
         return lastValue
         #else
         return nil
-        #endif
-    }
-
-    private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
-        #if os(macOS)
-        // Ghostty 1.3+ prefers `config.ghostty`, but some users still have their real
-        // settings in the legacy `config` file. Use legacy only when `config.ghostty`
-        // is absent or empty, so stale legacy files do not override current config.
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
-        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let configNew = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        let configLegacy = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-
-        func fileSize(_ url: URL) -> Int? {
-            guard let attrs = try? fm.attributesOfItem(atPath: url.path),
-                  let size = attrs[.size] as? NSNumber else { return nil }
-            return size.intValue
-        }
-
-        guard Self.shouldLoadLegacyGhosttyConfig(
-            newConfigFileSize: fileSize(configNew),
-            legacyConfigFileSize: fileSize(configLegacy)
-        ) else { return }
-
-        configLegacy.path.withCString { path in
-            ghostty_config_load_file(config, path)
-        }
-
-        #if DEBUG
-        Self.initLog("loaded legacy ghostty config because config.ghostty was empty: \(configLegacy.path)")
-        #endif
         #endif
     }
 
@@ -2683,11 +2606,9 @@ class GhosttyApp {
             globalFontMagnificationPercent:
                 GlobalFontMagnification.storedPercent
         )
-        let fallbackForUnspecified =
-            Self
-                .shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
-            ? defaultBackgroundValues(from: nil)
-            : baseline
+        // cmux loads only its own config files, so the kernel baseline and the
+        // on-disk resolved config always agree on which files were read.
+        let fallbackForUnspecified = baseline
         return DefaultBackgroundValues(
             backgroundColor: resolvedAppearanceValue(
                 parsedValue: resolved.backgroundColor,

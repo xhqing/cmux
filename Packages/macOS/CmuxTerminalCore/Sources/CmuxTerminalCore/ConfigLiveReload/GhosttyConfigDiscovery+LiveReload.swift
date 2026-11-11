@@ -2,58 +2,25 @@ public import Foundation
 import CmuxFoundation
 
 extension GhosttyConfigDiscovery {
-    /// Returns every top-level Ghostty config file cmux could load, whether or
+    /// Returns every top-level cmux config file cmux could load, whether or
     /// not it exists yet, for the config file watcher.
     ///
-    /// This is a superset of
-    /// ``loadedGhosttyConfigScanPaths(currentBundleIdentifier:appSupportDirectory:)``:
-    /// that list drops a legacy `config` or an empty cmux config file, but
-    /// writing to one of those can change which file cmux loads, so the watcher
-    /// still observes it. It also adds the `ghostty/config` files under
-    /// `configHomeDirectory`, which Ghostty loads instead of `~/.config` when
-    /// `$XDG_CONFIG_HOME` is set.
+    /// Since the Ghostty-config decoupling patch this is only cmux's own
+    /// candidates under `<configHome>/cmux`: `config` and `config.ghostty`.
+    /// Ghostty's own config locations are neither loaded nor watched.
     ///
     /// - Parameters:
-    ///   - currentBundleIdentifier: The running app's bundle identifier.
-    ///   - appSupportDirectory: The user's Application Support directory.
-    ///   - configHomeDirectory: The XDG config home (`$XDG_CONFIG_HOME`, or
-    ///     `~/.config`) Ghostty reads `ghostty/config` from.
+    ///   - configHomeDirectory: The config home (`$XDG_CONFIG_HOME`, or
+    ///     `~/.config`) whose `cmux` directory holds the config files.
     /// - Returns: Absolute, de-duplicated paths.
     public func liveReloadTopLevelPaths(
-        currentBundleIdentifier: String?,
-        appSupportDirectory: URL?,
         configHomeDirectory: String = "~/.config"
     ) -> [String] {
-        var paths = loadedGhosttyConfigScanPaths(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-        let xdgGhosttyDirectory = (Self.standardizedPath(configHomeDirectory) as NSString)
-            .appendingPathComponent("ghostty")
-        paths.append((xdgGhosttyDirectory as NSString).appendingPathComponent("config"))
-        paths.append((xdgGhosttyDirectory as NSString).appendingPathComponent("config.ghostty"))
-        if let appSupportDirectory {
-            let nativeDirectory = appSupportDirectory
-                .appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-            var cmuxDirectories = [
-                appSupportDirectory.appendingPathComponent(
-                    Self.releaseBundleIdentifier,
-                    isDirectory: true
-                ),
-            ]
-            if let currentBundleIdentifier, !currentBundleIdentifier.isEmpty {
-                cmuxDirectories.append(
-                    CmuxGhosttyConfigPathResolver().configDirectoryURL(
-                        currentBundleIdentifier: currentBundleIdentifier,
-                        appSupportDirectory: appSupportDirectory
-                    )
-                )
-            }
-            for directory in [nativeDirectory] + cmuxDirectories {
-                paths.append(directory.appendingPathComponent("config.ghostty", isDirectory: false).path)
-                paths.append(directory.appendingPathComponent("config", isDirectory: false).path)
-            }
-        }
+        let cmuxDirectory = (Self.standardizedPath(configHomeDirectory) as NSString)
+            .appendingPathComponent("cmux")
+        var paths: [String] = []
+        paths.append((cmuxDirectory as NSString).appendingPathComponent("config"))
+        paths.append((cmuxDirectory as NSString).appendingPathComponent("config.ghostty"))
         return Self.uniqueStandardizedPaths(paths)
     }
 
@@ -62,7 +29,7 @@ extension GhosttyConfigDiscovery {
     ///
     /// Follows `config-file` includes (relative to the including file, with
     /// the optional `?` prefix) and adds user theme files named by `theme`
-    /// directives: an absolute theme path, or `<configHome>/ghostty/themes/<name>`
+    /// directives: an absolute theme path, or `<configHome>/cmux/themes/<name>`
     /// for each side of a `light:…,dark:…` pair. Themes bundled with the app do
     /// not change at runtime and are not watched. Symlinked files also watch
     /// their resolved target, so dotfile setups that replace the target file
@@ -74,9 +41,9 @@ extension GhosttyConfigDiscovery {
     ///
     /// - Parameters:
     ///   - topLevelPaths: The top-level config candidates, typically
-    ///     ``liveReloadTopLevelPaths(currentBundleIdentifier:appSupportDirectory:configHomeDirectory:)``.
-    ///   - configHomeDirectory: The XDG config home (`$XDG_CONFIG_HOME`, or
-    ///     `~/.config`) whose `ghostty/themes` directory holds user themes.
+    ///     ``liveReloadTopLevelPaths(configHomeDirectory:)``.
+    ///   - configHomeDirectory: The config home (`$XDG_CONFIG_HOME`, or
+    ///     `~/.config`) whose `cmux/themes` directory holds user themes.
     ///   - resolvesSymlinks: Whether to add each file's resolved symlink
     ///     target. Tests that use in-memory readers pass `false`.
     /// - Returns: The watch paths and file contents.
@@ -143,7 +110,7 @@ extension GhosttyConfigDiscovery {
         }
 
         let userThemesDirectory = (Self.standardizedPath(configHomeDirectory) as NSString)
-            .appendingPathComponent("ghostty/themes")
+            .appendingPathComponent("cmux/themes")
         for themeValue in themeValues {
             for themePath in Self.userThemePaths(
                 forThemeValue: themeValue,

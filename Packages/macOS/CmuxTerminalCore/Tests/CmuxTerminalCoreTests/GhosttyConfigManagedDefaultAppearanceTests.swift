@@ -171,12 +171,13 @@ import Testing
 
     // MARK: Managed base + user override precedence
 
-    /// Writes sentinel "Apple System Colors" theme files into a themes root the
-    /// managed-default resolution finds via `GHOSTTY_RESOURCES_DIR`, keeping the
-    /// resolved managed colors deterministic on machines with Ghostty installed.
+    /// Writes sentinel "Apple System Colors" theme files into a bundle-layout
+    /// themes root the managed-default resolution finds via `bundleResourceURL`,
+    /// keeping the resolved managed colors deterministic on machines with
+    /// Ghostty installed.
     private func makeManagedThemesRoot(in dir: URL) throws -> URL {
         let root = dir.appendingPathComponent("resources", isDirectory: true)
-        let themesDir = root.appendingPathComponent("themes", isDirectory: true)
+        let themesDir = root.appendingPathComponent("ghostty/themes", isDirectory: true)
         try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
 
         let managedTheme = """
@@ -210,8 +211,8 @@ import Testing
                 configPaths: [file.path],
                 preferredColorScheme: .dark,
                 adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled,
-                environment: ["GHOSTTY_RESOURCES_DIR": themesRoot.path],
-                bundleResourceURL: nil
+                environment: [:],
+                bundleResourceURL: themesRoot
             )
             try body(config)
         }
@@ -241,7 +242,7 @@ import Testing
     @Test func optedInManagedDefaultTracksAppearance() throws {
         try withTempConfigDir { dir in
             let themesRoot = dir.appendingPathComponent("resources", isDirectory: true)
-            let themesDir = themesRoot.appendingPathComponent("themes", isDirectory: true)
+            let themesDir = themesRoot.appendingPathComponent("ghostty/themes", isDirectory: true)
             try FileManager.default.createDirectory(
                 at: themesDir,
                 withIntermediateDirectories: true
@@ -273,8 +274,8 @@ import Testing
                     configPaths: [configURL.path],
                     preferredColorScheme: colorScheme,
                     adaptiveDefaultThemeEnabled: true,
-                    environment: ["GHOSTTY_RESOURCES_DIR": themesRoot.path],
-                    bundleResourceURL: nil
+                    environment: [:],
+                    bundleResourceURL: themesRoot
                 )
                 return config
             }

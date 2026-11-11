@@ -85,6 +85,8 @@
    - `grep keyDown.end` 里第 1 个键的 `layoutIdMs` 应该接近 0（原来这一行在冷启动时会是几十毫秒）；
    - `grep warmKeyboardLayout` 应该有且只有一行，耗时是这台机器的冷加载成本（macmini 上约 50 ms 量级，用户机器会不同）。
 
+   也可以直接跑 `python3 scripts/analyze-key-latency.py`：它把上面几种行单独列成 `routing:` / `handler:` / `warm-up:` 三段（不计入 `keys:` 统计），一次就能看出首键慢在「进入 `keyDown` 之前」还是「上一个键的处理器里」。
+
 **预期数字**：这一对键（第 1、2 键）的合计应该下降「TIS + LMGetKbdType」那一块——本机实测 30 ~ 50 ms。具体落在哪个键取决于原来这笔开销付在哪里：如果付在 AppKit 的 keyDown 前置处理里，第 1 键会降；如果付在我们 `keyDown` 里的 `KeyboardLayout.id` / `unshiftedCodepointFromEvent`，降的会是第 2 键（它等的就是第 1 键的处理时间）。所以验收看「第 1、2 键合计」而不是单看某一个键：合计应从约 182 ms（66 + 116）降到 130 ~ 150 ms 量级，其中 `keyDown.end` 的 `layoutIdMs` 应该变成亚毫秒。第 3 键起波动不大（本来就不含这块）。**不能据此承诺「已经 < 20 ms」**：剩下的部分要看新口径——如果 `keyDown.end` 的 `interpretMs` 占大头，那是首次 `interpretKeyEvents` 激活输入法（CJK 输入法可能比本机测到的 7~10 ms 贵得多）；如果 `total` 很小但 `keyDown` 的 `delayMs` 仍然大，那是启动期主线程忙碌，不在按键路径上。
 
 ### 边界（这次没做的）

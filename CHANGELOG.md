@@ -2,7 +2,9 @@
 
 All notable changes to cmux are documented here.
 
-## [Unreleased]
+## [0.65.2.2-r21] - 2026-11-12
+
+r20 的 `build-macos` 因下面这条 app target 类型错误失败，Release 建出来了却没有产物；本版补上修复后重新发版（r19、r20 两个无产物的 Release 均由本版取代）。
 
 ### Fixed
 - **`GhosttyTerminalView` 用实例访问 `CmuxGhosttyConfigPathResolver.releaseBundleIdentifier` 这个 `static let`，导致 app target 编译失败（r20 构建失败原因）**：Issue #70 在 `loadCmuxConfigFileIfNeeded` 里新增了「首次启动从旧 App Support 迁移配置」的逻辑，写成了 `resolver.releaseBundleIdentifier`（`resolver` 是实例）——Swift 不允许通过实例访问 static 成员，报 `static member 'releaseBundleIdentifier' cannot be used on instance of type 'CmuxGhosttyConfigPathResolver'`。改为 `CmuxGhosttyConfigPathResolver.releaseBundleIdentifier`。

@@ -2,6 +2,13 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **`GhosttyTerminalView` 用实例访问 `CmuxGhosttyConfigPathResolver.releaseBundleIdentifier` 这个 `static let`，导致 app target 编译失败（r20 构建失败原因）**：Issue #70 在 `loadCmuxConfigFileIfNeeded` 里新增了「首次启动从旧 App Support 迁移配置」的逻辑，写成了 `resolver.releaseBundleIdentifier`（`resolver` 是实例）——Swift 不允许通过实例访问 static 成员，报 `static member 'releaseBundleIdentifier' cannot be used on instance of type 'CmuxGhosttyConfigPathResolver'`。改为 `CmuxGhosttyConfigPathResolver.releaseBundleIdentifier`。
+  - 同一批 #70 漏改共两处，均属 **app target 类型错误，PR 门禁拦不住**：`checks` 只做 `swiftc -parse`（语法）与 `Packages/` 下 SwiftPM 包的 build/test，`CLI/` 与 `Sources/` 是 app target，只能由 `build-macos` 兜底（`TODO.md` T10 记录的缺口）。
+  - 这次把 #70 / #71 删除或改名的符号做了残留引用扫描：`CmuxApplicationSupportDirectories`、`shouldIgnoreNativeLegacyBaselineForUnparsedAppearance`、`shouldLoadLegacyGhosttyConfig`、`shouldIncludeLegacyGhosttyConfigInScanPaths`、`releaseFallbackChannelSuffixes`、`allowsReleaseFallback`、`matchesChannelBundleIdentifier` 均已无引用；`CmuxGhosttyConfigPathResolver` 的其余调用点（`loadConfigURLs` / `activeOrEditableConfigURL` / `editableConfigURL` / `migrateLegacyAppSupportConfigIfNeeded`）参数与签名一致。
+
 ## [0.65.2.2-r20] - 2026-11-11
 
 r19 的 `build-macos` 因下面这条 CLI 编译错误失败，Release 建出来了却没有产物（没有 zip / sha256 / `appcast.xml`，`attach-release-asset` 因此跳过）。本修订补上修复后重新发版，r19 那条无产物的 Release 由本版取代。

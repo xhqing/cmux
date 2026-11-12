@@ -1731,8 +1731,8 @@ class GhosttyApp {
                !currentBundleIdentifier.isEmpty {
                 bundleIdentifiers.append(currentBundleIdentifier)
             }
-            if !bundleIdentifiers.contains(resolver.releaseBundleIdentifier) {
-                bundleIdentifiers.append(resolver.releaseBundleIdentifier)
+            if !bundleIdentifiers.contains(CmuxGhosttyConfigPathResolver.releaseBundleIdentifier) {
+                bundleIdentifiers.append(CmuxGhosttyConfigPathResolver.releaseBundleIdentifier)
             }
             resolver.migrateLegacyAppSupportConfigIfNeeded(
                 bundleIdentifiers: bundleIdentifiers,

@@ -187,7 +187,10 @@ jobs:
         # app target，跑它等于再走一遍完整构建（本项目实测 2~4 小时）。PR 门禁必须保持
         # 「几分钟内跑完」（见 DEVELOPMENT.md「为什么 PR 门禁是轻量门禁」），所以测试接在
         # 这个已经是长任务的 build-macos 里——tag / dispatch 触发，发版前把回归拦下来。
-        timeout-minutes: 45
+        # 超时给 180 分钟：`cmux-unit` 的 TestAction 是 Debug，与上面 Release 构建的配置
+        # 不同，共用 derivedData 仍要整套重编，45 分钟不够（r22 即因此超时），
+        # 180 分钟仍在 job 级 `timeout-minutes: 360` 之内。
+        timeout-minutes: 180
         run: |
           set -euo pipefail
           xcodebuild test \

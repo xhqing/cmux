@@ -143,12 +143,8 @@
     pill.setAttribute('aria-pressed', locked ? 'false' : 'true');
     pill.setAttribute('aria-label', locked ? 'Read only' : 'Editing');
     pill.setAttribute('title', locked ? 'Read only — click to edit' : 'Editing — click to lock');
-    var lockIcon = pill.querySelector('.cmux-lock-icon');
-    var penIcon = pill.querySelector('.cmux-pen-icon');
-    if (lockIcon && penIcon) {
-      lockIcon.hidden = !locked;
-      penIcon.hidden = locked;
-    }
+    // Both icons stay visible (VS Code shows lock on the left, pen on the
+    // right, always); the active one is picked out by the .is-locked class.
     if (contentEl) { contentEl.classList.toggle('cmux-locked', locked); }
   }
 
@@ -199,6 +195,21 @@
     if (postToHost && notify !== false) { postToHost({ type: 'change', text: updated }); }
   }
 
+  // The block editor floats on document.body, so it inherits nothing from the
+  // palette MarkdownWebRenderer.applyTheme injects on #content. Copy the text
+  // colours over from the rendered document, so the editor's text is literally
+  // the same colour as the body text it is replacing — instead of falling back
+  // to the light-theme defaults on a dark surface.
+  function inheritContentPalette(el) {
+    var content = document.getElementById('content');
+    if (!content || !el) { return; }
+    var cs = getComputedStyle(content);
+    ['--fgColor-default', '--fgColor-muted'].forEach(function(name) {
+      var value = cs.getPropertyValue(name).trim();
+      if (value) { el.style.setProperty(name, value); }
+    });
+  }
+
   function openBlock(element) {
     if (locked) {
       shineLockPill();
@@ -217,6 +228,7 @@
     var rect = element.getBoundingClientRect();
     var editor = document.createElement('div');
     editor.className = EDITOR_CLASS;
+    inheritContentPalette(editor);
     editor.style.left = Math.max(0, rect.left - 12) + 'px';
     editor.style.top = Math.max(0, rect.top - 8) + 'px';
     editor.style.width = Math.max(320, rect.width + 24) + 'px';

@@ -554,16 +554,33 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             ]
             guard let data = try? JSONSerialization.data(withJSONObject: payload),
                   let json = String(data: data, encoding: .utf8) else { return }
+            // The pill and the floating block editor live outside #content, so
+            // they only see variables declared on the root element. Mirror the
+            // palette there too; .markdown-body redeclares these names, so the
+            // content subtree keeps rendering exactly as before. Two exceptions:
+            // `--bgColor-default` is "transparent" (right for the content area —
+            // the panel colour shows through), and the block editor needs an
+            // opaque surface instead, which is `--cmux-panel-surface`.
+            var rootPayload = payload.filter { $0.key != "--bgColor-default" }
+            rootPayload["--cmux-panel-surface"] = theme.surface
+            guard let rootData = try? JSONSerialization.data(withJSONObject: rootPayload),
+                  let rootJSON = String(data: rootData, encoding: .utf8) else { return }
             let js = """
-            (function(vars) {
+            (function(vars, rootVars) {
               var content = document.getElementById('content');
               if (!content) { return; }
               Object.keys(vars).forEach(function(name) {
                 content.style.setProperty(name, vars[name]);
               });
+              var root = document.documentElement;
+              if (root) {
+                Object.keys(rootVars).forEach(function(name) {
+                  root.style.setProperty(name, rootVars[name]);
+                });
+              }
               content.style.background = 'transparent';
               if (window.__cmuxApplyTheme) { window.__cmuxApplyTheme(); }
-            })(\(json));
+            })(\(json), \(rootJSON));
             """
             webView.evaluateJavaScript(js, completionHandler: nil)
         }

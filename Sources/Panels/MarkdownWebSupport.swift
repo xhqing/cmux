@@ -401,6 +401,11 @@ final class MarkdownWebView: CmuxUndoableWebView {
 struct MarkdownWebTheme: Equatable {
     let isDark: Bool
     let background: String
+    /// Opaque panel background. The content area itself is painted
+    /// `background` = "transparent" so the panel colour shows through, but
+    /// floating chrome that has to hide the text underneath (the in-place
+    /// block editor) needs a real, opaque surface — that is this value.
+    let surface: String
     let mutedBackground: String
     let neutralMutedBackground: String
     let border: String
@@ -425,6 +430,7 @@ struct MarkdownWebTheme: Equatable {
         return MarkdownWebTheme(
             isDark: isDark,
             background: "transparent",
+            surface: base.markdownCSSColor,
             mutedBackground: muted.markdownCSSColor,
             neutralMutedBackground: neutralMuted.markdownCSSColor,
             border: border.markdownCSSColor,

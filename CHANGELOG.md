@@ -2,6 +2,14 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### 变更（cmuxTests 接进 build-macos；补 Worker 测试只读约束，2026-11-13）
+
+- **为什么改**：`cmuxTests/` 下已有 17 个测试文件（含空窗口状态、标签页关闭路由等），但 PR 门禁 `checks` 只做语法 / schema / 测试接线 / gitleaks，一条测试都不跑——测试写了没人跑，等于没有防护网。PR 门禁又不能装它：`cmuxTests` 用 `@testable import cmux` 依赖整个 app target，跑一次等于再走一遍完整构建（2~4 小时），与「门禁几分钟内跑完」的取舍直接冲突。
+- **改了什么**：① `.github/workflows/build.yml` 在 Release 构建之后加 `xcodebuild test -scheme cmux-unit -only-testing:cmuxTests`（复用同一 derivedDataPath、step 超时 45 分钟）——接在本来就是长任务的 `build-macos` 里，tag / dispatch 触发时把回归拦在发版前；② `DEVELOPMENT.md` 第九节改写：说明 `cmuxTests` 落在 `build-macos` 而不是 PR 门禁的原因，以及 `cmuxCLITests`（不依赖 app）才是将来可能进门禁的候选；③ `.pi/APPEND_SYSTEM.md` 新增「测试文件对 Worker 只读」节。
+- **回归检查**：① PR 门禁 `checks` 一字未改（job 名与四项检查保持原样，分支保护不受影响）；② `build-macos` 的构建步骤、签名、产物校验、appcast 签名全部未动，只在构建之后多一个 step；③ 版本号不动（CI 与文档类改动）。
+
 ## [0.65.2.2-r21] - 2026-11-12
 
 r20 的 `build-macos` 因下面这条 app target 类型错误失败，Release 建出来了却没有产物；本版补上修复后重新发版（r19、r20 两个无产物的 Release 均由本版取代）。

@@ -231,9 +231,11 @@ r17 及更早的 app 里装的是**上游的** `SUPublicEDKey`，我们手里没
 - 所以门禁守的是「**几分钟内能跑完、且真会因为问题变红**」这一类检查；**完整的编译 / 类型 / 链接正确性由 `build-macos`（tag 或手动 dispatch 触发）兜底**。也就是说：PR 门禁绿 ≠ 一定能编译过，发版前的 `build-macos` 才是那一层。
 - **大改动的抽样**：Swift 语法检查对超过 `MAX_SWIFT_PARSE`（当前 1500）的清单做等距抽样（覆盖整份清单，不是只看开头），日志里会打一条 `::notice::` 说明。上游同步这类一次改上千文件的 PR 因此不会把门禁拖成十几分钟；这类 PR 的编译正确性同样交给 `build-macos`。
 
-### 4. 以后怎么扩（把测试套件接进门禁）
+### 4. 测试套件接在哪儿（2026-11-13 落定）
 
 - 仓库自带两个测试 target：`cmuxTests`（scheme `cmux-unit`）与 `cmuxCLITests`（scheme `cmux-cli-tests`）。
+- **`cmuxTests` 已接进 `build-macos`（`.github/workflows/build.yml`），不接 PR 门禁**：它用 `@testable import cmux` 依赖整个 app target，跑一次等于再走一遍完整构建。门禁的时间预算只够「几分钟」那一层，完整构建这一层本来就由 `build-macos` 兜底——测试与它放在一起是唯一自洽的位置。代价：PR 阶段不会因为单元测试红而拦下，回归在发版构建时才暴露（tag / dispatch 触发）。
+- `cmuxCLITests`（只测 CLI target，不依赖 app）目前仍未接入；如果要接，它才是有可能进 PR 门禁的候选——同样必须先实测耗时。
 - **接入条件**：这两个 target 能在一台 `macos-26` runner 上、门禁的 `timeout-minutes` 之内跑完。**接入时在 `checks` 里加一个 step**：
 
   ```yaml

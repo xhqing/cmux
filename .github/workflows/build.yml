@@ -182,6 +182,21 @@ jobs:
           set -o pipefail
           ./scripts/reloads.sh --derived-data /tmp/cmux-build 2>&1 | tee /tmp/cmux-build-raw.log
 
+      - name: 单元测试（cmuxTests，scheme cmux-unit）
+        # 为什么放这里而不是 PR 门禁：cmuxTests 用 `@testable import cmux` 依赖整个
+        # app target，跑它等于再走一遍完整构建（本项目实测 2~4 小时）。PR 门禁必须保持
+        # 「几分钟内跑完」（见 DEVELOPMENT.md「为什么 PR 门禁是轻量门禁」），所以测试接在
+        # 这个已经是长任务的 build-macos 里——tag / dispatch 触发，发版前把回归拦下来。
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project cmux.xcodeproj \
+            -scheme cmux-unit \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath /tmp/cmux-build \
+            -only-testing:cmuxTests
+
       - name: 校验产物不含构建机 home 路径
         run: |
           set -euo pipefail

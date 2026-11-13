@@ -211,6 +211,10 @@ VS Code 的 Markdown Editor 由一个 npm 包 `@vscode/markdown-editor`（MIT，
 | `Sources/Panels/MarkdownPanelView.swift` | 第三模式的分支与头部按钮（铅笔进入、眼睛回只读、`doc.plaintext` 回整篇源码）。 |
 | `Sources/Panels/MarkdownViewerAssets.swift` | 注入 `markdown-editor.js`（和 viewer-navigation / sanitizer 一样的加载路径，构建期自动 deflate）。 |
 
+**滑钮配色对齐 VS Code（后续修订）**：滑钮挂在 `document.body` 下、不在 `#content` 子树里，而 `applyTheme` 只把主题变量注入 `#content`，于是它一个变量都取不到、全部落回浅色主题的兜底——深色文档上就是个白底胶囊。现在 `applyTheme` 把同一批变量同时写入 `document.documentElement`（`--bgColor-default` 除外：它的值是 `transparent`，注入根节点会让浮动的块编辑浮层变透明），滑钮因此改吃 `--bgColor-muted`（填充，与文档背景对比度 1.09）与 `--borderColor-default`（1px 描边，1.92）；激活态垫底写死 `#0078d4`、图标纯白，未激活图标 `#8a8a8a`（浅色主题 `#616161`），图标槽改成 22×22 的 5px 圆角方形；`markdown-editor.js` 不再用 `hidden` 隐藏非激活图标，锁在左、笔在右两个常驻可见（与截图上量出的 VS Code 参考值逐项对齐）。
+
+**就地编辑浮层改用文档底色（后续修订）**：浮层同样在 `#content` 外面，原来 `background: var(--bgColor-default, #ffffff)` 与 `border: var(--borderColor-accent, …)` 全部落在浅色兜底，深色文档上就是个白底、浅蓝描边的输入框。`MarkdownWebTheme` 新增 `surface`（面板不透明底色）并以 `--cmux-panel-surface` 注入根节点（`--bgColor-default` 是 `transparent`，遮不住正文），浮层背景改用它、描边改用与滑钮同一套 `--borderColor-default`；正文 / 提示颜色由新增的 `inheritContentPalette()` 从 `#content` 抄 `--fgColor-default` / `--fgColor-muted`，不再落到浅色兜底。
+
 ### 保留的行为（没被削弱）
 
 - **只读渲染路径完全没动**：`preview` 仍然走原来的整篇 `marked.parse` + sanitizer，Mermaid / Vega / KaTeX 照旧；就地编辑层只在 `.editor` 模式安装，切回去就卸载。

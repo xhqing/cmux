@@ -255,8 +255,8 @@ html { scroll-behavior: smooth; }
 </style>
 <style>
   /* Lock/pencil toggle and in-place block editor (see markdown-editor.js).
-     Colours ride on github-markdown-css variables so the pill follows the
-     viewer's light/dark palette. */
+     The pill sits outside #content, so its colours come from the palette the
+     host injects on the document root (see MarkdownWebRenderer.applyTheme). */
   .cmux-markdown-lock-host {
     position: fixed;
     top: 8px;
@@ -264,7 +264,17 @@ html { scroll-behavior: smooth; }
     z-index: 60;
     pointer-events: none;
   }
+  /* VS Code's markdown editor look: lock on the left, pen on the right, both
+     always visible; the idle icon is neutral grey and the active one sits on a
+     blue rounded-square pad. The pill lives outside #content, so its fill and
+     outline come from the theme variables MarkdownWebRenderer.applyTheme also
+     injects on the document root — they track the real panel background instead
+     of falling back to a light-theme white. */
   .cmux-markdown-lock {
+    --cmux-lock-fill: var(--bgColor-muted, rgba(255, 255, 255, 0.05));
+    --cmux-lock-border: var(--borderColor-default, rgba(255, 255, 255, 0.2));
+    --cmux-lock-border-hover: #4a4a4a;
+    --cmux-lock-icon-idle: #8a8a8a;
     pointer-events: auto;
     position: relative;
     display: inline-flex;
@@ -276,19 +286,34 @@ html { scroll-behavior: smooth; }
     padding: 2px;
     box-sizing: border-box;
     border-radius: 14px;
-    border: 1px solid var(--borderColor-default, rgba(31, 35, 40, 0.15));
-    background: var(--bgColor-default, #ffffff);
-    color: var(--fgColor-muted, #59636e);
+    border: 1px solid var(--cmux-lock-border);
+    background: var(--cmux-lock-fill);
+    /* The outline is a translucent tint computed against the panel background;
+       clipping the fill to the padding box keeps it from stacking underneath
+       that translucent border (which would make the outline read brighter
+       than the 1.92 contrast it was derived for). */
+    background-clip: padding-box;
+    color: var(--cmux-lock-icon-idle);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
     cursor: pointer;
     overflow: hidden;
     transition: border-color 0.15s ease, background 0.15s ease;
   }
+  /* The host paints light panels with the same variables; these are only the
+     fallbacks for the (should not happen) case where none were injected. */
+  @media (prefers-color-scheme: light) {
+    .cmux-markdown-lock {
+      --cmux-lock-fill: var(--bgColor-muted, rgba(0, 0, 0, 0.04));
+      --cmux-lock-border: var(--borderColor-default, rgba(0, 0, 0, 0.18));
+      --cmux-lock-border-hover: #b3b3b3;
+      --cmux-lock-icon-idle: #616161;
+    }
+  }
   .cmux-markdown-lock:hover {
-    border-color: var(--borderColor-emphasis, rgba(84, 174, 255, 0.4));
+    border-color: var(--cmux-lock-border-hover);
   }
   .cmux-markdown-lock:focus-visible {
-    outline: 2px solid var(--fgColor-accent, #0969da);
+    outline: 2px solid #0078d4;
     outline-offset: 2px;
   }
   .cmux-markdown-lock .cmux-lock-icon,
@@ -298,19 +323,13 @@ html { scroll-behavior: smooth; }
     justify-content: center;
     width: 22px;
     height: 22px;
-    border-radius: 50%;
+    border-radius: 5px;
+    color: var(--cmux-lock-icon-idle);
     transition: background 0.15s ease, color 0.15s ease;
   }
-  .cmux-markdown-lock .cmux-lock-icon[hidden],
-  .cmux-markdown-lock .cmux-pen-icon[hidden] {
-    display: none;
-  }
-  .cmux-markdown-lock.is-locked .cmux-lock-icon {
-    background: var(--fgColor-accent, #0969da);
-    color: #ffffff;
-  }
+  .cmux-markdown-lock.is-locked .cmux-lock-icon,
   .cmux-markdown-lock:not(.is-locked) .cmux-pen-icon {
-    background: var(--fgColor-accent, #0969da);
+    background: #0078d4;
     color: #ffffff;
   }
   /* The shine sweep is the "you are trying to edit a locked document" cue. */
@@ -334,15 +353,20 @@ html { scroll-behavior: smooth; }
     background: var(--bgColor-neutral-muted, rgba(129, 139, 152, 0.08));
     border-radius: 6px;
   }
+  /* Floating block editor. It has to hide the text it is covering, so it paints
+     the panel's opaque surface colour (the content area itself is transparent)
+     and reuses the lock pill's outline tint instead of an accent-blue border.
+     The text colours are copied from #content by markdown-editor.js; the
+     fallbacks below are per-scheme but should never actually be used. */
   .cmux-block-editor {
     position: fixed;
     z-index: 70;
     box-sizing: border-box;
     padding: 8px 8px 6px;
     border-radius: 8px;
-    border: 1px solid var(--borderColor-accent, rgba(84, 174, 255, 0.6));
-    background: var(--bgColor-default, #ffffff);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+    border: 1px solid var(--borderColor-default, rgba(255, 255, 255, 0.2));
+    background: var(--cmux-panel-surface, #0d1117);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
   }
   .cmux-block-editor-input {
     display: block;
@@ -352,7 +376,7 @@ html { scroll-behavior: smooth; }
     outline: none;
     resize: none;
     background: transparent;
-    color: var(--fgColor-default, #1f2328);
+    color: var(--fgColor-default, #e6edf3);
     font: 13px/1.6 "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     white-space: pre-wrap;
     overflow: hidden;
@@ -361,7 +385,16 @@ html { scroll-behavior: smooth; }
     padding-top: 4px;
     text-align: right;
     font: 11px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
-    color: var(--fgColor-muted, #59636e);
+    color: var(--fgColor-muted, #8d96a0);
+  }
+  @media (prefers-color-scheme: light) {
+    .cmux-block-editor {
+      border-color: var(--borderColor-default, rgba(0, 0, 0, 0.18));
+      background: var(--cmux-panel-surface, #ffffff);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+    }
+    .cmux-block-editor-input { color: var(--fgColor-default, #1f2328); }
+    .cmux-block-editor-hint { color: var(--fgColor-muted, #59636e); }
   }
   .cmux-block[hidden] {
     display: none !important;

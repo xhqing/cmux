@@ -53,6 +53,15 @@
 
 装好新版、在新窗口里逐条走（完整版见 `DEVELOPMENT.md` 第三节）：① 跑着进程的工作区关闭时**默认不弹**；② Cmd+W / Cmd+Ctrl+W 同样不弹；③ 设置里打开「Confirm Before Closing Running Processes」后重试**应该弹**；④ 勾选 "Don't ask again" 后不再弹；⑤ 浏览器面板有未保存内容时**仍要弹**；⑥ pinned 工作区仍要弹；⑦ 更新通道只问本仓库（菜单「Check for Updates…」不应请求上游 `manaflow-ai/cmux`，装的是最新版时应提示已是最新）。
 
+## 测试文件对 Worker 只读（2026-11-13 立）
+
+测试由 **Leader（dev-agent / Atlas 的会话）在实现开工前**写好，以功能分支上的本地 commit 形式存在。你（Worker）对测试文件**只能读、只能运行**：
+
+- **禁止新建 / 修改 / 删除 / 移动**任何测试文件与测试基础设施：本项目的测试位置是 `cmuxTests/`（Xcode 单元测试）、`scripts/ci/test_*.py`、`scripts/tests/`、`scripts/dev-profiles/*.test.mjs`；含 fixtures / helpers / conftest 等伴生文件（跑测试缺了也不自己补）。
+- **碰到测试跑不通、断言与 Issue 预期不符 → 终止开发、上报 Leader（`Atlas`）或用户裁决**，绝不改测试迁就实现——这是 LLM 的典型失败模式（改不动代码就放宽断言）。
+- **`# TEST_CASES_WRITE_OK` 标记的签发权在 Leader**，你不加；被 `test-cases-guard` 拦下时不要绕过。
+- 例外：测试运行自产的缓存与构建产物（`__pycache__`、`.pytest_cache`、coverage 输出、`out/` 等）可清理，走授权标记通道。
+
 ## 详细说明
 
 `DEVELOPMENT.md`（构建 / 安装 / 门禁 / 发版全流程）、`PATCHES.md`（补丁清单）、`SYNC.md`（上游同步方法）；通用工作规则见全局 `~/.pi/agent/AGENTS.md`。

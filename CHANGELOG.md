@@ -4,6 +4,12 @@ All notable changes to cmux are documented here.
 
 ## [Unreleased]
 
+### 变更（cmuxTests 接进 build-macos；补 Worker 测试只读约束，2026-11-13）
+
+- **为什么改**：`cmuxTests/` 下已有 17 个测试文件（含空窗口状态、标签页关闭路由等），但 PR 门禁 `checks` 只做语法 / schema / 测试接线 / gitleaks，一条测试都不跑——测试写了没人跑，等于没有防护网。PR 门禁又不能装它：`cmuxTests` 用 `@testable import cmux` 依赖整个 app target，跑一次等于再走一遍完整构建（2~4 小时），与「门禁几分钟内跑完」的取舍直接冲突。
+- **改了什么**：① `.github/workflows/build.yml` 在 Release 构建之后加 `xcodebuild test -scheme cmux-unit -only-testing:cmuxTests`（复用同一 derivedDataPath、step 超时 45 分钟）——接在本来就是长任务的 `build-macos` 里，tag / dispatch 触发时把回归拦在发版前；② `DEVELOPMENT.md` 第九节改写：说明 `cmuxTests` 落在 `build-macos` 而不是 PR 门禁的原因，以及 `cmuxCLITests`（不依赖 app）才是将来可能进门禁的候选；③ `.pi/APPEND_SYSTEM.md` 新增「测试文件对 Worker 只读」节。
+- **回归检查**：① PR 门禁 `checks` 一字未改（job 名与四项检查保持原样，分支保护不受影响）；② `build-macos` 的构建步骤、签名、产物校验、appcast 签名全部未动，只在构建之后多一个 step；③ 版本号不动（CI 与文档类改动）。
+
 ### Fixed
 - **Markdown 面板的锁 / 笔滑钮在深色文档上是白底胶囊，跟 VS Code 的 Markdown Editor 差很远**：根因不在样式本身，而在 `MarkdownWebRenderer.applyTheme` 只把主题色（`--bgColor-muted` / `--borderColor-default` …）注入到 `document.getElementById('content')`，而滑钮挂在 `document.body` 下、在 `#content` 外面——这些变量一个都取不到，全部落回浅色主题的兜底（`#ffffff` 填充 / `rgba(31,35,40,.15)` 描边），深色面板上自然是一片白。现在 `applyTheme` 把同一批变量**同时**写入 `document.documentElement`（`--bgColor-default` 除外：它的值是 `transparent`，是为内容区准备的，注入根节点会让同样在 `#content` 外面的浮动块编辑浮层变透明）；`.markdown-body` 自己声明了同名变量，所以内容区观感不变。滑钮的填充改用 `--bgColor-muted`（与文档背景对比度 1.09：差异看得见但不刺眼）、1px 描边改用 `--borderColor-default`（1.92：比填充更亮的灰轮廓，把轮廓勾出来），正好就是用户要的「内部背景跟文档背景几乎一样、边缘一圈更浅的灰」。
 - **滑钮布局与激活态对齐 VS Code：锁在左、笔在右，两个图标常驻可见**：以前 `syncLockUI()` 用 `hidden` 把非激活那个图标藏起来，视觉上像「半个胶囊」。现在两个图标始终显示，只靠 `is-locked` class 决定谁是激活态——激活的图标垫一块 `#0078d4`（VS Code 经典蓝）的 22×22 / 5px 圆角方形、图标纯白，未激活图标为 `#8a8a8a`（浅色主题覆盖成 `#616161`）；整体尺寸与位置（54×28 / 圆角 14 / 内边距 2 / gap 2）没动。

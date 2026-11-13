@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [Unreleased]
+## [0.65.2.2-r22] - 2026-11-13
 
 ### 变更（cmuxTests 接进 build-macos；补 Worker 测试只读约束，2026-11-13）
 

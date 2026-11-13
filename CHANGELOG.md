@@ -2,6 +2,13 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-r23] - 2026-11-13
+
+### 变更（build-macos 单元测试 step 超时，2026-11-13）
+
+- **为什么改**：`v0.65.2.2-r22` 的 `build-macos` 因「单元测试（cmuxTests，scheme cmux-unit）」step 在 45 分钟超时失败——日志里没有任何 `Test Suite` / `Executed N tests`，测试一条都没跑，超时那一刻仍在编译 `Sources/Panels/FilePreviewPanel.swift`。根因是 `cmux-unit.xcscheme` 的 TestAction 用 `Debug` 配置，而正式构建走 `Release`（`scripts/reloads.sh`）；配置不同，即使共用 `/tmp/cmux-build` 的 derivedData，`xcodebuild test` 也要把所有 SwiftPM 包与 app target 整套重编（完整构建 2~4 小时），45 分钟根本不够。该 step 排在打包 / 上传产物之前，一超时后面全部跳过，zip 没生成，`attach-release-asset` 被跳过，r22 的 Release 因此没有 assets。
+- **改了什么**：只把该 step 的 `timeout-minutes` 从 45 提到 180（仍在 job 级 `timeout-minutes: 360` 之内），并在上方注释补一句说明为什么需要这么久；测试命令本身一字未改，PR 门禁 `checks` 与其它 step 均不变。冷构建 + 测试的真实耗时、以及是否改 `-configuration Release` 或做分片，留待实测后由单独 PR 处理（见 `TODO.md` T10）。
+
 ## [0.65.2.2-r22] - 2026-11-13
 
 ### 变更（cmuxTests 接进 build-macos；补 Worker 测试只读约束，2026-11-13）

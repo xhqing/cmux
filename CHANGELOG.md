@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [Unreleased]
+## [0.65.2.2-r24] - 2026-11-16
 
 ### 变更（单元测试移出出包关键路径 + 测试编译修复，2026-11-16，Issue #93）
 

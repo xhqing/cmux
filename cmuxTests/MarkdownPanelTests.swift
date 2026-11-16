@@ -415,6 +415,90 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(panel.isDirty)
     }
 
+    func testExternalChangeWhileDirtySurfacesPendingUpdate() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-panel-dirty-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appendingPathComponent("live.md")
+        try "# Disk A\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        if let initialLoad = panel.loadTextContent() {
+            await initialLoad.value
+        }
+        XCTAssertEqual(panel.content, "# Disk A\n")
+
+        panel.updateTextContent("# Local edit\n")
+        XCTAssertTrue(panel.isDirty)
+
+        try "# Disk B\n".write(to: fileURL, atomically: false, encoding: .utf8)
+        await panel.reloadFromDisk().value
+
+        // Unsaved edits win, but the panel must say that the disk moved on
+        // instead of silently ignoring the reload.
+        XCTAssertEqual(panel.content, "# Local edit\n")
+        XCTAssertTrue(panel.isDirty)
+        XCTAssertTrue(panel.hasPendingExternalChange)
+    }
+
+    func testAcceptingPendingExternalChangeLoadsDiskContent() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-panel-accept-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appendingPathComponent("live.md")
+        try "# Disk A\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        if let initialLoad = panel.loadTextContent() {
+            await initialLoad.value
+        }
+
+        panel.updateTextContent("# Local edit\n")
+        try "# Disk B\n".write(to: fileURL, atomically: false, encoding: .utf8)
+        await panel.reloadFromDisk().value
+        XCTAssertTrue(panel.hasPendingExternalChange)
+
+        await panel.acceptPendingExternalContent().value
+
+        XCTAssertEqual(panel.content, "# Disk B\n")
+        XCTAssertEqual(panel.textContent, "# Disk B\n")
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertFalse(panel.hasPendingExternalChange)
+    }
+
+    func testDirtyBlockedReloadKeepsObservationFingerprint() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-panel-fingerprint-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appendingPathComponent("live.md")
+        try "# Disk A\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        if let initialLoad = panel.loadTextContent() {
+            await initialLoad.value
+        }
+
+        panel.updateTextContent("# Local edit\n")
+        try "# Disk B\n".write(to: fileURL, atomically: false, encoding: .utf8)
+        await panel.reloadFromDisk().value
+
+        // Regression: a reload blocked by unsaved edits must not advance the
+        // observation fingerprint, otherwise every later watcher event compares
+        // equal and the panel stays pinned to the stale content until the file
+        // changes again.
+        let currentState = FilePreviewFileState.capture(path: fileURL.path)
+        XCTAssertNotEqual(panel.lastObservedFileState, currentState)
+    }
+
     func testMarkdownEditorModeAcceptsCommittedBlockText() async throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory

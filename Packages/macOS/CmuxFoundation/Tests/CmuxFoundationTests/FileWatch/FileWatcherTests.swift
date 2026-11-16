@@ -167,6 +167,49 @@ import Testing
         #expect(await firstEvent(watcher, within: 5))
     }
 
+    /// `git checkout` rewrites a tracked file by unlinking it and creating a new
+    /// one, so the watched inode disappears and a fresh one appears instead of
+    /// being renamed over. This is the shape of the reported Markdown-panel
+    /// failure (git merge + checkout) and has to recover through the ancestor
+    /// directory source, like the atomic-save case above.
+    @Test func gitStyleRewriteYieldsEvent() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("watched.md")
+        try "# A\n".write(to: file, atomically: true, encoding: .utf8)
+
+        let watcher = FileWatcher(path: file.path, throttle: .milliseconds(100))
+        defer { Task { await watcher.stop() } }
+
+        try FileManager.default.removeItem(at: file)
+        try "# B\n".write(to: file, atomically: false, encoding: .utf8)
+
+        #expect(await firstEvent(watcher, within: 5))
+    }
+
+    /// A panel stays open across several external rewrites (git merges, editor
+    /// atomic saves); every rewrite must produce its own invalidation after the
+    /// previous reattach, not just the first one.
+    @Test func repeatedGitStyleRewritesKeepYieldingEvents() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("watched.md")
+        try "# initial\n".write(to: file, atomically: true, encoding: .utf8)
+
+        let watcher = FileWatcher(path: file.path, throttle: .milliseconds(100))
+        defer { Task { await watcher.stop() } }
+
+        for round in 1...3 {
+            try FileManager.default.removeItem(at: file)
+            try "# round \(round)\n".write(to: file, atomically: false, encoding: .utf8)
+            #expect(await firstEvent(watcher, within: 5), "round \(round) produced no event")
+        }
+    }
+
     @Test func stopFinishesStream() async {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-watcher-\(UUID().uuidString)", isDirectory: true)

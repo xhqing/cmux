@@ -65,6 +65,13 @@ struct MarkdownPanelView: View {
         .onChange(of: panel.focusFlashToken) {
             triggerFocusFlashAnimation()
         }
+        .onChange(of: isVisibleInUI) { _, visibleInUI in
+            // Watcher events can be lost while the panel is out of sight or the
+            // machine slept; a visibility flip is the cheapest place to look
+            // once more (no timer).
+            guard visibleInUI else { return }
+            panel.reconcileExternalFileState()
+        }
         .environment(\.colorScheme, themeColorScheme)
     }
 
@@ -73,70 +80,110 @@ struct MarkdownPanelView: View {
     @ViewBuilder
     private var markdownBody: some View {
         let renderedVisible = panel.displayMode == .preview || panel.displayMode == .editor
-        ZStack {
-            MarkdownWebRenderer(
-                markdown: panel.content,
-                theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
-                backgroundColor: appearance.contentBackgroundColor,
-                isVisibleInUI: isVisibleInUI && renderedVisible,
-                panelId: panel.id,
-                workspaceId: panel.workspaceId,
-                filePath: panel.filePath,
-                fontSize: panel.fontSize,
-                fontFamily: panel.fontFamily,
-                maxContentWidth: panel.maxContentWidth,
-                loadRemoteImages: panel.loadRemoteImages,
-                isEditingEnabled: panel.displayMode == .editor,
-                isEditorLocked: panel.isEditorLocked,
-                onEditorTextChange: { [weak panel] text in
-                    panel?.editorDidCommitText(text)
-                },
-                onEditorLockChange: { [weak panel] locked in
-                    panel?.setEditorLocked(locked)
-                },
-                onSaveShortcut: { [weak panel] in
-                    panel?.commitEditorAndSave()
-                },
-                session: panel.rendererSession,
-                onRequestPanelFocus: onRequestPanelFocus,
-                onViewAttachedToWindow: { [weak panel] in
-                    panel?.replayPendingPreviewFocusAfterWindowAttach()
-                }
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .opacity(renderedVisible ? 1 : 0)
-            .allowsHitTesting(renderedVisible)
-            .accessibilityHidden(!renderedVisible)
-
-            if panel.displayMode == .text {
-                FilePreviewTextEditor(
-                    panel: panel,
-                    isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: appearance.contentBackgroundColor,
-                    themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground,
-                    gutterBackgroundColor: appearance.backgroundColor,
-                    wordWrap: fileEditorWordWrap,
-                    filePath: panel.filePath
+        VStack(spacing: 0) {
+            if panel.hasPendingExternalChange {
+                externalChangeBanner
+            }
+            ZStack {
+                MarkdownWebRenderer(
+                    markdown: panel.content,
+                    theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
+                    backgroundColor: appearance.contentBackgroundColor,
+                    isVisibleInUI: isVisibleInUI && renderedVisible,
+                    panelId: panel.id,
+                    workspaceId: panel.workspaceId,
+                    filePath: panel.filePath,
+                    fontSize: panel.fontSize,
+                    fontFamily: panel.fontFamily,
+                    maxContentWidth: panel.maxContentWidth,
+                    loadRemoteImages: panel.loadRemoteImages,
+                    isEditingEnabled: panel.displayMode == .editor,
+                    isEditorLocked: panel.isEditorLocked,
+                    onEditorTextChange: { [weak panel] text in
+                        panel?.editorDidCommitText(text)
+                    },
+                    onEditorLockChange: { [weak panel] locked in
+                        panel?.setEditorLocked(locked)
+                    },
+                    onSaveShortcut: { [weak panel] in
+                        panel?.commitEditorAndSave()
+                    },
+                    session: panel.rendererSession,
+                    onRequestPanelFocus: onRequestPanelFocus,
+                    onViewAttachedToWindow: { [weak panel] in
+                        panel?.replayPendingPreviewFocusAfterWindowAttach()
+                    }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+                .opacity(renderedVisible ? 1 : 0)
+                .allowsHitTesting(renderedVisible)
+                .accessibilityHidden(!renderedVisible)
 
-            if panel.displayMode == .preview || panel.displayMode == .editor, let searchState = panel.searchState {
-                BrowserSearchOverlay(
-                    panelId: panel.id,
-                    searchState: searchState,
-                    focusRequestGeneration: panel.searchFocusRequestGeneration,
-                    canApplyFocusRequest: { generation in
-                        panel.canApplySearchFocusRequest(generation)
-                    },
-                    onNext: { panel.findNext() },
-                    onPrevious: { panel.findPrevious() },
-                    onClose: { panel.hideFind() },
-                    onFieldDidFocus: {}
-                )
+                if panel.displayMode == .text {
+                    FilePreviewTextEditor(
+                        panel: panel,
+                        isVisibleInUI: isVisibleInUI,
+                        themeBackgroundColor: appearance.contentBackgroundColor,
+                        themeForegroundColor: themeForegroundColor,
+                        drawsBackground: appearance.drawsContentBackground,
+                        gutterBackgroundColor: appearance.backgroundColor,
+                        wordWrap: fileEditorWordWrap,
+                        filePath: panel.filePath
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                if panel.displayMode == .preview || panel.displayMode == .editor, let searchState = panel.searchState {
+                    BrowserSearchOverlay(
+                        panelId: panel.id,
+                        searchState: searchState,
+                        focusRequestGeneration: panel.searchFocusRequestGeneration,
+                        canApplyFocusRequest: { generation in
+                            panel.canApplySearchFocusRequest(generation)
+                        },
+                        onNext: { panel.findNext() },
+                        onPrevious: { panel.findPrevious() },
+                        onClose: { panel.hideFind() },
+                        onFieldDidFocus: {}
+                    )
+                }
             }
         }
+    }
+
+    /// A blocked reload must be visible: the edits stay, and the disk version is
+    /// one click away (#94).
+    private var externalChangeBanner: some View {
+        HStack(alignment: .center, spacing: 8) {
+            CmuxSystemSymbolImage(
+                systemName: "arrow.down.doc",
+                pointSize: RightSidebarChromeMetrics.contentIconFrameSize,
+                tint: .secondary
+            )
+            .frame(width: RightSidebarChromeMetrics.contentIconFrameSize)
+            .accessibilityHidden(true)
+            Text(String(
+                localized: "markdown.externalChange.message",
+                defaultValue: "This file changed on disk. Your unsaved changes were kept."
+            ))
+            .cmuxFont(size: 12)
+            .foregroundStyle(Color(nsColor: themeForegroundColor))
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button(String(
+                localized: "markdown.externalChange.loadDiskVersion",
+                defaultValue: "Load Disk Version"
+            )) {
+                panel.acceptPendingExternalContent()
+            }
+            .controlSize(.small)
+        }
+        .padding(.horizontal, RightSidebarChromeMetrics.contentIconLeadingPadding)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: appearance.backgroundColor))
+        .overlay(alignment: .bottom) { Divider() }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("markdown-external-change-banner")
     }
 
     private var filePathHeader: some View {

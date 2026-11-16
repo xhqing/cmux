@@ -182,24 +182,6 @@ jobs:
           set -o pipefail
           ./scripts/reloads.sh --derived-data /tmp/cmux-build 2>&1 | tee /tmp/cmux-build-raw.log
 
-      - name: 单元测试（cmuxTests，scheme cmux-unit）
-        # 为什么放这里而不是 PR 门禁：cmuxTests 用 `@testable import cmux` 依赖整个
-        # app target，跑它等于再走一遍完整构建（本项目实测 2~4 小时）。PR 门禁必须保持
-        # 「几分钟内跑完」（见 DEVELOPMENT.md「为什么 PR 门禁是轻量门禁」），所以测试接在
-        # 这个已经是长任务的 build-macos 里——tag / dispatch 触发，发版前把回归拦下来。
-        # 超时给 180 分钟：`cmux-unit` 的 TestAction 是 Debug，与上面 Release 构建的配置
-        # 不同，共用 derivedData 仍要整套重编，45 分钟不够（r22 即因此超时），
-        # 180 分钟仍在 job 级 `timeout-minutes: 360` 之内。
-        timeout-minutes: 180
-        run: |
-          set -euo pipefail
-          xcodebuild test \
-            -project cmux.xcodeproj \
-            -scheme cmux-unit \
-            -destination 'platform=macOS,arch=arm64' \
-            -derivedDataPath /tmp/cmux-build \
-            -only-testing:cmuxTests
-
       - name: 校验产物不含构建机 home 路径
         run: |
           set -euo pipefail
@@ -348,6 +330,24 @@ jobs:
             appcast.xml
           if-no-files-found: error
           retention-days: 30
+
+      # 单元测试放在「上传产物」之后（xhqing/cmux#93）：它用 `@testable import cmux`
+      # 依赖整个 app target，`cmux-unit` 的 TestAction 是 Debug、与 Release 构建配置不同，
+      # 共用 derivedData 仍要整套重编（实测 74 分钟起）。放在产物之前时，它一旦失败或
+      # 超时（r22）就把打包 / 上传整条链掐断，Release 没有任何资产可装。
+      # 现在产物先出、先挂，测试失败单独把这一次 workflow 标红——回归照样看得见，
+      # 但安装包不再跟着陪葬。超时 180 分钟是 Debug 整套重编的实测上限，仍在 job 级
+      # `timeout-minutes: 360` 之内。
+      - name: 单元测试（cmuxTests，scheme cmux-unit）
+        timeout-minutes: 180
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project cmux.xcodeproj \
+            -scheme cmux-unit \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath /tmp/cmux-build \
+            -only-testing:cmuxTests
 
       - name: 上传完整构建日志（仅失败时）
         if: failure()

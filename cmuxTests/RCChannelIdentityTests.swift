@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import CmuxUpdater
 import Foundation

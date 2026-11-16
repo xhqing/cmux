@@ -4,6 +4,12 @@ All notable changes to cmux are documented here.
 
 ## [Unreleased]
 
+### 变更（单元测试移出出包关键路径 + 测试编译修复，2026-11-16，Issue #93）
+
+- **为什么改**：r22 的单元测试 step 在 45 分钟超时；r23 把超时提到 180 分钟后测试终于开始跑，却卡在编译错误：`cmuxTests/RCChannelIdentityTests.swift` 用了 `CmuxGhosttyConfigPathResolver` 却没有 `import CmuxFoundation`（该类型在 Issue #70 之后搬进了 SwiftPM 包）。两次都因为测试 step 排在打包 / 上传之前，Release 建出来却没有 zip / sha256 / appcast，装不上新版——测试把安装包变成了陪葬品。
+- **改了什么**：① `.github/workflows/build.yml` 把「单元测试（cmuxTests）」step 移到「上传产物」之后，产物先出、先挂，测试失败只让这次 workflow 标红；② `.github/workflows/attach-release-asset.yml` 的判据从「整个 run 结论是 success」改成「build job 的『上传产物』step 是 success」，手动补挂时也从最近 tag 构建里挑真正上传了产物的 run（不再用 `--status success`，否则测试红但产物完整的 run 会被漏掉）；③ `cmuxTests/RCChannelIdentityTests.swift` 补 `import CmuxFoundation`，修掉 r23 的测试编译错误。
+- **回归检查**：① PR 门禁 `checks` 一字未改（job 名与检查项不变）；② Release 构建、签名、产物校验、appcast 生成与校验全部未动；③ 单元测试仍然每次都跑、结果可见，不再阻塞资产上传；④ 版本号不动（CI / 测试类改动）。
+
 ### 修复（Markdown 面板不跟随磁盘更新，Issue #94，2026-11-16）
 
 - **为什么改**：Markdown 面板（预览 / 就地编辑 / TextEdit）在文件被外部替换后（`git checkout` 的 `unlink + create`、编辑器的原子保存）会一直显示旧内容，点工具栏 Refresh 也毫无反应，只有关掉标签重开才正常。根因不在 `FileWatcher`（用独立探针直接驱动 `CmuxFoundation` 的 `FileWatcher`，`unlink + create`、`rename`、原地写入各产生一次事件，多轮替换后仍正常重挂），而在 `MarkdownPanel` 的重载决策层，两处缺陷叠加：① `applyLoadedResult` 的 dirty 分支既不更新 `content`、也不给任何可见反馈，于是自动刷新与手动 Refresh 都被静默拦下；② `lastObservedFileState = postReadFileState` 在 dirty 判断**之前**无条件执行，被拦下的那次 reload 已经把观察指纹推到最新磁盘状态，此后 `handleObservedFileChange()` 的 `guard state != lastObservedFileState` 再也过不去，watcher 事件全被吞掉。另外自动刷新只有 watcher 一条链路，面板长时间不可见 / 系统睡眠唤醒后事件丢失就没有兜底。

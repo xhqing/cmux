@@ -2,6 +2,14 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### 修复（Markdown 面板不跟随磁盘更新，Issue #94，2026-11-16）
+
+- **为什么改**：Markdown 面板（预览 / 就地编辑 / TextEdit）在文件被外部替换后（`git checkout` 的 `unlink + create`、编辑器的原子保存）会一直显示旧内容，点工具栏 Refresh 也毫无反应，只有关掉标签重开才正常。根因不在 `FileWatcher`（用独立探针直接驱动 `CmuxFoundation` 的 `FileWatcher`，`unlink + create`、`rename`、原地写入各产生一次事件，多轮替换后仍正常重挂），而在 `MarkdownPanel` 的重载决策层，两处缺陷叠加：① `applyLoadedResult` 的 dirty 分支既不更新 `content`、也不给任何可见反馈，于是自动刷新与手动 Refresh 都被静默拦下；② `lastObservedFileState = postReadFileState` 在 dirty 判断**之前**无条件执行，被拦下的那次 reload 已经把观察指纹推到最新磁盘状态，此后 `handleObservedFileChange()` 的 `guard state != lastObservedFileState` 再也过不去，watcher 事件全被吞掉。另外自动刷新只有 watcher 一条链路，面板长时间不可见 / 系统睡眠唤醒后事件丢失就没有兜底。
+- **改了什么**：`Sources/Panels/MarkdownPanel.swift` 新增 `hasPendingExternalChange` 与 `acceptPendingExternalContent()`；`applyLoadedResult` 重排成「只有真正采纳了磁盘状态的结果才推进指纹」——dirty 分支保留旧指纹并置 pending（磁盘内容与本地编辑相同时不置），成功应用与 `.unavailable` 分支推进指纹并清 pending；新增 `reconcileExternalFileState()`，供面板重新可见时比一次 `FilePreviewFileState`（不引入定时器）。`Sources/Panels/MarkdownPanelView.swift` 在 markdown 内容顶部加一条提示条（文案 +「载入磁盘版本」按钮），并在 `isVisibleInUI` 由 false 变 true 时调用 `reconcileExternalFileState()`。`Resources/Localizable.xcstrings` 补两条文案（10 种语言），`PATCHES.md` 记一条 P14（含 rebase 时必须重新保证的两条语义）。
+- **怎么验证**：`swiftc -parse -enable-bare-slash-regex` 对两个改动文件通过；包层无改动（`FileWatcher` 的两个新用例是回归网，与本次实现无关）。app target 测试 `cmuxTests/MarkdownPanelTests` 的三条用例（dirty 时产生 pending、载入磁盘版本后清空、被拦下的 reload 不推进指纹）只能在 `build-macos` 的 `xcodebuild test` 或 Xcode 里跑——PR 门禁不编译 app target。真机验收：开一个 Markdown 面板 → 改文件（编辑器保存 / `git checkout`）→ 预览跟随更新；在 TextEdit 里改字不保存 → 同样的外部更新 → 出现提示条 → 点「载入磁盘版本」→ 显示磁盘内容。
+
 ## [0.65.2.2-r23] - 2026-11-13
 
 ### 变更（build-macos 单元测试 step 超时，2026-11-13）

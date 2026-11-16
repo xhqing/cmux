@@ -686,3 +686,45 @@ Issue #43 的现象是「装在 `/Applications` 的 `com.xhqing.cmux` 永远不�
 - 本机（Intel macOS 12 / Swift 5.7）`swiftc -parse` 对本次改动的全部源码文件通过；`GhosttyConfig.swift` 与 `GhosttyTerminalView.swift` 因**既存**的 Swift 6 `nonisolated(unsafe)` 语法被 Swift 5.7 误报（改动前后都存在），Swift 6 语法正确性由 PR 门禁 `checks`（macos-26）与 `build-macos` 兜底。
 - 测试更新：`GhosttyConfigManagedDefaultAppearanceTests`（开关不再门控注入、两外观同色、新增 fallback == bundle 主题文件逐字对比与 fallback 即 GitHub Dark Default 两个防漂移用例）、`GhosttyConfigAdaptiveAppearanceRegressionTests`（亮 / 暗同色断言）、`GhosttyConfigThemeParityTests`（noConfig / nonAppearanceSetting fixture 改为 GitHub Dark Default 单套快照、changesWithAppearance 改 false）、`GhosttyConfigDiscoveryThemeOverrideTests`（新增用户目录命中注入绝对路径两个用例）、`GhosttyThemeColorsTests.ordersDirectories`（用户目录在前）、`SettingCatalogTests`（adaptiveDefaultTheme 默认值断言翻转为 false）、`cmuxTests/GhosttyConfigTests`（无效 UTF-8 候选跳过、用户目录覆盖注入绝对路径、fresh-install 预览断言改为 `#0D1117`；conditional override 系列固定 home 防 flake）。
 - 真机验收（装下一版后，见 `DEVELOPMENT.md` 第三节与 Issue #71 的 7 条清单）。
+
+---
+
+## P14 — Markdown 面板跟随磁盘更新：dirty 时给可见提示，不再吞掉 watcher 事件（Issue #94）
+
+**状态**：已实现
+
+### 要解决的问题
+
+Markdown 面板（预览 / 就地编辑 / TextEdit）里打开的文件被外部替换后（`git checkout` 的 `unlink + create`、编辑器的原子保存），内容停在旧版本：自动刷新不动、工具栏 Refresh 点了没反应，只有关掉标签重开才正常。
+
+根因不在 `FileWatcher`（`CmuxFoundation`，kqueue + 祖先目录重挂）：用独立 `swiftc` 探针直接驱动它，`unlink + create`、`rename`、原地写入各产生一次事件，多轮替换后仍正常重挂。问题在 `MarkdownPanel` 的重载决策层，两处缺陷叠加：
+
+1. **dirty 时静默拦截**：`applyLoadedResult` 的 `if !replacingDirtyContent && isDirty` 分支只更新 `originalTextContent` / `isDirty`，既不更新 `content`，也没有任何可见反馈——自动刷新与手动 Refresh 都表现为「什么都没发生」。
+2. **观察指纹被提前推进**：`lastObservedFileState = postReadFileState` 写在 dirty 判断**之前**、无条件执行。一次被拦下的 reload 已经把指纹推到最新磁盘状态，此后 `FileContentChangeObservingPanel.handleObservedFileChange()` 里的 `guard state != lastObservedFileState` 再也过不去，watcher 事件全被吞掉，面板被钉死在旧内容。
+
+另外自动刷新只有 watcher 一条链路：面板长时间不可见、或系统睡眠唤醒后事件丢失，就没有任何兜底。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `Sources/Panels/MarkdownPanel.swift` | ① 新增 `@Published private(set) var hasPendingExternalChange`；② 新增 `acceptPendingExternalContent()`（显式 `loadFileContent(replacingDirtyContent: true)`）；③ `applyLoadedResult` 重排为「只有真正采纳磁盘状态的结果才推进 `lastObservedFileState`」——dirty 分支保留旧指纹并置 `hasPendingExternalChange = (textContent != newContent)`，成功应用与 `.unavailable` 分支推进指纹并清 pending（只读失败且仍 dirty 的分支同样不推进）；④ 新增 `reconcileExternalFileState()` 作兜底；⑤ `updateTextContent` 在 `!isDirty` 时清 pending（本地内容已回到磁盘版本）。 |
+| `Sources/Panels/MarkdownPanelView.swift` | markdown 内容顶部加一条提示条（说明文案 +「载入磁盘版本」按钮 → `acceptPendingExternalContent()`）；`isVisibleInUI` 由 false 变 true 时调一次 `reconcileExternalFileState()`。 |
+| `Resources/Localizable.xcstrings` | 新增 `markdown.externalChange.message` / `markdown.externalChange.loadDiskVersion` 两条（10 种语言，`extractionState: manual`）。 |
+
+### 逻辑边界（刻意这么做）
+
+- **兜底不推进指纹**：`reconcileExternalFileState()` 自己只比较，不写 `lastObservedFileState`。dirty 时直接置 pending 返回——如果它先推进指纹，等于把 #94 的缺陷原样复制到兜底入口（指纹 == 磁盘状态 → 后续 watcher 事件全被吞）。pending 的比较不在这里做（那要再读一次磁盘），「状态与面板基准不同」已经足够触发提示。
+- **`acceptPendingExternalContent()` 不在入口清 pending**：清了之后若这次 load 被 superseded（`loadGeneration` 不匹配）而后续没有新的 load 重算，提示就凭空消失。pending 由 `applyLoadedResult` 在真正采纳磁盘版本时清。
+- **不引入轮询**：兜底只挂在「面板重新可见」这个已有生命周期事件上。
+- **不改 dirty 语义**：未保存编辑仍然不会被静默丢弃，只是把「被挡住」变成可见、可操作。
+
+### 上游 rebase 冲突点
+
+`MarkdownPanel.applyLoadedResult` 的指纹推进位置（上游随时可能重写这块决策逻辑）、`MarkdownPanelView.markdownBody` 的结构（本仓库改成了 `VStack { banner; ZStack { … } }`）。rebase 后必须重新保证两条：被 dirty 拦下的 reload **不推进** `lastObservedFileState`，并且有可见反馈。
+
+### 验证
+
+- `swiftc -parse -enable-bare-slash-regex` 对两个改动文件通过；`./scripts/lint-pbxproj-test-wiring.sh`、`python3 scripts/generate-cmux-config-schema.py --check`、`python3 scripts/check-latency-guardrails.py`、`python3 scripts/lint-xcstrings.py`、`python3 scripts/localization_defaults.py` 本机全绿（`localization_catalog.py check` 仍是既有的 6 条 `markdown.web.mathRenderFailed` 缺 locale，与本次无关）。
+- 回归网：`Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/FileWatch/FileWatcherTests.swift` 的两个新用例（git 风格替换、多轮替换）覆盖 watcher 本身；`cmuxTests/MarkdownPanelTests.swift` 的三条用例（dirty 时 pending、载入磁盘版本后内容与状态、被拦下的 reload 不推进指纹）锁死本次修复的语义。**app target 测试不在 PR 门禁里跑**，只能在 `build-macos` 的 `xcodebuild test` 或 Xcode 里验证。
+- 真机验收：开一个 Markdown 面板 → 外部改文件 → 预览跟随更新；在 TextEdit 里改字不保存 → 外部再改 → 出现提示条 → 点「载入磁盘版本」→ 显示磁盘内容且 `isDirty` 归位。

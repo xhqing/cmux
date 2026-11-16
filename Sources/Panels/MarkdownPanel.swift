@@ -37,6 +37,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Whether TextEdit mode has unsaved changes.
     @Published private(set) var isDirty: Bool = false
 
+    /// Whether the file moved on disk while this panel kept unsaved edits.
+    /// A reload blocked by `isDirty` sets this so the view can say so and
+    /// offer `acceptPendingExternalContent()`; it is never dropped silently.
+    @Published private(set) var hasPendingExternalChange: Bool = false
+
     /// Whether TextEdit mode is saving to disk.
     @Published private(set) var isSaving: Bool = false
 
@@ -552,6 +557,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         loadFileContent(replacingDirtyContent: false)
     }
 
+    /// Replaces the unsaved edits with the on-disk version after an external
+    /// change was deferred. This is the explicit way out of the pending state
+    /// the panel enters when a reload is blocked by unsaved edits.
+    @discardableResult
+    func acceptPendingExternalContent() -> Task<Void, Never> {
+        // The pending marker is cleared by `applyLoadedResult` once the disk
+        // version is actually adopted. Clearing it here would lose the hint
+        // when this load is superseded and nothing newer recomputes it (#94).
+        return loadFileContent(replacingDirtyContent: true)
+    }
+
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
     }
@@ -574,6 +590,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         textContent = nextContent
         content = nextContent
         isDirty = nextContent != originalTextContent
+        if !isDirty {
+            // The buffer matches the on-disk version again, so nothing is
+            // waiting to be loaded any more.
+            hasPendingExternalChange = false
+        }
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }
 
@@ -709,37 +730,47 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             // watcher event start a fresh reconciliation budget.
         }
         staleReadRetryCount = 0
-        lastObservedFileState = postReadFileState
+        // Only a result this panel actually adopts may advance the observer
+        // fingerprint. A reload deferred by unsaved edits (`isDirty`) has to
+        // leave it where it was: advancing it would make every later watcher
+        // event compare equal and pin the panel to the stale content (#94).
         guard case .loaded(let newContent, let encoding) = result else {
             guard replacingDirtyContent || !isDirty else {
                 isFileUnavailable = true
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
                 return
             }
+            lastObservedFileState = postReadFileState
             content = ""
             textContent = ""
             originalTextContent = ""
             isDirty = false
             isFileUnavailable = true
+            hasPendingExternalChange = false
             GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             return
         }
 
         if !replacingDirtyContent && isDirty {
+            // Unsaved edits win, but the panel has to say that the disk moved
+            // on: a silent no-op reads as "refresh did nothing" (#94).
             originalTextContent = newContent
             textEncoding = encoding
             isDirty = textContent != newContent
             isFileUnavailable = false
+            hasPendingExternalChange = textContent != newContent
             GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             return
         }
 
+        lastObservedFileState = postReadFileState
         content = newContent
         textContent = newContent
         originalTextContent = newContent
         textEncoding = encoding
         isDirty = false
         isFileUnavailable = false
+        hasPendingExternalChange = false
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }
 
@@ -770,6 +801,23 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     @discardableResult
     func reloadFromObservedFileChange() -> Task<Void, Never>? {
         loadFileContent(replacingDirtyContent: false)
+    }
+
+    /// Cheap backstop for watcher events lost while the panel was hidden or
+    /// the machine slept. Runs the same comparison the watcher uses, on an
+    /// existing lifecycle event (the panel becoming visible) rather than on a
+    /// timer.
+    func reconcileExternalFileState() {
+        guard !isClosed, !isSaving else { return }
+        guard FilePreviewFileState.capture(path: filePath) != lastObservedFileState else { return }
+        // Never advance the fingerprint here: a reload deferred by unsaved
+        // edits keeps it, and moving it forward would make every later watcher
+        // event compare equal and pin the panel to the stale content (#94).
+        if isDirty {
+            hasPendingExternalChange = true
+            return
+        }
+        _ = reloadFromObservedFileChange()
     }
 
     deinit {

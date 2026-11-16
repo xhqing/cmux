@@ -231,11 +231,13 @@ r17 及更早的 app 里装的是**上游的** `SUPublicEDKey`，我们手里没
 - 所以门禁守的是「**几分钟内能跑完、且真会因为问题变红**」这一类检查；**完整的编译 / 类型 / 链接正确性由 `build-macos`（tag 或手动 dispatch 触发）兜底**。也就是说：PR 门禁绿 ≠ 一定能编译过，发版前的 `build-macos` 才是那一层。
 - **大改动的抽样**：Swift 语法检查对超过 `MAX_SWIFT_PARSE`（当前 1500）的清单做等距抽样（覆盖整份清单，不是只看开头），日志里会打一条 `::notice::` 说明。上游同步这类一次改上千文件的 PR 因此不会把门禁拖成十几分钟；这类 PR 的编译正确性同样交给 `build-macos`。
 
-### 4. 测试套件接在哪儿（2026-11-13 落定，2026-11-16 调整出包顺序）
+### 4. 测试套件接在哪儿（2026-11-13 落定，2026-11-16 拆为独立 workflow）
 
 - 仓库自带两个测试 target：`cmuxTests`（scheme `cmux-unit`）与 `cmuxCLITests`（scheme `cmux-cli-tests`）。
-- **`cmuxTests` 已接进 `build-macos`（`.github/workflows/build.yml`），不接 PR 门禁**：它用 `@testable import cmux` 依赖整个 app target，跑一次等于再走一遍完整构建。门禁的时间预算只够「几分钟」那一层，完整构建这一层本来就由 `build-macos` 兜底——测试与它放在一起是唯一自洽的位置。代价：PR 阶段不会因为单元测试红而拦下，回归在发版构建时才暴露（tag / dispatch 触发）。
-- **测试排在「上传产物」之后（Issue #93）**：`cmux-unit` 的 TestAction 是 Debug，与 Release 构建配置不同，共用 derivedData 仍要整套重编，实测 74 分钟起。它原先排在打包 / 上传之前，一旦失败或超时（r22、r23）就把产物链掐断，Release 一个资产都没有。现在顺序是「构建 → 校验 → 打包 → appcast → 上传产物 → 单元测试」：产物先出、先挂，测试失败只把这次 workflow 标红，回归照样看得见。`attach-release-asset` 的判据同步改成「build job 的『上传产物』step 成功」，不再看整个 run 的结论——否则测试失败（run 红）会让已上传的产物挂不上 Release。
+- **`cmuxTests` 跑在独立的 `unit-tests.yml`，不进 PR 门禁、也不留在 `build-macos` 里**（Issue #93，2026-11-16 定稿）：它用 `@testable import cmux` 依赖整个 app target，跑一次等于再走一遍完整构建（Debug 配置，约 90 分钟）。实测全量：XCTest 4112 条约 20 分钟、Swift Testing 那套 87 分钟以上仍未跑完，整条 step 200 分钟量级。
+- **为什么必须独立成一个 workflow（而不只是同一 workflow 里的一个 step）**：`attach-release-asset` 由 `workflow_run: completed` 触发。只要测试还留在 build-macos 里，workflow 就要等测试跑完（或超时）才 `completed`，资产也就挂得晚。r24 的实测数据就是证据：构建 82 分钟、打包 + appcast + 上传 54 秒（共 85 分钟产物就绪），但资产要等测试结束才挂上。拆开后 build-macos 约 86 分钟结束、资产立即挂上；测试与它并行跑，失败只标红自己。
+- **挂资产只看「上传产物」step**：`attach-release-asset` 的判据是 build job 的「上传产物」step 结论，不是整个 run 的结论——构建或打包失败时该 step 不存在或 skipped，会明确拒绝；测试红不影响资产（测试不在这个 workflow 里）。
+- **`unit-tests.yml` 的 setup 与 `build.yml` 同源**（Xcode 26 / Metal / Zig 0.16 / Go / `scripts/setup.sh`）：改动任一处时对照另一处，避免两条流水线跑在不同工具链上。
 - `cmuxCLITests`（只测 CLI target，不依赖 app）目前仍未接入；如果要接，它才是有可能进 PR 门禁的候选——同样必须先实测耗时。
 - **接入条件**：这两个 target 能在一台 `macos-26` runner 上、门禁的 `timeout-minutes` 之内跑完；且 PR 阶段改 app target 的 PR 应在合并前手动 `gh workflow run build.yml --ref <分支>` 跑一次，把类型错误与测试编译错误提前暴露（PR 门禁的 `swiftc -parse` 不做类型检查）。
 - **接入时在 `checks` 里加一个 step**（前提是上面「先实测」已完成）：

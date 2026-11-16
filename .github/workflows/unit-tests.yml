@@ -1,0 +1,131 @@
+name: unit-tests
+
+# cmuxTests 的独立执行通道（xhqing/cmux#93）。
+#
+# 为什么不放在 build-macos 里：`cmux-unit` 的 TestAction 是 Debug，与 Release
+# 构建配置不同，共用 derivedData 仍要整套重编（实测 90 分钟量级）；再叠加 XCTest
+# 4112 条（约 20 分钟）与 Swift Testing 那一套（实测 87 分钟以上仍未跑完），整条
+# step 远超 180 分钟。它一旦留在构建 workflow 里，`workflow_run: completed` 就要等到
+# 测试结束才触发，`attach-release-asset` 也就挂不上资产（r22、r23 就是这么空掉的）。
+#
+# 拆出来之后：build-macos 约 86 分钟结束 → 资产立即挂到 Release；本 workflow 与它
+# 并行跑，失败只标红自己，不影响安装包是否可安装。
+#
+# 触发：推 tag（与 build-macos 同步启动），或手动 dispatch 在任意分支上验证。
+#
+# 维护提示：本文件里「选择 Xcode / Metal / Zig / Go / setup」几段与 build.yml 的同名
+# 步骤同源，改动任一处时请对照另一处，避免两条流水线跑在不同工具链上。
+
+on:
+  push:
+    tags:
+      - "v*-r[0-9]*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-tests-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  unit-tests:
+    name: Unit tests (cmuxTests)
+    runs-on: macos-26
+    # Debug 全套重编约 90 分钟 + XCTest 约 20 分钟 + Swift Testing 90 分钟以上，
+    # 给足 360 分钟让它跑完再判红绿（不再用「猜一个超时」挡住结果）。
+    timeout-minutes: 360
+    env:
+      CMUX_DEV_BACKEND_MODE: local
+      CODE_SIGN_IDENTITY: "-"
+      CODE_SIGNING_REQUIRED: "NO"
+      COMPILER_INDEX_STORE_ENABLE: "NO"
+
+    steps:
+      - name: Checkout（含子模块）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: 缓存 Zig / Cargo 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: deps-${{ runner.os }}-${{ hashFiles('ghostty/build.zig.zon', 'Native/*/Cargo.lock', 'Packages/**/Cargo.lock') }}
+          restore-keys: |
+            deps-${{ runner.os }}-
+
+      - name: 打印环境信息
+        run: |
+          sw_vers
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          xcodebuild -version || true
+          zig version || true
+          cargo --version || true
+
+      - name: 选择 Xcode 26
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "${XCODE_APP}" ]; then
+            echo "::error::runner 上没有 Xcode 26，无法跑测试"
+            exit 1
+          fi
+          echo "使用 ${XCODE_APP}"
+          sudo xcode-select -s "${XCODE_APP}"
+          xcodebuild -version
+
+      - name: 安装 Metal 工具链
+        run: xcodebuild -downloadComponent MetalToolchain
+
+      - name: 安装 Zig 0.16.0（上游要求主次版本必须匹配）
+        run: |
+          set -euo pipefail
+          ZIG_VERSION="0.16.0"
+          # ghostty/build.zig.zon 里写的是 minimum_zig_version = "0.16.0"，
+          # scripts/ghostty-zig-version.sh 要求主次版本完全一致，所以不能用
+          # brew 的 latest（现在是 0.17.x）。
+          curl -fsSL -o /tmp/zig.tar.xz \
+            "https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-macos-${ZIG_VERSION}.tar.xz"
+          mkdir -p "$HOME/.local/zig"
+          tar -xJf /tmp/zig.tar.xz -C "$HOME/.local/zig" --strip-components=1
+          echo "$HOME/.local/zig" >> "$GITHUB_PATH"
+          "$HOME/.local/zig/zig" version
+
+      - name: 检查 Go（Release 构建的 WireGuard 引擎需要）
+        run: |
+          if command -v go >/dev/null 2>&1; then
+            go version
+          else
+            brew install go
+            go version
+          fi
+
+      - name: setup（子模块 / Rust 工具链 / 预编译 GhosttyKit）
+        run: ./scripts/setup.sh
+
+      - name: 运行 cmuxTests
+        # 保留完整输出：xcodebuild 的测试输出很长，GitHub 会截断实时日志，
+        # 失败时只能靠下一行的 artifact 定位具体是哪条用例。
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project cmux.xcodeproj \
+            -scheme cmux-unit \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath /tmp/cmux-build \
+            -only-testing:cmuxTests 2>&1 | tee /tmp/cmux-tests-raw.log
+
+      - name: 上传测试日志（始终上传）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tests-log-${{ github.run_number }}
+          path: /tmp/cmux-tests-raw.log
+          if-no-files-found: warn
+          retention-days: 14

@@ -331,23 +331,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # 单元测试放在「上传产物」之后（xhqing/cmux#93）：它用 `@testable import cmux`
-      # 依赖整个 app target，`cmux-unit` 的 TestAction 是 Debug、与 Release 构建配置不同，
-      # 共用 derivedData 仍要整套重编（实测 74 分钟起）。放在产物之前时，它一旦失败或
-      # 超时（r22）就把打包 / 上传整条链掐断，Release 没有任何资产可装。
-      # 现在产物先出、先挂，测试失败单独把这一次 workflow 标红——回归照样看得见，
-      # 但安装包不再跟着陪葬。超时 180 分钟是 Debug 整套重编的实测上限，仍在 job 级
-      # `timeout-minutes: 360` 之内。
-      - name: 单元测试（cmuxTests，scheme cmux-unit）
-        timeout-minutes: 180
-        run: |
-          set -euo pipefail
-          xcodebuild test \
-            -project cmux.xcodeproj \
-            -scheme cmux-unit \
-            -destination 'platform=macOS,arch=arm64' \
-            -derivedDataPath /tmp/cmux-build \
-            -only-testing:cmuxTests
+      # cmuxTests 不在这里跑：它已拆到 .github/workflows/unit-tests.yml 独立执行
+      # （xhqing/cmux#93）。测试的 TestAction 是 Debug 配置，与这里 Release 构建不共用
+      # 产物，整套重编（90 分钟量级）再叠加 XCTest 与 Swift Testing，实测 200 分钟以上；
+      # 留在本 workflow 里会让 `workflow_run: completed` 迟迟不触发，
+      # `attach-release-asset` 也就挂不上资产。现在本 workflow 只负责构建与出包（约 86 分钟），
+      # 结束后资产立即挂上；测试并行跑、失败独立标红，不再拖住安装包。
 
       - name: 上传完整构建日志（仅失败时）
         if: failure()

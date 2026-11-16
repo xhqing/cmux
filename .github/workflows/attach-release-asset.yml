@@ -33,8 +33,11 @@ concurrency:
 jobs:
   attach:
     name: attach
-    # 失败的构建没有产物；手动 dispatch 时由步骤内自行校验 run 的结论。
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # 判定看「上传产物」这一步是否成功，而不是整个 run 的结论（xhqing/cmux#93）：
+    # 单元测试排在产物上传之后，测试失败会让 run 变红，但 zip / sha256 / appcast
+    # 已经完整可用，这时仍然要把资产挂上去。构建本身失败时该 step 不存在或 skipped，
+    # 解析步骤会明确拒绝。
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -43,24 +46,37 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
-          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           RUN_ID_INPUT: ${{ github.event.workflow_run.id || inputs.run_id }}
         run: |
           set -euo pipefail
-          if [ "${EVENT_NAME}" = "workflow_run" ] && [ "${RUN_CONCLUSION}" != "success" ]; then
-            echo "::notice::构建没有成功（${RUN_CONCLUSION}），不挂资产。"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+
+          # 「产物可用」的唯一判据：build job 里「上传产物」step 的结论是 success。
+          # 它排在 Release 构建、产物校验与打包之后、单元测试之前（xhqing/cmux#93），
+          # 所以测试失败不影响产物，这里也不用看整个 run 的结论。
+          artifact_uploaded() {
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$1/jobs" \
+              --jq '[.jobs[] | select(.name == "Release build (macos-26)") | .steps[]
+                     | select(.name == "上传产物") | .conclusion]
+                    | any(. == "success")'
+          }
 
           run_id="${RUN_ID_INPUT:-}"
           if [ -z "${run_id}" ]; then
-            run_id="$(gh run list -R "${GITHUB_REPOSITORY}" --workflow build-macos \
-              --status success --limit 20 --json databaseId,headBranch \
-              --jq '[.[] | select(.headBranch | test("^v.*-r[0-9]+$"))][0].databaseId')"
+            # 手动补挂：取最近的 tag 构建里第一个真正上传了产物的 run。
+            # 不用 `gh run list --status success`——测试失败被标红的 run 结论是
+            # failure，但产物完整，选得出来才能补挂。
+            mapfile -t candidates < <(gh run list -R "${GITHUB_REPOSITORY}" --workflow build-macos \
+              --limit 30 --json databaseId,headBranch \
+              --jq '.[] | select(.headBranch | test("^v.*-r[0-9]+$")) | .databaseId')
+            for candidate in "${candidates[@]}"; do
+              if [ "$(artifact_uploaded "${candidate}")" = "true" ]; then
+                run_id="${candidate}"
+                break
+              fi
+            done
           fi
-          if [ -z "${run_id}" ] || [ "${run_id}" = "null" ]; then
-            echo "::error::找不到可用的 build-macos 运行记录（需要填 run_id）。"
+          if [ -z "${run_id}" ]; then
+            echo "::error::找不到已上传产物的 build-macos 运行记录（需要填 run_id）。"
             exit 1
           fi
 
@@ -71,12 +87,14 @@ jobs:
 
           echo "run=${run_id} event=${event} conclusion=${conclusion} ref=${tag}"
 
-          if [ "${conclusion}" != "success" ]; then
-            echo "::error::run ${run_id} 的结论是 ${conclusion}，没有可挂的产物。"
-            exit 1
-          fi
           if ! [[ "${tag}" =~ ^v.*-r[0-9]+$ ]]; then
             echo "::notice::run ${run_id} 不是 tag 构建（ref=${tag}），跳过。"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$(artifact_uploaded "${run_id}")" != "true" ]; then
+            echo "::notice::run ${run_id} 没有上传产物（构建 / 打包失败），不挂资产。"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

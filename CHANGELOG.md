@@ -2,6 +2,14 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### 变更（单元测试移出出包关键路径 + 测试编译修复，2026-11-16，Issue #93）
+
+- **为什么改**：r22 的单元测试 step 在 45 分钟超时；r23 把超时提到 180 分钟后测试终于开始跑，却卡在编译错误：`cmuxTests/RCChannelIdentityTests.swift` 用了 `CmuxGhosttyConfigPathResolver` 却没有 `import CmuxFoundation`（该类型在 Issue #70 之后搬进了 SwiftPM 包）。两次都因为测试 step 排在打包 / 上传之前，Release 建出来却没有 zip / sha256 / appcast，装不上新版——测试把安装包变成了陪葬品。
+- **改了什么**：① `.github/workflows/build.yml` 把「单元测试（cmuxTests）」step 移到「上传产物」之后，产物先出、先挂，测试失败只让这次 workflow 标红；② `.github/workflows/attach-release-asset.yml` 的判据从「整个 run 结论是 success」改成「build job 的『上传产物』step 是 success」，手动补挂时也从最近 tag 构建里挑真正上传了产物的 run（不再用 `--status success`，否则测试红但产物完整的 run 会被漏掉）；③ `cmuxTests/RCChannelIdentityTests.swift` 补 `import CmuxFoundation`，修掉 r23 的测试编译错误。
+- **回归检查**：① PR 门禁 `checks` 一字未改（job 名与检查项不变）；② Release 构建、签名、产物校验、appcast 生成与校验全部未动；③ 单元测试仍然每次都跑、结果可见，不再阻塞资产上传；④ 版本号不动（CI / 测试类改动）。
+
 ## [0.65.2.2-r23] - 2026-11-13
 
 ### 变更（build-macos 单元测试 step 超时，2026-11-13）

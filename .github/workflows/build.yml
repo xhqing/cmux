@@ -121,11 +121,23 @@ jobs:
           echo "MARKETING_VERSION=${MARKETING}" >> "$GITHUB_ENV"
           # build number 用「UTC 日期 + run 号」，单调递增，避免反复覆盖安装时
           # 系统拿旧的 Launch Services / 图标缓存。
-          echo "CURRENT_PROJECT_VERSION=$(date -u +%Y%m%d)0${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          # 构建号必须单调递增（Sparkle 用 CFBundleVersion 比较新旧），但不用
+          # GITHUB_RUN_NUMBER：它每次 run 都变，会让 xcodebuild 认为所有 target
+          # 的编译参数都变了，DerivedData 缓存无法跳过 app target 的 WMO 编译
+          # （实验 D 实测：缓存命中仍要 61:28，大头就是主 target 重编）。
+          # 改成「日期 + VERSION 里的修订号」：同一 commit 重跑得到同一个值（缓存可
+          # 命中），新版本的修订号递增，依然单调。
+          REL_NUM="$(sed -nE 's/^[^-]*-r([0-9]+)$/\1/p' VERSION)"
+          if [ -z "${REL_NUM}" ]; then
+            echo "::warning::VERSION（$(cat VERSION)）里没有 -rN 修订号，回退到 run_number"
+            REL_NUM="${GITHUB_RUN_NUMBER}"
+          fi
+          CURRENT_PROJECT_VERSION="$(date -u +%Y%m%d)0${REL_NUM}"
+          echo "CURRENT_PROJECT_VERSION=${CURRENT_PROJECT_VERSION}" >> "$GITHUB_ENV"
 
           echo "构建架构：${ARCH}"
           echo "MARKETING_VERSION：${MARKETING}"
-          echo "CURRENT_PROJECT_VERSION：$(date -u +%Y%m%d)0${GITHUB_RUN_NUMBER}"
+          echo "CURRENT_PROJECT_VERSION：${CURRENT_PROJECT_VERSION}（日期 + 修订号 r${REL_NUM}）"
 
       - name: 缓存 Zig / Cargo 依赖
         uses: actions/cache@v4
@@ -293,7 +305,7 @@ jobs:
           # Sparkle 用 CFBundleVersion 比较新旧版本；CI 传的是「日期 + run 号」的单调数字，
           # 一旦退回工程里写死的 113，后续所有更新都不会被判为「更新」。
           if ! [[ "${BUILD}" =~ ^[0-9]{10,}$ ]]; then
-            echo "::error::CFBundleVersion=${BUILD}，不是预期的「日期 + run 号」单调构建号（CURRENT_PROJECT_VERSION 没传进 xcodebuild？）"
+            echo "::error::CFBundleVersion=${BUILD}，不是预期的「日期 + 修订号」单调构建号（CURRENT_PROJECT_VERSION 没传进 xcodebuild？）"
             exit 1
           fi
           if [ "${FEED}" != "${EXPECTED_FEED}" ]; then

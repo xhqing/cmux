@@ -28,6 +28,18 @@ on:
           - arm64
           - x86_64
           - universal
+      jobs:
+        description: "xcodebuild 并行编译数（默认 2）。实测 -jobs 4 反而更慢（3 核 runner），见 Issue #104"
+        required: false
+        default: "2"
+      cache:
+        description: "是否恢复 / 保存 DerivedData 缓存（默认 true）。冷缓存实验时填 false"
+        required: false
+        type: choice
+        default: "true"
+        options:
+          - "true"
+          - "false"
   push:
     tags:
       - "v*-r[0-9]*"
@@ -51,6 +63,10 @@ jobs:
       # 而不是整包跳过签名后再补一刀 --deep。
       CODE_SIGN_IDENTITY: "-"
       CODE_SIGNING_REQUIRED: "NO"
+      # 并行编译数（Issue #104）。scripts/reloads.sh 读这个变量。
+      # 实测：-jobs 2 构建 75:49，-jobs 4 构建 84:38（3 核 runner 上超过核数反而更慢），
+      # 所以默认保持 2。
+      CMUX_BUILD_JOBS: ${{ github.event.inputs.jobs || '2' }}
 
     steps:
       - name: Checkout（含子模块）
@@ -105,11 +121,23 @@ jobs:
           echo "MARKETING_VERSION=${MARKETING}" >> "$GITHUB_ENV"
           # build number 用「UTC 日期 + run 号」，单调递增，避免反复覆盖安装时
           # 系统拿旧的 Launch Services / 图标缓存。
-          echo "CURRENT_PROJECT_VERSION=$(date -u +%Y%m%d)0${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          # 构建号必须单调递增（Sparkle 用 CFBundleVersion 比较新旧），但不用
+          # GITHUB_RUN_NUMBER：它每次 run 都变，会让 xcodebuild 认为所有 target
+          # 的编译参数都变了，DerivedData 缓存无法跳过 app target 的 WMO 编译
+          # （实验 D 实测：缓存命中仍要 61:28，大头就是主 target 重编）。
+          # 改成「日期 + VERSION 里的修订号」：同一 commit 重跑得到同一个值（缓存可
+          # 命中），新版本的修订号递增，依然单调。
+          REL_NUM="$(sed -nE 's/^[^-]*-r([0-9]+)$/\1/p' VERSION)"
+          if [ -z "${REL_NUM}" ]; then
+            echo "::warning::VERSION（$(cat VERSION)）里没有 -rN 修订号，回退到 run_number"
+            REL_NUM="${GITHUB_RUN_NUMBER}"
+          fi
+          CURRENT_PROJECT_VERSION="$(date -u +%Y%m%d)0${REL_NUM}"
+          echo "CURRENT_PROJECT_VERSION=${CURRENT_PROJECT_VERSION}" >> "$GITHUB_ENV"
 
           echo "构建架构：${ARCH}"
           echo "MARKETING_VERSION：${MARKETING}"
-          echo "CURRENT_PROJECT_VERSION：$(date -u +%Y%m%d)0${GITHUB_RUN_NUMBER}"
+          echo "CURRENT_PROJECT_VERSION：${CURRENT_PROJECT_VERSION}（日期 + 修订号 r${REL_NUM}）"
 
       - name: 缓存 Zig / Cargo 依赖
         uses: actions/cache@v4
@@ -172,15 +200,62 @@ jobs:
       - name: setup（子模块 / Rust 工具链 / 预编译 GhosttyKit）
         run: ./scripts/setup.sh
 
-      - name: 构建 Release（本项目正式身份）
+      # 统一工作区文件 mtime（Issue #102 的关键一步）：Xcode 的增量构建靠
+      # XCBuildData/build.db 记录的文件 mtime 签名。CI 每次 checkout / setup 出来的
+      # 源文件 mtime 都是新的，即使内容一模一样，build.db 也会判「全部变过」而全量重编
+      # （实验 B 实测：缓存命中 1081MB，构建仍然 75:34，一秒没省）。这里把工作区文件
+      # （除 .git 与本地产物目录）的 mtime 固定成 2020-01-01，让两次 run 的签名可比。
+      - name: 统一工作区文件 mtime（让 DerivedData 缓存能真正命中）
         run: |
           set -euo pipefail
+          STAMP="202001010000"
+          find . -path ./.git -prune -o -type f -print0 \
+            | xargs -0 touch -t "${STAMP}" 2>/dev/null || true
+          echo "工作区文件 mtime 已统一为 ${STAMP}"
+
+      # DerivedData 缓存（Issue #102）：缓存整个 derivedData（含 XCBuildData/build.db，
+      # 那是增量判断的核心）。实验 A 测出原始体积 4.8~7.6GB、压缩后约 1.1GB，
+      # 在 GitHub 10GB 上限之内。key 用 commit sha（同一 commit 重跑直接命中），
+      # restore-keys 前缀匹配最近一次缓存。
+      - name: 恢复 DerivedData 缓存
+        id: dd-cache
+        if: github.event.inputs.cache != 'false'
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/cmux-build
+          key: dd-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            dd-${{ runner.os }}-
+
+      - name: 构建 Release（本项目正式身份）
+        run: |
+          set -uo pipefail
           echo "构建身份：cmux（bundle id com.xhqing.cmux）"
+          echo "并行度：CMUX_BUILD_JOBS=${CMUX_BUILD_JOBS}"
+          echo "缓存命中：${{ steps.dd-cache.outputs.cache-hit }}"
+          # 内存峰值采样（Issue #104）：每 5 秒汇总 swift-frontend / clang / xcodebuild
+          # 的 RSS。并行度调高后靠这个判断离 OOM 还有多少余量。
+          (
+            peak=0
+            while :; do
+              total=$(ps -Ao rss=,comm= 2>/dev/null | awk '/swift-frontend|swiftc|xcodebuild|clang/ {s+=$1} END {printf "%d", s/1024}')
+              [ -z "${total:-}" ] && total=0
+              [ "$total" -gt "$peak" ] && peak="$total"
+              echo "peak=${peak}MB now=${total}MB" > /tmp/build-mem.log
+              sleep 5
+            done
+          ) &
+          SAMPLER=$!
           # Keep the full xcodebuild output. GitHub truncates the live step log,
           # so a killed/failed build loses the real error; the artifact from the
           # next step is the only complete record.
           set -o pipefail
           ./scripts/reloads.sh --derived-data /tmp/cmux-build 2>&1 | tee /tmp/cmux-build-raw.log
+          STATUS=${PIPESTATUS[0]}
+          kill "$SAMPLER" 2>/dev/null || true
+          echo "=== 内存峰值采样 ==="
+          cat /tmp/build-mem.log 2>/dev/null || echo "（无采样数据）"
+          exit "$STATUS"
 
       - name: 校验产物不含构建机 home 路径
         run: |
@@ -230,7 +305,7 @@ jobs:
           # Sparkle 用 CFBundleVersion 比较新旧版本；CI 传的是「日期 + run 号」的单调数字，
           # 一旦退回工程里写死的 113，后续所有更新都不会被判为「更新」。
           if ! [[ "${BUILD}" =~ ^[0-9]{10,}$ ]]; then
-            echo "::error::CFBundleVersion=${BUILD}，不是预期的「日期 + run 号」单调构建号（CURRENT_PROJECT_VERSION 没传进 xcodebuild？）"
+            echo "::error::CFBundleVersion=${BUILD}，不是预期的「日期 + 修订号」单调构建号（CURRENT_PROJECT_VERSION 没传进 xcodebuild？）"
             exit 1
           fi
           if [ "${FEED}" != "${EXPECTED_FEED}" ]; then
@@ -330,6 +405,28 @@ jobs:
             appcast.xml
           if-no-files-found: error
           retention-days: 30
+
+      # 体积实测（Issue #102）：普通仓库的 GitHub 缓存上限是 10GB，超了会互相淘汰。
+      # 先把整个 derivedData 与三个子目录的体积打进日志，再决定缓存粒度。
+      - name: 测量 DerivedData 体积
+        if: always()
+        run: |
+          set -uo pipefail
+          echo "--- 总体积 ---"
+          du -sh /tmp/cmux-build 2>/dev/null || echo "（不存在）"
+          echo "--- 分项 ---"
+          for d in Build/Intermediates.noindex Build/Products ModuleCache.noindex; do
+            if [ -d "/tmp/cmux-build/$d" ]; then du -sh "/tmp/cmux-build/$d"; else echo "$d 不存在"; fi
+          done
+
+      # 只在 main / tag / 手动 dispatch 上写缓存：普通分支也写的话，10GB 上限很快
+      # 把有用的旧条目挤掉（dispatch 包含在内是为了实验能验证「命中后有多快」）。
+      - name: 保存 DerivedData 缓存
+        if: success() && github.event.inputs.cache != 'false' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/cmux-build
+          key: dd-${{ runner.os }}-${{ github.sha }}
 
       # cmuxTests 不在这里跑：它已拆到 .github/workflows/unit-tests.yml 独立执行
       # （xhqing/cmux#93）。测试的 TestAction 是 Debug 配置，与这里 Release 构建不共用

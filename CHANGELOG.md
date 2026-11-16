@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [Unreleased]
+## [0.65.2.2-r25] - 2026-11-16
 
 ### 变更（单元测试拆为独立 workflow，修正出包时间线，2026-11-16，Issue #93）
 

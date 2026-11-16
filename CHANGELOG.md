@@ -2,6 +2,14 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### 变更（单元测试拆为独立 workflow，修正出包时间线，2026-11-16，Issue #93）
+
+- **为什么改**：r24 的实测把上一轮改动的缺口暴露清楚了——构建 82 分钟、打包 + appcast + 上传产物共 54 秒（85 分钟产物就绪），但 `attach-release-asset` 由 `workflow_run: completed` 触发，而单元测试还在同一个 workflow 里跑（Debug 整套重编 90 分钟 + XCTest 20 分钟 + Swift Testing 87 分钟以上），workflow 要等它结束或超时（180 分钟）才 `completed`，资产因此晚挂 1.5~2 小时。
+- **改了什么**：① 新增 `.github/workflows/unit-tests.yml`：tag 推送 / 手动 dispatch 触发，独立的 `cmuxTests` 执行通道（超时 360 分钟、始终上传测试日志），与 `build-macos` 并行；② `build.yml` 删掉单元测试 step，只负责构建与出包（约 86 分钟结束）；③ `attach-release-asset.yml` 的注释与判据说明同步（判据本身仍看「上传产物」step）；④ `DEVELOPMENT.md` 第 9.4 节改写。
+- **回归检查**：① PR 门禁 `checks` 一字未改；② Release 构建、签名、产物校验、appcast 生成与校验全部未动；③ 资产挂载时点从「测试结束后」提前到「构建结束后」；④ 测试仍然每次都跑、结果独立可见（含完整日志 artifact）。
+
 ## [0.65.2.2-r24] - 2026-11-16
 
 ### 变更（单元测试移出出包关键路径 + 测试编译修复，2026-11-16，Issue #93）

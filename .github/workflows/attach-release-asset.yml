@@ -34,9 +34,9 @@ jobs:
   attach:
     name: attach
     # 判定看「上传产物」这一步是否成功，而不是整个 run 的结论（xhqing/cmux#93）：
-    # 单元测试排在产物上传之后，测试失败会让 run 变红，但 zip / sha256 / appcast
-    # 已经完整可用，这时仍然要把资产挂上去。构建本身失败时该 step 不存在或 skipped，
-    # 解析步骤会明确拒绝。
+    # build-macos 只负责构建与出包，cmuxTests 在独立的 unit-tests workflow 里并行跑，
+    # 所以构建结束（约 86 分钟）就能挂资产、不用等测试。判据仍留在 step 级——
+    # 构建或打包失败时该 step 不存在或 skipped，解析步骤会明确拒绝。
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -51,8 +51,8 @@ jobs:
           set -euo pipefail
 
           # 「产物可用」的唯一判据：build job 里「上传产物」step 的结论是 success。
-          # 它排在 Release 构建、产物校验与打包之后、单元测试之前（xhqing/cmux#93），
-          # 所以测试失败不影响产物，这里也不用看整个 run 的结论。
+          # 它排在 Release 构建、产物校验与打包之后；cmuxTests 已拆到独立的 unit-tests
+          # workflow，不再占据本 workflow 的时间线（xhqing/cmux#93）。
           artifact_uploaded() {
             gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$1/jobs" \
               --jq '[.jobs[] | select(.name == "Release build (macos-26)") | .steps[]

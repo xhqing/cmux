@@ -28,6 +28,18 @@ on:
           - arm64
           - x86_64
           - universal
+      jobs:
+        description: "xcodebuild 并行编译数（默认 3）。``-jobs 2`` 是 7GB 内存的妥协，需实测阈值——见 Issue #104"
+        required: false
+        default: "3"
+      cache:
+        description: "是否恢复 / 保存 DerivedData 缓存（默认 true）。冷缓存实验时填 false"
+        required: false
+        type: choice
+        default: "true"
+        options:
+          - "true"
+          - "false"
   push:
     tags:
       - "v*-r[0-9]*"
@@ -51,6 +63,8 @@ jobs:
       # 而不是整包跳过签名后再补一刀 --deep。
       CODE_SIGN_IDENTITY: "-"
       CODE_SIGNING_REQUIRED: "NO"
+      # 并行编译数（Issue #104）。scripts/reloads.sh 读这个变量；默认 3，实测后改。
+      CMUX_BUILD_JOBS: ${{ github.event.inputs.jobs || '3' }}
 
     steps:
       - name: Checkout（含子模块）
@@ -172,15 +186,52 @@ jobs:
       - name: setup（子模块 / Rust 工具链 / 预编译 GhosttyKit）
         run: ./scripts/setup.sh
 
+      # DerivedData 缓存（Issue #102）：没有它每次都是干净机器全量重编（13,000 文件）。
+      # key 用 commit sha（同一 commit 重跑直接命中），restore-keys 前缀匹配最近一次
+      # 缓存（新 commit 也能拿到上一版做增量编译）。只缓存编译产物与模块缓存三个
+      # 子目录，不包整个 derivedData——体积与命中率要实测，见 Issue #102。
+      - name: 恢复 DerivedData 缓存
+        id: dd-cache
+        if: github.event.inputs.cache != 'false'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /tmp/cmux-build/Build/Intermediates.noindex
+            /tmp/cmux-build/Build/Products
+            /tmp/cmux-build/ModuleCache.noindex
+          key: dd-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            dd-${{ runner.os }}-
+
       - name: 构建 Release（本项目正式身份）
         run: |
-          set -euo pipefail
+          set -uo pipefail
           echo "构建身份：cmux（bundle id com.xhqing.cmux）"
+          echo "并行度：CMUX_BUILD_JOBS=${CMUX_BUILD_JOBS}"
+          echo "缓存命中：${{ steps.dd-cache.outputs.cache-hit }}"
+          # 内存峰值采样（Issue #104）：每 5 秒汇总 swift-frontend / clang / xcodebuild
+          # 的 RSS。并行度调高后靠这个判断离 OOM 还有多少余量。
+          (
+            peak=0
+            while :; do
+              total=$(ps -Ao rss=,comm= 2>/dev/null | awk '/swift-frontend|swiftc|xcodebuild|clang/ {s+=$1} END {printf "%d", s/1024}')
+              [ -z "${total:-}" ] && total=0
+              [ "$total" -gt "$peak" ] && peak="$total"
+              echo "peak=${peak}MB now=${total}MB" > /tmp/build-mem.log
+              sleep 5
+            done
+          ) &
+          SAMPLER=$!
           # Keep the full xcodebuild output. GitHub truncates the live step log,
           # so a killed/failed build loses the real error; the artifact from the
           # next step is the only complete record.
           set -o pipefail
           ./scripts/reloads.sh --derived-data /tmp/cmux-build 2>&1 | tee /tmp/cmux-build-raw.log
+          STATUS=${PIPESTATUS[0]}
+          kill "$SAMPLER" 2>/dev/null || true
+          echo "=== 内存峰值采样 ==="
+          cat /tmp/build-mem.log 2>/dev/null || echo "（无采样数据）"
+          exit "$STATUS"
 
       - name: 校验产物不含构建机 home 路径
         run: |
@@ -330,6 +381,31 @@ jobs:
             appcast.xml
           if-no-files-found: error
           retention-days: 30
+
+      # 体积实测（Issue #102）：普通仓库的 GitHub 缓存上限是 10GB，超了会互相淘汰。
+      # 先把整个 derivedData 与三个子目录的体积打进日志，再决定缓存粒度。
+      - name: 测量 DerivedData 体积
+        if: always()
+        run: |
+          set -uo pipefail
+          echo "--- 总体积 ---"
+          du -sh /tmp/cmux-build 2>/dev/null || echo "（不存在）"
+          echo "--- 分项 ---"
+          for d in Build/Intermediates.noindex Build/Products ModuleCache.noindex; do
+            if [ -d "/tmp/cmux-build/$d" ]; then du -sh "/tmp/cmux-build/$d"; else echo "$d 不存在"; fi
+          done
+
+      # 只在 main / tag / 手动 dispatch 上写缓存：普通分支也写的话，10GB 上限很快
+      # 把有用的旧条目挤掉（dispatch 包含在内是为了实验能验证「命中后有多快」）。
+      - name: 保存 DerivedData 缓存
+        if: success() && github.event.inputs.cache != 'false' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /tmp/cmux-build/Build/Intermediates.noindex
+            /tmp/cmux-build/Build/Products
+            /tmp/cmux-build/ModuleCache.noindex
+          key: dd-${{ runner.os }}-${{ github.sha }}
 
       # cmuxTests 不在这里跑：它已拆到 .github/workflows/unit-tests.yml 独立执行
       # （xhqing/cmux#93）。测试的 TestAction 是 Debug 配置，与这里 Release 构建不共用

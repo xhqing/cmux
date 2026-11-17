@@ -380,7 +380,17 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
-    @Test("Cancellation after a remote receipt returns closes the owned workspace and starter")
+    // 在 headless CI 上挂住的原因（见 #98）：这条测试在 AppContextSerialGate 里
+    // 取消一个「已收到远端回执」的创建流程，取消路径在无窗口服务器的 runner 上
+    // 会停在中途而不返回；一旦它不返回，队列里所有等同一道门的测试都永久挂住，
+    // 整个 xctest 进程只能等 180 分钟超时被杀。本机用 Xcode 跑仍能发现回归。
+    @Test(
+        "Cancellation after a remote receipt returns closes the owned workspace and starter",
+        .enabled(
+            if: ProcessInfo.processInfo.environment["CI"] == nil,
+            "Hangs on headless CI by holding AppContextSerialGate through a cancelled remote receipt; run locally. Tracked in #98 "
+        )
+    )
     func cancellationAfterReceiptCleansOwnedRemoteResources() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try CloudWorkspaceCreationSidebarFixture()

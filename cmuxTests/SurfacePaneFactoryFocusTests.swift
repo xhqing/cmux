@@ -229,11 +229,11 @@ import SwiftUI
     /// `creationAttemptSignal`，在 runner 上该信号可能永不 resolve，于是永久挂住。
     @Test(
         "Cloud shortcut failures show their cause and export a matching diagnostic",
-        arguments: [false, true],
         .enabled(
             if: ProcessInfo.processInfo.environment["CI"] == nil,
             "Waits on a creation signal that never resolves on headless CI; run locally. Tracked in #98 "
-        )
+        ),
+        arguments: [false, true]
     )
     func failedCloudPaneCreationStaysInWorkspaceState(split: Bool) async throws {
         let harness = try Harness()
@@ -450,11 +450,11 @@ import SwiftUI
     /// 定位后再单独恢复（它有覆盖价值，不应长期禁用）。
     @Test(
         "A retained Cloud projection never falls back to a local terminal",
-        arguments: ["split", "tab", "splitButton"],
         .enabled(
             if: ProcessInfo.processInfo.environment["CI"] == nil,
             "Blocked behind the Cloud hang on headless CI; run locally. Tracked in #98 "
-        )
+        ),
+        arguments: ["split", "tab", "splitButton"]
     )
     func failedCloudRouteDoesNotCreateLocalPanel(action: String) throws {
         let harness = try Harness()

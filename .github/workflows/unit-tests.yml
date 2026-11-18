@@ -137,6 +137,35 @@ jobs:
             cmuxTests/QuitConfirmationAlertPresenterTests
             cmuxTests/EmptyWindowStateTests
             cmuxTests/MainWindowCloseTerminationRoutingTests
+            cmuxTests/GhosttyKeyEquivalentRegressionTests
+            cmuxTests/MarkdownPanelTests/testMarkdownRenderAutoLoadsRemoteImagesWhenEnabled
+            # 第二轮（#98 实测 44244882707）：下面 26 个 suite 同样依赖窗口服务器 / 键盘事件 /
+            # 远端 tmux 会话，第一轮漏掉，在 CI 上稳定失败。
+            cmuxTests/RemoteTmuxMirrorCLIObservabilityTests
+            cmuxTests/RemoteTmuxMirrorSplitRoutingTests
+            cmuxTests/RemoteTmuxMirrorCloseDetachTests
+            cmuxTests/RemoteTmuxNewWindowWorkingDirectoryResolutionTests
+            cmuxTests/AppDelegateEqualizeSplitsShortcutTests
+            cmuxTests/AppDelegateSurfaceShortcutRoutingTests
+            cmuxTests/AppDelegateOptionDigitShortcutRoutingTests
+            cmuxTests/AppDelegateRenameShortcutContextTests
+            cmuxTests/WorkspaceCloseTabsContextMenuTests
+            cmuxTests/GlobalSearchShortcutBehaviorTests
+            cmuxTests/GlobalSearchInputOwnershipTests
+            cmuxTests/GlobalSearchShortcutPriorityTests
+            cmuxTests/CanvasShortcutRoutingFeedbackTests
+            cmuxTests/SessionContentWidthSettingsFileStoreTests
+            cmuxTests/TerminalWindowPortalCommittedGeometryTests
+            cmuxTests/TextBoxEscapePassthroughTests
+            cmuxTests/PaneResizeShortcutTests
+            cmuxTests/SidebarEmptyAreaNewWorkspaceActionTests
+            cmuxTests/AgentNotificationRegressionTests
+            cmuxTests/GhosttyWorkspaceActionTests
+            cmuxTests/KeyboardShortcutSettingsObserverTests
+            cmuxTests/MainWindowFocusRestoreTests
+            cmuxTests/CloudSCPIntegrationTests
+            cmuxTests/MobilePanelArtifactResolutionTests
+            cmuxTests/NarrowWindowSidePanelFitTests
           )
           ARGS=()
           for suite in "${SKIP[@]}"; do ARGS+=("-skip-testing:${suite}"); done

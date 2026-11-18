@@ -100,6 +100,14 @@ jobs:
           done < "$list"
           exit "$status"
 
+      - name: Init Swift package submodules
+        run: |
+          set -euo pipefail
+          # `CmuxBrowser` depends on the `vendor/bonsplit` submodule, and the
+          # checkout above deliberately skips submodules (ghostty is huge).
+          # Check out only the one submodule the package build needs.
+          git submodule update --init vendor/bonsplit
+
       - name: Swift package type check + tests
         # `swiftc -parse` above only checks syntax. A package-level type error
         # used to merge green and show up only in the Release build. The

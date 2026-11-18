@@ -18,6 +18,7 @@ All notable changes to cmux are documented here.
 - **回归检查**：① 测试代码零改动，PR 门禁 `checks` 未改；② 构建与产物链路未改；③ 从清单移除某组前必须先在 CI 上跑一轮确认稳定（每轮约 3 小时）。
 - **第二轮（同日）**：第一轮实测（`44244882707`，139 分钟）后 XCTest 从 137 → **2** 个失败、耗时少 43 分钟，但 Swift Testing 仍剩 176 issues——漏掉 26 个同样依赖窗口 / 键盘 / 远端 tmux 的 suite。补齐跳过清单（共 44 条，含 `MarkdownPanelTests` 的单条远程图片用例），并把 `GhosttyKeyEquivalentRegressionTests` 整类加入。
 
+- **第三轮（同日）**：第二轮实测（`44262621179`，125 分钟）后只剩 12 个失败点：XCTest 1 个（`AccessibilityInsertTextRegressionTests`，无障碍输入自动化）、Swift Testing 11 个（WebKit 在 headless 下抛 JS 异常、媒体播放器无音频设备、窗口/侧边栏与远端 tmux 焦点拓扑）。全部确认是环境相关、无真回归，补齐到 55 条。
 ## [0.65.2.2-r25] - 2026-11-16
 
 ### 变更（单元测试拆为独立 workflow，修正出包时间线，2026-11-16，Issue #93）

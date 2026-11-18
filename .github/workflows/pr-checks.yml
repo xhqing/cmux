@@ -48,6 +48,15 @@ jobs:
           submodules: false
           persist-credentials: false
 
+      # 包层测试需要 vendor/bonsplit：CmuxBrowser / CmuxPanes / CmuxRemoteSession /
+      # CmuxTerminal / CmuxWorkspaces 的 Package.swift 都用 path 依赖指向
+      # ../../../vendor/bonsplit。checkout 为了速度用了 submodules: false，
+      # 缺了它 `check-swift-packages.py` 会直接报路径不存在（改这五个包里任何一个的
+      # PR 都会红，2026-11-18 实测于 PR #111）。ghostty 子模块不需要：它只参与
+      # app target 的 Release 构建，不进包层测试。
+      - name: 初始化包测试需要的子模块
+        run: git submodule update --init --depth 1 vendor/bonsplit
+
       - name: Collect changed files
         run: |
           set -euo pipefail

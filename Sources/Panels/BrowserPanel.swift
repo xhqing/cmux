@@ -135,6 +135,8 @@ enum BrowserThemeMode: String, CaseIterable, Identifiable {
     case system
     case light
     case dark
+    /// Dark Reader based page darkening for sites without a dark theme.
+    case forceDark
 
     var id: String { rawValue }
 
@@ -146,6 +148,8 @@ enum BrowserThemeMode: String, CaseIterable, Identifiable {
             return String(localized: "theme.light", defaultValue: "Light")
         case .dark:
             return String(localized: "theme.dark", defaultValue: "Dark")
+        case .forceDark:
+            return String(localized: "theme.forceDark", defaultValue: "Force Dark")
         }
     }
 
@@ -157,6 +161,8 @@ enum BrowserThemeMode: String, CaseIterable, Identifiable {
             return "sun.max"
         case .dark:
             return "moon"
+        case .forceDark:
+            return "moon.stars"
         }
     }
 }
@@ -195,7 +201,7 @@ enum BrowserThemeSettings {
             webView.appearance = nil
         case .light:
             webView.appearance = NSAppearance(named: .aqua)
-        case .dark:
+        case .dark, .forceDark:
             webView.appearance = NSAppearance(named: .darkAqua)
         }
     }
@@ -2028,7 +2034,7 @@ final class BrowserPanel: Panel, ObservableObject {
     static let backgroundPreloadWindowIdentifier = "cmux.browserBackgroundPreload"
 
     /// Popup windows owned by this panel (for lifecycle cleanup)
-    private var popupControllers: [BrowserPopupWindowController] = []
+    var popupControllers: [BrowserPopupWindowController] = []
 
     static let telemetryHookBootstrapScriptSource = """
     (() => {
@@ -2697,6 +2703,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var detachedDeveloperToolsExplicitUserCloseWindowIds = Set<ObjectIdentifier>()
     var developerToolsPreservedVisibleIntentForNextAttach: Bool = false
     private var browserThemeMode: BrowserThemeMode
+    var forceDarkExcludedHostsObserver: NSObjectProtocol?
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -3383,6 +3390,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self.isMainFrameProvisionalNavigationActive = true
             self.refreshBackgroundAppearance()
             self.applyMuteState(to: webView, reason: "navigationStart")
+            self.syncForceDarkUserScript(for: self.navigationDelegate?.lastAttemptedURL)
         }
         navigationDelegate.didCommit = { [weak self] webView, navigation in
             guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
@@ -4015,6 +4023,9 @@ final class BrowserPanel: Panel, ObservableObject {
         installDetachedDeveloperToolsWindowCloseObserver()
         installHiddenWebViewDiscardPolicyObserver()
         applyBrowserThemeModeIfNeeded()
+        // A pooled (prewarmed) web view already started its load before this
+        // panel attached, so its document never saw the document-start script.
+        applyForceDarkToLoadedDocument()
         ReactGrabScriptLoader.prefetch()
         insecureHTTPAlertWindowProvider = { [weak self] in
             if let self, let window = browserInteractiveModalHostWindow(for: self.webView) {
@@ -6344,6 +6355,9 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
+        if let forceDarkExcludedHostsObserver {
+            NotificationCenter.default.removeObserver(forceDarkExcludedHostsObserver)
+        }
         // `deinit` is nonisolated, so tear observers down inline.
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
@@ -7966,8 +7980,12 @@ extension BrowserPanel {
     }
 
     func setBrowserThemeMode(_ mode: BrowserThemeMode) {
+        let previousMode = browserThemeMode
         browserThemeMode = mode
         applyBrowserThemeModeIfNeeded()
+        if previousMode != mode {
+            applyForceDarkToLoadedDocument()
+        }
         for controller in popupControllers {
             controller.setBrowserThemeMode(mode)
         }
@@ -8449,6 +8467,7 @@ extension BrowserPanel {
 extension BrowserPanel {
     func applyBrowserThemeModeIfNeeded() {
         BrowserThemeSettings.apply(browserThemeMode, to: webView)
+        applyForceDarkModeIfNeeded()
     }
 
     private func scheduleDeveloperToolsRestoreRetry() {

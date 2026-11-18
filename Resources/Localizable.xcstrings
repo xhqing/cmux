@@ -63873,6 +63873,124 @@
         }
       }
     },
+    "browser.forceDark.siteToggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فرض الوضع الداكن على هذا الموقع"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dunkel für diese Website erzwingen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Dark on This Site"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forzar modo oscuro en este sitio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forcer le mode sombre sur ce site"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイトでダークを強制"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 사이트에서 강제 다크 모드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此站点强制深色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此網站強制深色"
+          }
+        }
+      }
+    },
+    "browser.forceDark.siteToggle.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التحديد يحتفظ هذا الموقع بمظهره الخاص، بينما تبقى المواقع الأخرى داكنة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviert behält diese Website ihr eigenes Erscheinungsbild. Andere Websites bleiben dunkel."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checked keeps this site's own appearance. Other sites are still darkened."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcado, este sitio conserva su aspecto original. Los demás sitios siguen oscurecidos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coché, ce site garde son apparence d’origine. Les autres sites restent assombris."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにするとこのサイトは元の外観を保ち、他のサイトは引き続き暗くなります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택하면 이 사이트는 원래 모습을 유지하고, 다른 사이트는 계속 어둡게 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "勾选后此站点保留自己的外观，其他站点仍会变深色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "勾選後此網站保留自己的外觀，其他網站仍會變深色。"
+          }
+        }
+      }
+    },
     "browser.newTab": {
       "extractionState": "manual",
       "localizations": {
@@ -357568,115 +357686,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system browser.theme سمة صفحة الويب نظام الألوان فاتح داكن نظام"
+            "value": "browser.theme web page theme color scheme light dark system browser.theme سمة صفحة الويب نظام الألوان فاتح داكن نظام force dark night mode dark reader فرض الوضع الداكن"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system preglednik webview adresna traka linkovi url ugrađen stranica kartice izgled tema boja boje shema svijetlo tamno sistem način Tamna Svijetla Sistemski • %@ preglednika"
+            "value": "browser.theme web page theme color scheme light dark system preglednik webview adresna traka linkovi url ugrađen stranica kartice izgled tema boja boje shema svijetlo tamno sistem način Tamna Svijetla Sistemski • %@ preglednika force dark night mode dark reader"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system browser webvisning adresselinje links url indlejret side faner udseende tema farve farver skema lys mørk tilstand • %@ Browsertema"
+            "value": "browser.theme web page theme color scheme light dark system browser webvisning adresselinje links url indlejret side faner udseende tema farve farver skema lys mørk tilstand • %@ Browsertema force dark night mode dark reader"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system browser.theme webseiten-thema farbschema hell dunkel system"
+            "value": "browser.theme web page theme color scheme light dark system browser.theme webseiten-thema farbschema hell dunkel system force dark night mode dark reader dunkel erzwingen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system"
+            "value": "browser.theme web page theme color scheme light dark system force dark night mode dark reader"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system browser.theme tema de página web esquema de colores claro oscuro sistema"
+            "value": "browser.theme web page theme color scheme light dark system browser.theme tema de página web esquema de colores claro oscuro sistema force dark night mode dark reader forzar modo oscuro"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system browser.theme web page thème jeu de couleurs clair sombre système"
+            "value": "browser.theme web page theme color scheme light dark system browser.theme web page thème jeu de couleurs clair sombre système force dark night mode dark reader forcer le mode sombre"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system browser webview barra indirizzi link url incorporato pagina schede aspetto tema colore colori schema chiaro scuro sistema modalità Scura Chiara • %@ del"
+            "value": "browser.theme web page theme color scheme light dark system browser webview barra indirizzi link url incorporato pagina schede aspetto tema colore colori schema chiaro scuro sistema modalità Scura Chiara • %@ del force dark night mode dark reader"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system ウェブページ テーマ 配色 ライト ダーク システム"
+            "value": "browser.theme web page theme color scheme light dark system ウェブページ テーマ 配色 ライト ダーク システム force dark night mode dark reader ダークを強制"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme 웹 페이지 테마 색상 구성 라이트 다크 시스템 browser.theme web page theme color scheme light dark system"
+            "value": "browser.theme 웹 페이지 테마 색상 구성 라이트 다크 시스템 browser.theme web page theme color scheme light dark system force dark night mode dark reader 강제 다크 모드"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system nettleser webvisning adresselinje lenker url innebygd side faner utseende tema farge farger skjema lys mørk modus • %@ Nettlesertema"
+            "value": "browser.theme web page theme color scheme light dark system nettleser webvisning adresselinje lenker url innebygd side faner utseende tema farge farger skjema lys mørk modus • %@ Nettlesertema force dark night mode dark reader"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system przeglądarka webview pasek adresu linki url osadzony strona karty wygląd motyw kolor kolory schemat jasny ciemny tryb Ciemna Jasna Systemowy • %@ przeglądarki"
+            "value": "browser.theme web page theme color scheme light dark system przeglądarka webview pasek adresu linki url osadzony strona karty wygląd motyw kolor kolory schemat jasny ciemny tryb Ciemna Jasna Systemowy • %@ przeglądarki force dark night mode dark reader"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system navegador webview barra de endereço links urls incorporado página abas aparência tema cor cores esquema claro escuro sistema modo • %@ do"
+            "value": "browser.theme web page theme color scheme light dark system navegador webview barra de endereço links urls incorporado página abas aparência tema cor cores esquema claro escuro sistema modo • %@ do force dark night mode dark reader"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system браузер веб webview адресная строка ссылки url встроенный страница вкладки внешний вид тема цвет цвета схема светлый темный система режим Темная Светлая Темное Светлое Системное • %@ Системный браузера Системная"
+            "value": "browser.theme web page theme color scheme light dark system браузер веб webview адресная строка ссылки url встроенный страница вкладки внешний вид тема цвет цвета схема светлый темный система режим Темная Светлая Темное Светлое Системное • %@ Системный браузера Системная force dark night mode dark reader"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system เบราว์เซอร์ เว็บ เว็บวิว แถบที่อยู่ ลิงก์ url ฝัง หน้า แท็บ ลักษณะ ธีม สี โครงร่าง สว่าง มืด ระบบ โหมด • %@ ธีมเบราว์เซอร์"
+            "value": "browser.theme web page theme color scheme light dark system เบราว์เซอร์ เว็บ เว็บวิว แถบที่อยู่ ลิงก์ url ฝัง หน้า แท็บ ลักษณะ ธีม สี โครงร่าง สว่าง มืด ระบบ โหมด • %@ ธีมเบราว์เซอร์ force dark night mode dark reader"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system tarayıcı webview adres çubuğu bağlantılar url gömülü sayfa sekmeler görünüm tema renk renkler şema açık koyu sistem mod • %@ Teması"
+            "value": "browser.theme web page theme color scheme light dark system tarayıcı webview adres çubuğu bağlantılar url gömülü sayfa sekmeler görünüm tema renk renkler şema açık koyu sistem mod • %@ Teması force dark night mode dark reader"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system браузер веб webview адресний рядок посилання url вбудований сторінка вкладки вигляд тема колір кольори схема світлий темний система режим Темна Світла Системна Браузер: %@ браузера: • браузера"
+            "value": "browser.theme web page theme color scheme light dark system браузер веб webview адресний рядок посилання url вбудований сторінка вкладки вигляд тема колір кольори схема світлий темний система режим Темна Світла Системна Браузер: %@ браузера: • браузера force dark night mode dark reader"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system browser.theme 网页 主题 配色 亮色 暗色 系统"
+            "value": "browser.theme web page theme color scheme light dark system browser.theme 网页 主题 配色 亮色 暗色 系统 force dark night mode dark reader 强制深色 深色模式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "browser.theme web page theme color scheme light dark system browser.theme 網頁 主題 色彩配置 淺色 深色 系統"
+            "value": "browser.theme web page theme color scheme light dark system browser.theme 網頁 主題 色彩配置 淺色 深色 系統 force dark night mode dark reader 強制深色 深色模式"
           }
         }
       }
@@ -458012,6 +458130,66 @@
         }
       }
     },
+    "theme.forceDark": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فرض الوضع الداكن"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dunkel erzwingen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Dark"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forzar modo oscuro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forcer le mode sombre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダークを強制"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "강제 다크 모드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强制深色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強制深色"
+          }
+        }
+      }
+    },
+
     "theme.light": {
       "extractionState": "manual",
       "localizations": {
@@ -560400,55 +560578,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose light or dark pages for sites that support both. System matches the app appearance."
+            "value": "Choose light or dark pages for sites that support both. System matches the app appearance. Force Dark also darkens sites without a dark theme."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wählen Sie helle oder dunkle Seiten für Websites, die beides unterstützen. „System“ folgt dem Erscheinungsbild der App."
+            "value": "Wählen Sie helle oder dunkle Seiten für Websites, die beides unterstützen. „System“ folgt dem Erscheinungsbild der App. „Dunkel erzwingen“ dunkelt auch Websites ohne eigenes dunkles Design ab."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choisissez des pages claires ou sombres pour les sites qui prennent en charge les deux. « Système » suit l’apparence de l’app."
+            "value": "Choisissez des pages claires ou sombres pour les sites qui prennent en charge les deux. « Système » suit l’apparence de l’app. « Forcer le mode sombre » assombrit aussi les sites sans thème sombre."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اختر الصفحات الفاتحة أو الداكنة للمواقع التي تدعم الوضعين. يتبع خيار «النظام» مظهر التطبيق."
+            "value": "اختر الصفحات الفاتحة أو الداكنة للمواقع التي تدعم الوضعين. يتبع خيار «النظام» مظهر التطبيق. ويجعل خيار «فرض الوضع الداكن» المواقع التي لا توفر وضعًا داكنًا داكنة أيضًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige páginas claras u oscuras para los sitios compatibles con ambos modos. «Sistema» sigue el aspecto de la app."
+            "value": "Elige páginas claras u oscuras para los sitios compatibles con ambos modos. «Sistema» sigue el aspecto de la app. «Forzar modo oscuro» también oscurece los sitios sin tema oscuro."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "網站同時支援淺色與深色時，選擇要使用淺色或深色頁面。「系統」會跟隨 App 的外觀。"
+            "value": "網站同時支援淺色與深色時，選擇要使用淺色或深色頁面。「系統」會跟隨 App 的外觀。「強制深色」也會把沒有深色主題的網站變深色。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "网站同时支持浅色和深色时，选择使用浅色还是深色页面。“系统”会跟随应用外观。"
+            "value": "网站同时支持浅色和深色时，选择使用浅色还是深色页面。“系统”会跟随应用外观。“强制深色”也会把没有深色主题的网站变深色。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "라이트와 다크를 모두 지원하는 사이트에서 표시할 페이지 모드를 선택합니다. ‘시스템’은 앱의 외관 설정을 따릅니다."
+            "value": "라이트와 다크를 모두 지원하는 사이트에서 표시할 페이지 모드를 선택합니다. ‘시스템’은 앱의 외관 설정을 따릅니다. ‘강제 다크 모드’는 자체 다크 테마가 없는 사이트도 어둡게 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ライトとダークの両方に対応したサイトで、どちらのページを表示するかを選択します。「システム」はアプリの外観に合わせます。"
+            "value": "ライトとダークの両方に対応したサイトで、どちらのページを表示するかを選択します。「システム」はアプリの外観に合わせます。「ダークを強制」は独自のダークテーマがないサイトも暗くします。"
           }
         }
       }

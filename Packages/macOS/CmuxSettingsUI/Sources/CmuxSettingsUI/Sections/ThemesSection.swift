@@ -177,7 +177,7 @@ public struct ThemesSection: View {
         SettingsCardRow(
             configurationReview: .json("browser.theme"),
             String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
-            subtitle: String(localized: "settings.browser.theme.subtitle", defaultValue: "Choose light or dark pages for sites that support both. System matches the app appearance."),
+            subtitle: String(localized: "settings.browser.theme.subtitle", defaultValue: "Choose light or dark pages for sites that support both. System matches the app appearance. Force Dark also darkens sites without a dark theme."),
             controlWidth: Self.columnWidth
         ) {
             Picker("", selection: Binding(get: { browserTheme.current }, set: { browserTheme.set($0) })) {
@@ -198,6 +198,8 @@ public struct ThemesSection: View {
             return String(localized: "theme.light", defaultValue: "Light")
         case .dark:
             return String(localized: "theme.dark", defaultValue: "Dark")
+        case .forceDark:
+            return String(localized: "theme.forceDark", defaultValue: "Force Dark")
         }
     }
 }

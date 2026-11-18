@@ -2197,9 +2197,9 @@ enum CmuxEmbeddedConfigSchema {
         },
         "theme": {
           "type": "string",
-          "enum": ["system", "light", "dark"],
+          "enum": ["system", "light", "dark", "forceDark"],
           "default": "system",
-          "description": "Embedded browser theme."
+          "description": "Embedded browser theme. forceDark uses Dark Reader to darken sites that do not ship a dark theme."
         },
         "defaultZoomLevel": {
           "type": "number",

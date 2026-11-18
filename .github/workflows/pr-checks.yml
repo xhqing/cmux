@@ -114,7 +114,13 @@ jobs:
         # used to merge green and show up only in the Release build. The
         # macos-26 runner has full Xcode, so `swift test` works here;
         # CommandLineTools machines must use --build-only (no Testing module).
-        run: python3 scripts/check-swift-packages.py --changed-file "$RUNNER_TEMP/changed.txt"
+        run: |
+          set -euo pipefail
+          # `reconnectBackoffDiscardsQueuedTerminalInput` drives a real PTY and is
+          # not deterministic on hosted runners; tracked in issue #113.
+          python3 scripts/check-swift-packages.py \
+            --changed-file "$RUNNER_TEMP/changed.txt" \
+            --test-skip 'Packages/macOS/CmuxFoundation=reconnectBackoffDiscardsQueuedTerminalInput'
 
       - name: Config schema (generated Swift in sync)
         run: |

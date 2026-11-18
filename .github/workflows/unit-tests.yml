@@ -112,14 +112,42 @@ jobs:
       - name: 运行 cmuxTests
         # 保留完整输出：xcodebuild 的测试输出很长，GitHub 会截断实时日志，
         # 失败时只能靠下一行的 artifact 定位具体是哪条用例。
+        #
+        # headless runner 上「不可信」的分组用 -skip-testing 排除（见 #98 与
+        # DEVELOPMENT.md 9.4）：这些用例要么需要真实窗口服务器 / 键盘事件，
+        # 要么需要登录账号与 Cloud / 模拟器环境。它们在 runner 上会稳定失败，
+        # 红了不代表代码坏了；本机用 scripts/test-all-local.sh 仍会跑全量。
         run: |
           set -euo pipefail
+          SKIP=(
+            cmuxTests/AppDelegateShortcutRoutingTests
+            cmuxTests/WorkspaceManualUnreadTests
+            cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests
+            cmuxTests/MainWindowCloseConfirmationTests
+            cmuxTests/TabManagerCloseCurrentPanelTests
+            cmuxTests/TabManagerCloseDontAskAgainTests
+            cmuxTests/TabManagerWarnBeforeClosingWorkspaceTests
+            cmuxTests/TabManagerCloseCurrentTabSpamTests
+            cmuxTests/TerminalNotificationDirectInteractionTests
+            cmuxTests/CLINotifyProcessIntegrationRegressionTests
+            cmuxTests/CMUXOpenCommandTests
+            cmuxTests/WorkspacePullRequestSidebarTests
+            cmuxTests/SurfacePaneFactoryFocusTests
+            cmuxTests/SimulatorPanelIntegrationTests
+            cmuxTests/QuitConfirmationAlertPresenterTests
+            cmuxTests/EmptyWindowStateTests
+            cmuxTests/MainWindowCloseTerminationRoutingTests
+          )
+          ARGS=()
+          for suite in "${SKIP[@]}"; do ARGS+=("-skip-testing:${suite}"); done
+          echo "跳过 ${#SKIP[@]} 个 headless 不可信分组"
           xcodebuild test \
             -project cmux.xcodeproj \
             -scheme cmux-unit \
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath /tmp/cmux-build \
-            -only-testing:cmuxTests 2>&1 | tee /tmp/cmux-tests-raw.log
+            -only-testing:cmuxTests \
+            "${ARGS[@]}" 2>&1 | tee /tmp/cmux-tests-raw.log
 
       - name: 上传测试日志（始终上传）
         if: always()

@@ -239,6 +239,29 @@ r17 及更早的 app 里装的是**上游的** `SUPublicEDKey`，我们手里没
 - **挂资产只看「上传产物」step**：`attach-release-asset` 的判据是 build job 的「上传产物」step 结论，不是整个 run 的结论——构建或打包失败时该 step 不存在或 skipped，会明确拒绝；测试红不影响资产（测试不在这个 workflow 里）。
 - **`unit-tests.yml` 的 setup 与 `build.yml` 同源**（Xcode 26 / Metal / Zig 0.16 / Go / `scripts/setup.sh`）：改动任一处时对照另一处，避免两条流水线跑在不同工具链上。
 - `cmuxCLITests`（只测 CLI target，不依赖 app）目前仍未接入；如果要接，它才是有可能进 PR 门禁的候选——同样必须先实测耗时。
+
+### 4a. CI 上哪些测试可信（2026-11-18 定稿，Issue #98）
+
+`unit-tests` 全量实测（`44085353974`，182 分钟）：XCTest 4112 条里 **137 失败**，Swift Testing 10029 个 test case 里 **211 issues**。失败几乎全部集中在一类：**需要真实窗口服务器 / 键盘事件 / 登录账号与 Cloud、模拟器环境**的用例。headless runner 上没有这些环境，它们红了不代表代码坏了。
+
+所以分两层：
+
+| 层 | 在哪跑 | 范围 |
+| --- | --- | --- |
+| **可信层（CI）** | `unit-tests` | 其余全部：纯逻辑、状态机、包层测试、Markdown 渲染、文件监视等 |
+| **本机层** | `./scripts/test-all-local.sh` | 全量，含 CI 跳过的 17 个分组 |
+
+CI 跳过的分组用 `-skip-testing:` 写在 `unit-tests.yml` 的 `SKIP` 数组里（不改测试代码、不动 `project.pbxproj`），当前 17 个：
+
+- 快捷键路由：`AppDelegateShortcutRoutingTests`
+- 窗口 / 标签页关闭确认：`MainWindowCloseConfirmationTests`、`TabManagerCloseCurrentPanelTests`、`TabManagerCloseDontAskAgainTests`、`TabManagerWarnBeforeClosingWorkspaceTests`、`TabManagerCloseCurrentTabSpamTests`、`MainWindowCloseTerminationRoutingTests`、`QuitConfirmationAlertPresenterTests`、`EmptyWindowStateTests`
+- 浏览器 / 模拟器集成：`BrowserDeveloperToolsVisibilityPersistenceTests`、`SimulatorPanelIntegrationTests`
+- Cloud 与多机：`SurfacePaneFactoryFocusTests`
+- 其余涉及真实进程 / 外部命令：`WorkspaceManualUnreadTests`、`TerminalNotificationDirectInteractionTests`、`CLINotifyProcessIntegrationRegressionTests`、`CMUXOpenCommandTests`、`WorkspacePullRequestSidebarTests`
+
+**维护规则**：新增一个用例时先判断它需不需要上面这些环境；需要的就进本机层，不要往 CI 里塞。要从跳过清单里移除某组，先在 CI 上跑一轮确认它稳定通过（每轮约 3 小时）。
+
+
 - **接入条件**：这两个 target 能在一台 `macos-26` runner 上、门禁的 `timeout-minutes` 之内跑完；且 PR 阶段改 app target 的 PR 应在合并前手动 `gh workflow run build.yml --ref <分支>` 跑一次，把类型错误与测试编译错误提前暴露（PR 门禁的 `swiftc -parse` 不做类型检查）。
 - **接入时在 `checks` 里加一个 step**（前提是上面「先实测」已完成）：
 

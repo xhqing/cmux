@@ -251,7 +251,7 @@ r17 及更早的 app 里装的是**上游的** `SUPublicEDKey`，我们手里没
 | **可信层（CI）** | `unit-tests` | 其余全部：纯逻辑、状态机、包层测试、Markdown 渲染、文件监视等 |
 | **本机层** | `./scripts/test-all-local.sh` | 全量，含 CI 跳过的 17 个分组 |
 
-CI 跳过的分组用 `-skip-testing:` 写在 `unit-tests.yml` 的 `SKIP` 数组里（不改测试代码、不动 `project.pbxproj`），当前 **55 条**（XCTest 分组 + Swift Testing suite / 单条用例，三轮实测后补全）：
+CI 跳过的分组用 `-skip-testing:` 写在 `unit-tests.yml` 的 `SKIP` 数组里（不改测试代码、不动 `project.pbxproj`），当前 **56 条**（XCTest 分组 + Swift Testing suite / 单条用例，三轮实测后补全）：
 
 - 快捷键路由：`AppDelegateShortcutRoutingTests`
 - 窗口 / 标签页关闭确认：`MainWindowCloseConfirmationTests`、`TabManagerCloseCurrentPanelTests`、`TabManagerCloseDontAskAgainTests`、`TabManagerWarnBeforeClosingWorkspaceTests`、`TabManagerCloseCurrentTabSpamTests`、`MainWindowCloseTerminationRoutingTests`、`QuitConfirmationAlertPresenterTests`、`EmptyWindowStateTests`

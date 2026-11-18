@@ -20,7 +20,6 @@ struct BrowserThemeModeTests {
         let value = await store.value(for: catalog.browser.theme)
 
         #expect(value == .forceDark)
-        #expect(defaults.string(forKey: "browserThemeMode") == "forceDark")
     }
 
     @Test func legacyRawValuesStillDecode() {

@@ -3,6 +3,7 @@ import Testing
 import WebKit
 @testable import CmuxBrowser
 
+@MainActor
 @Suite("Browser force dark runtime")
 struct BrowserForceDarkRuntimeTests {
     private let page = URL(string: "https://business.facebook.com/business/loginpage/")!

@@ -105,6 +105,7 @@ public enum BrowserForceDarkRuntime {
     ///   - policy: The current Force Dark policy.
     ///   - url: The page's top-level URL.
     /// - Returns: `nil` when the policy skips the page or the engine is missing.
+    @MainActor
     public static func makeUserScript(
         policy: BrowserForceDarkPolicy,
         url: URL?

@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [Unreleased]
+## [0.65.2.2-r26] - 2026-11-18
 
 ### 新增（浏览器第四档主题 Force Dark：内置 Dark Reader，把没有深色主题的站点也变深色，2026-11-18，Issue #109）
 

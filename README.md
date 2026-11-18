@@ -75,7 +75,7 @@ bash /tmp/cmux-install.sh
 ```
 
 By default it installs the latest release into `/Applications` and asks before replacing
-an existing copy. Useful flags: `--tag v0.65.2.2-r15` pins a version, `--dest <dir>` changes
+an existing copy. Useful flags: `--tag v0.65.2.2-r26` pins a version, `--dest <dir>` changes
 the install location, `--no-launch` skips launching, `--yes` skips the confirmation
 (required in non-interactive shells), and `--skip-checksum` bypasses the sha256 check in
 an emergency.

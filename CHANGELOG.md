@@ -4,6 +4,13 @@ All notable changes to cmux are documented here.
 
 ## [Unreleased]
 
+### 新增（浏览器第四档主题 Force Dark：内置 Dark Reader，把没有深色主题的站点也变深色，2026-11-18，Issue #109）
+
+- **为什么改**：现有「Browser Theme」只把 `WKWebView.appearance` 设成 `darkAqua`，网页收到 `prefers-color-scheme: dark` 后是否变暗完全由站点自己的 CSS 决定；站点自身不支持深色时，选 Dark 没有任何视觉变化（实测 `business.facebook.com/business/loginpage/`：`matchMedia` 已返回 true，但 `<body>` 背景固定 `rgb(233, 235, 238)`、根节点没有 `.__fb-dark-mode`）。用户日常在 Chrome 用 Dark Reader 解决这类站点，希望 cmux 内置同等能力。
+- **改了什么**：① vendor npm `darkreader` 4.9.135（MIT，独立 API 构建）到 `Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Resources/ForceDark/`，`THIRD_PARTY_LICENSES.md` / `PATCHES.md` 各补一条；② 两个 `BrowserThemeMode`（`CmuxSettings` 包与 app target）加 `.forceDark`（raw value `forceDark`），`browser.theme` 的 JSON schema 同步加枚举值并重新生成内嵌 schema；③ 新增 `BrowserForceDarkPolicy`（只放行 http/https 且有 host 的页面，例外按 host 精确 / 子域匹配，归一化大小写、端口、末尾点）、`BrowserForceDarkSettings`（`browserForceDarkExcludedHosts`，写入前归一化去重，变更时发通知）、`BrowserForceDarkRuntime`（引擎 + 薄 bootstrap 拼成 `.atDocumentStart` 主框架 user script，JS 里按 `location` 复核一次，`DarkReader.enable({brightness:100,contrast:100,sepia:0})`，页面级标记防重复，异常 `console.warn`）；④ 面板与 popup（含嵌套 popup）在主题切换、主框架导航开始、profile 切换、webview 丢弃替换、workspace reattach、WebContent 崩溃重建后装配同一套脚本，切档时对已加载文档即时 enable / disable，且不进入 automation 的 `clearBrowserAutomationUserScripts` 清理范围；⑤ 工具栏「⋮」溢出菜单加「Force Dark on This Site」复选项（勾选 = 当前 host 进例外列表、页面立即恢复原样，其它已开标签页经通知同步）；⑥ 设置页 Themes → Browser Theme 自动带出第四档，补副标题说明与搜索别名（force dark / 强制深色 / dark reader），新增三条文案（9 种语言）。
+- **怎么验证**：`swiftc -parse -enable-bare-slash-regex` 对全部改动文件通过；`python3 scripts/check-swift-packages.py --package Packages/macOS/CmuxBrowser --package Packages/macOS/CmuxSettings --build-only` 本机编译通过（本机是 CommandLineTools，`swift test` 只能由 CI 跑）；`python3 scripts/generate-cmux-config-schema.py --check`、`./scripts/lint-pbxproj-test-wiring.sh`、`python3 scripts/lint-xcstrings.py`、`python3 scripts/localization_defaults.py` 本机全绿（`localization_catalog.py check` 仍只有既有的 6 条 `markdown.web.mathRenderFailed` 缺 locale）。
+- **回归检查**：① `.forceDark` 的 native 行为与 `.dark` 完全一致，引擎只在选中第四档且页面通过策略时注入，System / Light / Dark 三档行为不变；② `browser.theme` 旧值与废弃的 `browserForcedDarkModeEnabled` 迁移逻辑未动；③ automation 注入路径（`browser.addscript` / `addstyle`）与它们的清理范围未改；④ PR 门禁 `checks` 的检查项与 job 名未改（新增的 Swift 包测试由已有的 `check-swift-packages.py` step 覆盖）。
+
 ### 变更（测试分层：CI 只跑 headless 可信的部分，本机跑全量，2026-11-18，Issue #98）
 
 - **为什么改**：`unit-tests` 全量实测 182 分钟，XCTest 4112 条里 137 个失败、Swift Testing 10029 个 test case 里 211 issues。失败几乎全部是「需要真实窗口服务器 / 键盘事件 / 登录账号与 Cloud、模拟器环境」的用例——headless runner 上本来就没有这些环境，红了不代表代码坏了，但一个永远红的门禁等于没有门禁。

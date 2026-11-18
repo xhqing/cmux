@@ -212,7 +212,7 @@ enum SettingsSearchIndex {
         setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
         setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
-        setting(.themes, "browser-theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
+        setting(.themes, "browser-theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system force dark night mode dark reader"),
         setting(.browser, "default-zoom-level", String(localized: "settings.browser.defaultZoomLevel", defaultValue: "Default Page Zoom"), "default browser zoom level page magnification percent scale actual size"),
         setting(.browser, "hidden-webview-discard", String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"), "memory hidden tabs webview discard unload"),
         setting(.browser, "hidden-webview-discard-mode", String(localized: "settings.browser.hiddenWebViewDiscardMode", defaultValue: "Memory Saver Mode"), "memory budget timer hidden tabs discard"),

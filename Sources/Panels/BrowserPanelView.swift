@@ -1586,6 +1586,31 @@ struct BrowserPanelView: View {
             .disabled(!panel.shouldRenderWebView)
             .accessibilityIdentifier("BrowserScreenshotSectionButton")
             BrowserLocalFileFinderMenu(fileURL: panel.currentURL)
+            Divider()
+            // Checked — the current host is on the Force Dark exception list, so
+            // the site keeps its own appearance while other sites stay dark.
+            Toggle(
+                isOn: Binding(
+                    get: { panel.isCurrentSiteForceDarkExcluded },
+                    set: { panel.setCurrentSiteForceDarkExcluded($0) }
+                )
+            ) {
+                Label(
+                    String(
+                        localized: "browser.forceDark.siteToggle",
+                        defaultValue: "Force Dark on This Site"
+                    ),
+                    systemImage: "moon.stars"
+                )
+            }
+            .disabled(!panel.canToggleForceDarkSiteException)
+            .safeHelp(
+                String(
+                    localized: "browser.forceDark.siteToggle.help",
+                    defaultValue: "Checked keeps this site's own appearance. Other sites are still darkened."
+                )
+            )
+            .accessibilityIdentifier("BrowserForceDarkSiteToggle")
             if isChromeCompact {
                 Divider()
                 BrowserDesignModeOverflowMenuButton(

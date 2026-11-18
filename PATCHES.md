@@ -728,3 +728,50 @@ Markdown 面板（预览 / 就地编辑 / TextEdit）里打开的文件被外部
 - `swiftc -parse -enable-bare-slash-regex` 对两个改动文件通过；`./scripts/lint-pbxproj-test-wiring.sh`、`python3 scripts/generate-cmux-config-schema.py --check`、`python3 scripts/check-latency-guardrails.py`、`python3 scripts/lint-xcstrings.py`、`python3 scripts/localization_defaults.py` 本机全绿（`localization_catalog.py check` 仍是既有的 6 条 `markdown.web.mathRenderFailed` 缺 locale，与本次无关）。
 - 回归网：`Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/FileWatch/FileWatcherTests.swift` 的两个新用例（git 风格替换、多轮替换）覆盖 watcher 本身；`cmuxTests/MarkdownPanelTests.swift` 的三条用例（dirty 时 pending、载入磁盘版本后内容与状态、被拦下的 reload 不推进指纹）锁死本次修复的语义。**app target 测试不在 PR 门禁里跑**，只能在 `build-macos` 的 `xcodebuild test` 或 Xcode 里验证。
 - 真机验收：开一个 Markdown 面板 → 外部改文件 → 预览跟随更新；在 TextEdit 里改字不保存 → 外部再改 → 出现提示条 → 点「载入磁盘版本」→ 显示磁盘内容且 `isDirty` 归位。
+
+---
+
+## P15 — 浏览器第四档主题「Force Dark」：内置 Dark Reader 4.9.135（Issue #109）
+
+**状态**：已实现
+
+### 要解决的问题
+
+现有「Browser Theme」（`browser.theme` / 工具栏月亮按钮）只把 `WKWebView.appearance` 设成 `darkAqua`，网页收到 `prefers-color-scheme: dark` 后是否变暗完全由站点自己的 CSS 决定。站点自身不支持深色时，选 Dark 不会有任何视觉变化（实测 `business.facebook.com/business/loginpage/`：`matchMedia` 已经是 dark，但 `<body>` 背景固定 `rgb(233, 235, 238)`、根节点没有 `.__fb-dark-mode`）。用户日常在 Chrome 用 Dark Reader 解决这类站点，希望 cmux 内置同等能力。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Resources/ForceDark/darkreader.js`、`LICENSE` | 原样 vendor npm `darkreader` 4.9.135 的独立 API 构建（MIT，见 `THIRD_PARTY_LICENSES.md`），与 `BrowserDesignModeRuntime.js` 同一种资源打包方式。 |
+| `Packages/macOS/CmuxBrowser/.../ForceDark/BrowserForceDarkPolicy.swift` | 新增策略值类型：`isEnabled` + `excludedHosts`；`shouldApply(to:)` 只放行 `http` / `https` 且有 host 的页面；`normalizeHost(_:)` 归一化大小写 / scheme / userinfo / 端口 / 路径 / 末尾点；`isExcluded(host:in:)` 精确匹配或子域匹配（`host == entry \|\| host.hasSuffix(".\(entry)")`）。 |
+| `.../ForceDark/BrowserForceDarkSettings.swift` | 例外列表存 `UserDefaults` 的 `browserForceDarkExcludedHosts`（`[String]`，写入前归一化去重），读写入口 `excludedHosts` / `setExcludedHosts` / `isHostExcluded` / `setHostExcluded`；列表变化时发 `browserForceDarkExcludedHostsDidChange` 通知。 |
+| `.../ForceDark/BrowserForceDarkRuntime.swift` | 读取 vendored 引擎（资源缺失时 `librarySource` 为 nil），拼出 `bootstrapSource(policy:url:)`：先按当前 URL 判策略，再在 JS 里按 `location` 复核 scheme / host / 例外（防止脚本跨导航残留），用 CommonJS 影子模块加载 UMD 引擎（避免页面上的 AMD `define` 把引擎吞掉），`DarkReader.enable({brightness:100,contrast:100,sepia:0})`、`__cmuxForceDarkApplied` 防重复、异常走 `console.warn`；`makeUserScript` 固定 `.atDocumentStart` + 主框架；另有 `enableScript` / `disableScript` 用于已加载文档的即时切换。 |
+| `Packages/macOS/CmuxSettings/.../Values/BrowserThemeMode.swift`、`Sources/Panels/BrowserPanel.swift` | 两处 `BrowserThemeMode` 都加 `.forceDark`（raw value `forceDark`），app 端 displayName 为 `Force Dark`、图标 `moon.stars`；`BrowserThemeSettings.apply` 里 `.forceDark` 与 `.dark` 一样设 `darkAqua`。 |
+| `schemas/config/cmux.schema.json`（+ 重新生成的 `CmuxConfigSchema.generated.swift`） | `browser.theme` 枚举加 `forceDark`，描述补一句。 |
+| `Sources/Panels/BrowserForceDark.swift`（新文件，已 wire 进 `project.pbxproj`） | 脚本装配器：按控制器追踪本进程创建的 Force Dark user script（WebKit 只能整体 `removeAllUserScripts`，删除时按原顺序回加其它脚本，不动 automation / 表单状态那些注入）；面板与 popup 的 policy 计算、已加载文档的 enable / disable、当前站点例外读写、例外列表变更通知的观察与清理。 |
+| `Sources/Panels/BrowserPanel.swift` | `applyBrowserThemeModeIfNeeded()` 里同步脚本装配（覆盖初始化、profile 切换、webview 丢弃替换、workspace reattach、WebContent 崩溃重建）；`didStartProvisionalNavigation` 时按目标 URL 重新装配；`setBrowserThemeMode` 变更时对已加载文档即时切换；`popupControllers` 从 `private` 放开到模块内，供例外变更时同步 popup。 |
+| `Sources/Panels/BrowserPopupWindowController.swift` | popup 记录自己的主题档位；`setBrowserThemeMode` 与 popup 的 `didStartProvisionalNavigation` 装配同一套脚本；嵌套 popup 经 `webViewsIncludingChildPopups` 一起处理。 |
+| `Sources/Panels/BrowserPanelView.swift` | 「⋮」溢出菜单新增 **Force Dark on This Site** 复选项：勾选 = 当前 host 进例外列表（页面立即恢复原样），再点取消恢复强制深色。 |
+| `Packages/macOS/CmuxSettingsUI/.../ThemesSection.swift`、`Sources/SettingsSearchIndex.swift`、`Sources/SettingsSearchAliases.swift`、`CuratedSettingEntry+Default.swift`、`Resources/Localizable.xcstrings` | 设置页第四档显示名、副标题说明（9 种语言）、搜索别名补 force dark / night mode / dark reader，新增 `theme.forceDark` / `browser.forceDark.siteToggle` / `browser.forceDark.siteToggle.help` 三条文案。 |
+
+### 逻辑边界（刻意这么做）
+
+- **注入只在第四档**：`.forceDark` 的 native 部分与 `.dark` 完全一致，引擎只在选中它且页面通过策略时注入；其它三档行为一字未改。
+- **两层 host 检查**：Swift 侧按导航 URL 决定要不要注册脚本，JS 侧再按文档自己的 `location` 复核一次——`WKUserScript` 一旦注册就作用于该 webview 的后续所有文档，只靠 Swift 侧会让「从允许站点跳到例外站点」仍然被注入。
+- **不进 automation 的清理范围**：Force Dark 脚本由自己的装配器管理，引用登记在 `BrowserForceDarkUserScript` 的弱集合里；`clearBrowserAutomationUserScripts()` 只清 `browser.addscript` / `addstyle` 那批，互不影响。
+- **popup 用独立路径**：popup 的 web view 在创建时还没有 URL，所以脚本在它的 `didStartProvisionalNavigation` 里按实际 URL 装配，而不是借用 opener 的 URL（从例外站点打开的 OAuth popup 仍应被强制深色）。
+- **例外列表即时生效**：勾选当前站点例外后由通知驱动本面板与其它已开面板重新装配，不必等刷新。
+- **不做**：亮度 / 对比度 / 棕褐色调节 UI，跨设备同步，自动检测站点是否已有深色主题，跨域 iframe 注入。
+
+### 上游 rebase 冲突点
+
+`Sources/Panels/BrowserPanel.swift` 的 `BrowserThemeMode` / `BrowserThemeSettings` 与 `configureNavigationDelegateCallbacks`、`applyBrowserThemeModeIfNeeded`；`BrowserPopupWindowController.swift` 的 `setBrowserThemeMode` 与 `PopupNavigationDelegate`；`BrowserPanelView.swift` 的 `browserOverflowMenu`；`CmuxBrowser` 包的 `Package.swift`（资源声明未改，但 `Resources/` 目录内容会被上游同步覆盖时需确认 `ForceDark/` 仍在）。rebase 后必须重新保证三条：① `.forceDark` 在两个 `BrowserThemeMode` 都存在；② 每次 `applyBrowserThemeModeIfNeeded()` 都会装配脚本；③ 例外站点不出脚本。
+
+### 验证
+
+- `swiftc -parse -enable-bare-slash-regex`：全部改动的 Swift 文件通过。
+- `python3 scripts/check-swift-packages.py --package Packages/macOS/CmuxBrowser --package Packages/macOS/CmuxSettings --build-only`：两个包本机编译通过（本机是 CommandLineTools，没有 `Testing` 模块，`swift test` 只能由 CI 跑）。
+- `python3 scripts/generate-cmux-config-schema.py --check`、`./scripts/lint-pbxproj-test-wiring.sh`、`python3 scripts/lint-xcstrings.py`、`python3 scripts/localization_defaults.py`：本机全绿（`localization_catalog.py check` 仍是既有的 6 条 `markdown.web.mathRenderFailed` 缺 locale，与本次无关）。
+- CI：`checks` 的 `scripts/check-swift-packages.py` 对两个包跑 `swift build` + `swift test`，覆盖 `Packages/macOS/CmuxBrowser/Tests/CmuxBrowserTests/ForceDark/` 与 `Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/BrowserThemeModeTests.swift`；app target 的编译与 UI 验收由 `build-macos` 兜底。
+- 真机验收（需装新版后逐条走）：选中 Force Dark 后打开 `business.facebook.com/business/loginpage/` 应变深色；GitHub 选 Force Dark 仍可读；勾选站点例外后当前站点恢复原样、其它站点仍深色且重启后保持；切回其它三档后页面恢复原样且刷新不再注入；新标签页 / popup / WebContent 崩溃重建后行为一致。

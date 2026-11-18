@@ -31,7 +31,6 @@
 		D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */; };
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
-		C1ADE90001A1B2C3D4E5F71A /* ghostty-themes in Resources */ = {isa = PBXBuildFile; fileRef = C1ADE90001A1B2C3D4E5F719 /* ghostty-themes */; };
 		2BA53AD928B8026FE8A0D3A9 /* AgentAcknowledgedTurnNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6A2754CDC4A872BCEFD3EA /* AgentAcknowledgedTurnNotificationTests.swift */; };
 		06DC4DD731DBDF26D8745640 /* AgentAutoResumeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C3AC76ACCBE9F64AA3F526 /* AgentAutoResumeCoordinator.swift */; };
 		8EA083841777B442E3FA7E72 /* AgentAutoResumeScreenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB6ECEBC1833C9D1E53FCF5 /* AgentAutoResumeScreenTests.swift */; };
@@ -478,6 +477,7 @@
 		A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindWebViewEvaluator.swift */; };
 		7B5F1A2E9C0D4B6A8E217302 /* BrowserFixtureInteractionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */; };
 		8478B0000000000000000002 /* BrowserFixtureSocketTestCase+PendingRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8478B0000000000000000001 /* BrowserFixtureSocketTestCase+PendingRequest.swift */; };
+		EBFB66ED0C24F04574125F93 /* BrowserForceDark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 607D4AE1D071C4E3BE677172 /* BrowserForceDark.swift */; };
 		173381D0BD5068A03B70F8C5 /* BrowserHiddenWebViewDiscardBlockerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5B362083A3A609ADB63D80 /* BrowserHiddenWebViewDiscardBlockerTests.swift */; };
 		5B8C549C031604DAE01ADBA6 /* BrowserHiddenWebViewDiscardSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD210E0F9E610E4124ADA8DD /* BrowserHiddenWebViewDiscardSettingsFileTests.swift */; };
 		AD3D4D3E24D4142DA5C6099D /* BrowserHiddenWebViewDiscardTimerPolicyTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C048F37095B42BFAB9CB65C /* BrowserHiddenWebViewDiscardTimerPolicyTestSupport.swift */; };
@@ -2222,6 +2222,7 @@
 		F97300010000000000000003 /* FreestyleInteractiveShellScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = F97300010000000000000001 /* FreestyleInteractiveShellScript.swift */; };
 		F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000004 /* FullWidthTabCommandTests.swift */; };
 		F17F00000000000000000001 /* FullWidthTabPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */; };
+		C1ADE90001A1B2C3D4E5F71A /* ghostty-themes in Resources */ = {isa = PBXBuildFile; fileRef = C1ADE90001A1B2C3D4E5F719 /* ghostty-themes */; };
 		85510001A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85510002A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift */; };
 		C0F16D1A0000000000000001 /* GhosttyApp+ConfigDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16D1A0000000000000002 /* GhosttyApp+ConfigDiagnostics.swift */; };
 		A10557070000000000000001 /* GhosttyApp+ConfigurationApply.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10557070000000000000002 /* GhosttyApp+ConfigurationApply.swift */; };
@@ -4776,7 +4777,6 @@
 		D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsWindowController.swift; sourceTree = "<group>"; };
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
-		C1ADE90001A1B2C3D4E5F719 /* ghostty-themes */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "ghostty/themes"; sourceTree = "<group>"; };
 		6F6A2754CDC4A872BCEFD3EA /* AgentAcknowledgedTurnNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentAcknowledgedTurnNotificationTests.swift"; sourceTree = "<group>"; };
 		E7C3AC76ACCBE9F64AA3F526 /* AgentAutoResumeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAutoResumeCoordinator.swift; sourceTree = "<group>"; };
 		1BB6ECEBC1833C9D1E53FCF5 /* AgentAutoResumeScreenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentAutoResumeScreenTests.swift"; sourceTree = "<group>"; };
@@ -5209,6 +5209,7 @@
 		A5008372 /* BrowserFindWebViewEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindWebViewEvaluator.swift; sourceTree = "<group>"; };
 		7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFixtureInteractionUITests.swift; sourceTree = "<group>"; };
 		8478B0000000000000000001 /* BrowserFixtureSocketTestCase+PendingRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserFixtureSocketTestCase+PendingRequest.swift"; sourceTree = "<group>"; };
+		607D4AE1D071C4E3BE677172 /* BrowserForceDark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserForceDark.swift; sourceTree = "<group>"; };
 		3D5B362083A3A609ADB63D80 /* BrowserHiddenWebViewDiscardBlockerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserHiddenWebViewDiscardBlockerTests.swift"; sourceTree = "<group>"; };
 		AD210E0F9E610E4124ADA8DD /* BrowserHiddenWebViewDiscardSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserHiddenWebViewDiscardSettingsFileTests.swift"; sourceTree = "<group>"; };
 		8C048F37095B42BFAB9CB65C /* BrowserHiddenWebViewDiscardTimerPolicyTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserHiddenWebViewDiscardTimerPolicyTestSupport.swift"; sourceTree = "<group>"; };
@@ -6799,6 +6800,7 @@
 		F97300010000000000000001 /* FreestyleInteractiveShellScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreestyleInteractiveShellScript.swift; sourceTree = "<group>"; };
 		F17F00000000000000000004 /* FullWidthTabCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabCommandTests.swift; sourceTree = "<group>"; };
 		F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabPersistenceTests.swift; sourceTree = "<group>"; };
+		C1ADE90001A1B2C3D4E5F719 /* ghostty-themes */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "ghostty/themes"; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		85510002A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+ChildExitPolicy.swift"; sourceTree = "<group>"; };
 		C0F16D1A0000000000000002 /* GhosttyApp+ConfigDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+ConfigDiagnostics.swift"; sourceTree = "<group>"; };
@@ -12346,6 +12348,7 @@
 				6E0312C285F7C7C82024BF62 /* UpgradePromptImpression.swift */,
 				899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */,
 				34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */,
+				607D4AE1D071C4E3BE677172 /* BrowserForceDark.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14440,7 +14443,6 @@
 			files = (
 				A9E020000000000000000006 /* agent-session-react in Resources */,
 				A9E020000000000000000007 /* agent-session-solid in Resources */,
-				C1ADE90001A1B2C3D4E5F71A /* ghostty-themes in Resources */,
 				A5001100 /* Assets.xcassets in Resources */,
 				B7E1A0000000000000000002 /* browser-repl in Resources */,
 				EF840DF6D022042F7E57B482 /* cloud-agent-skill.md in Resources */,
@@ -14450,6 +14452,7 @@
 				C0A714100000000000000002 /* ComputerUseHelperIcon.icns in Resources */,
 				C0F1A001C0F1A001C0F1A001 /* ConfigPackErrors.xcstrings in Resources */,
 				FEED0A00000000000000F007 /* feed-tui in Resources */,
+				C1ADE90001A1B2C3D4E5F71A /* ghostty-themes in Resources */,
 				DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */,
 				A11CE0060000000000000001 /* LICENSE in Resources */,
 				DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */,
@@ -15059,6 +15062,7 @@
 				BEEA00010000000000000001 /* BrowserExternalNavigationHandler.swift in Sources */,
 				D7632A11A1B2C3D4E5F60718 /* BrowserFileDropNavigationGuard.swift in Sources */,
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
+				EBFB66ED0C24F04574125F93 /* BrowserForceDark.swift in Sources */,
 				01F58FB3555F69F628ABF865 /* BrowserHiddenWebViewMemoryBudgetCoordinator.swift in Sources */,
 				7490C0017490C0017490C001 /* BrowserHiddenWebViewMemoryPressureResponder.swift in Sources */,
 				BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */,

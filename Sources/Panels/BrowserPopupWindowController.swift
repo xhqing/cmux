@@ -34,6 +34,8 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private weak var openerPanel: BrowserPanel?
     private weak var parentPopupController: BrowserPopupWindowController?
     private let nestingDepth: Int
+    /// Theme the popup was opened with; kept so Force Dark can follow it.
+    var browserThemeMode: BrowserThemeMode
     private var titleObservation: NSKeyValueObservation?
     private var urlObservation: NSKeyValueObservation?
     private var childPopups: [BrowserPopupWindowController] = []
@@ -75,7 +77,8 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
         webView.applyBrowserUserAgentPolicy(for: nil)
-        BrowserThemeSettings.apply(openerPanel?.currentBrowserThemeMode ?? BrowserThemeSettings.mode(), to: webView)
+        self.browserThemeMode = openerPanel?.currentBrowserThemeMode ?? BrowserThemeSettings.mode()
+        BrowserThemeSettings.apply(browserThemeMode, to: webView)
         self.webView = webView
         self.webAuthnCoordinator = BrowserWebAuthnCoordinator()
 
@@ -277,7 +280,12 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     }
 
     func setBrowserThemeMode(_ mode: BrowserThemeMode) {
+        let previousMode = browserThemeMode
+        browserThemeMode = mode
         BrowserThemeSettings.apply(mode, to: webView)
+        if previousMode != mode {
+            applyForceDarkToLoadedDocuments()
+        }
         for child in childPopups {
             child.setBrowserThemeMode(mode)
         }
@@ -973,6 +981,8 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
+        // Register the Force Dark engine for the document that is about to load.
+        controller?.syncForceDarkMode()
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {

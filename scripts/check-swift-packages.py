@@ -20,6 +20,10 @@ Options:
                           Defaults to `git diff --name-only HEAD^ HEAD`.
     --package PATH        Check this package explicitly (repeatable).
     --build-only          Only run `swift build`, skip `swift test`.
+    --test-skip PACKAGE=REGEX
+                          Skip matching test cases in the given package (repeatable).
+                          Use for suites that need a window server or another
+                          environment the PR gate cannot provide.
     --max-packages N      Cap how many packages one run checks (default 4).
                           A bulk upstream sync can touch dozens; the rest are
                           covered by build-macos.
@@ -162,6 +166,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--changed-file", type=Path)
     parser.add_argument("--package", type=Path, action="append", default=[])
     parser.add_argument("--build-only", action="store_true")
+    parser.add_argument(
+        "--test-skip",
+        action="append",
+        default=[],
+        metavar="PACKAGE=REGEX",
+        help="Skip matching test cases in PACKAGE (repeatable).",
+    )
     parser.add_argument("--max-packages", type=int, default=4)
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args(argv)
@@ -169,6 +180,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_packages < 1:
         print("error: --max-packages must be at least 1", file=sys.stderr)
         return 2
+
+    test_skips: dict[Path, str] = {}
+    for value in args.test_skip:
+        package_part, separator, regex = value.partition("=")
+        if not separator or not package_part or not regex:
+            print(
+                f"error: --test-skip expects PACKAGE=REGEX, got {value!r}",
+                file=sys.stderr,
+            )
+            return 2
+        test_skips[(ROOT / package_part).resolve()] = regex
 
     try:
         paths = changed_paths(args.changed_file)
@@ -220,7 +242,10 @@ def main(argv: list[str] | None = None) -> int:
             if not has_tests(package):
                 print("  SKIP  swift test (no test target)")
             continue
-        ok, detail = run(["swift", "test", "--package-path", str(package)], args.timeout)
+        test_command = ["swift", "test", "--package-path", str(package)]
+        if skip := test_skips.get(package):
+            test_command.extend(["--skip", skip])
+        ok, detail = run(test_command, args.timeout)
         print(f"  {'PASS' if ok else 'FAIL'}  swift test")
         if not ok:
             failures += 1

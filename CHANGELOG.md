@@ -2,6 +2,14 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### 变更（测试分层：CI 只跑 headless 可信的部分，本机跑全量，2026-11-18，Issue #98）
+
+- **为什么改**：`unit-tests` 全量实测 182 分钟，XCTest 4112 条里 137 个失败、Swift Testing 10029 个 test case 里 211 issues。失败几乎全部是「需要真实窗口服务器 / 键盘事件 / 登录账号与 Cloud、模拟器环境」的用例——headless runner 上本来就没有这些环境，红了不代表代码坏了，但一个永远红的门禁等于没有门禁。
+- **改了什么**：① `unit-tests.yml` 用 `-skip-testing:` 排除 17 个 headless 不可信分组（不改测试代码、不动 `project.pbxproj`）；② 新增 `scripts/test-all-local.sh`，本机跑全量、不做任何跳过；③ `DEVELOPMENT.md` 新增 9.4a 节，写明「CI 可信层 / 本机层」的划分、跳过清单与维护规则。
+- **回归检查**：① 测试代码零改动，PR 门禁 `checks` 未改；② 构建与产物链路未改；③ 从清单移除某组前必须先在 CI 上跑一轮确认稳定（每轮约 3 小时）。
+
 ## [0.65.2.2-r25] - 2026-11-16
 
 ### 变更（单元测试拆为独立 workflow，修正出包时间线，2026-11-16，Issue #93）

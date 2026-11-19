@@ -8,11 +8,23 @@ enum NotificationBadgeSettings {
     static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
     static let defaultDockBadgeEnabled = true
 
+    static let titlebarBadgeEnabledKey = "notificationTitlebarBadgeEnabled"
+    static let defaultTitlebarBadgeEnabled = true
+
     static func isDockBadgeEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: dockBadgeEnabledKey) == nil {
             return defaultDockBadgeEnabled
         }
         return defaults.bool(forKey: dockBadgeEnabledKey)
+    }
+
+    /// Whether the titlebar bell draws the unread badge. Missing key means on,
+    /// so upgrades keep the current behavior.
+    static func isTitlebarBadgeEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: titlebarBadgeEnabledKey) == nil {
+            return defaultTitlebarBadgeEnabled
+        }
+        return defaults.bool(forKey: titlebarBadgeEnabledKey)
     }
 }
 

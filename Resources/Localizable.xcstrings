@@ -307280,6 +307280,28 @@
         }
       }
     },
+    "settings.app.titlebarBadge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titlebar Badge"
+          }
+        }
+      }
+    },
+    "settings.app.titlebarBadge.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show unread count on the titlebar bell."
+          }
+        }
+      }
+    },
     "settings.app.warnBeforeClosingTab": {
       "extractionState": "manual",
       "localizations": {
@@ -353962,6 +353984,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "ghostty config configuration terminal settings preview merged file reload macos-option-as-alt option as alt left option right option alt key meta ghostty config 設定 終端機 預覽 合併 檔案 重新載入 macos-option-as-alt option鍵做為alt 左option 右option alt鍵 meta鍵"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.titlebar-badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.titlebarBadge titlebar bell badge unread count notification 通知 角标"
           }
         }
       }

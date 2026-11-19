@@ -823,3 +823,51 @@ Markdown 面板（预览 / 就地编辑 / TextEdit）里打开的文件被外部
 - `bash -n scripts/reload.sh`、`bash -n scripts/reloads.sh`、`bash -n scripts/resolve-sign-identity.sh`、`bash -n scripts/create-dev-signing-cert.sh`、`bash -n scripts/build-sign-upload.sh` 全通过。
 - `ruby -ryaml -e 'YAML.load_file(...)'` 解析 `build.yml` 与 `pr-checks.yml` 通过。
 - 未做：本机完整构建（一轮几小时，按仓库规矩不在本机跑）；真实证书签名后的 TCC 保持需要用户按第十节建证书后实测。
+
+## P17 — 标题栏铃铛的未读角标可单独关闭（`notifications.titlebarBadge`）
+
+**状态**：已实现
+
+### 要解决的问题
+
+标题栏左侧铃铛右上角一直挂着蓝色未读数字角标（来源是 pi agent 的 turn-complete 通知）。用户想把这个角标关掉，但不希望丢掉其它任何通知能力——侧边栏未读徽标、通知历史 / 通知面板、桌面弹窗、声音、sidebar 重排都要照旧。
+
+### 根因
+
+标题栏角标是「有未读就画」的硬编码：`TitlebarNotificationBadge` 直接读 `unreadModel.totalUnreadCount`，`> 0` 就渲染 `Text("\(min(count, 99))")`，整条链路上没有任何开关；Dock 角标有 `notifications.dockBadge`，标题栏却没有对应键。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `Packages/macOS/CmuxNotifications/Sources/CmuxNotifications/TitlebarBadgePresentation.swift`（新增） | 纯函数 `label(unreadCount:isEnabled:) -> String?`：`isEnabled == false` → `nil`；`count <= 0` → `nil`；否则 `String(min(count, 99))`。只决定「画不画、画什么」，不改上限格式。 |
+| `Sources/Update/UpdateTitlebarAccessory.swift` | `TitlebarNotificationBadge` 改用 `@LiveSetting(\.notifications.titlebarBadge)` + 上面的纯函数；设置页一改，已开着的窗口立刻生效（`@LiveSetting` 由 store 的 `values(for:)` 流转发进 `@State`，NSHostingView 宿主也能重绘）。文件行数与改动前持平（长度预算）。 |
+| `Packages/macOS/CmuxSettings/.../Keys/NotificationsCatalogSection.swift` | 新增 `titlebarBadge`：`DefaultsKey<Bool>(id: "notifications.titlebarBadge", defaultValue: true, userDefaultsKey: "notificationTitlebarBadgeEnabled")`。 |
+| `Sources/TerminalNotificationStoreSettings.swift` | `NotificationBadgeSettings` 增加 `titlebarBadgeEnabledKey` / `defaultTitlebarBadgeEnabled` / `isTitlebarBadgeEnabled(defaults:)`（缺键返回 true，与 Dock 角标同一套语义）。 |
+| `Sources/CmuxSettingsFileStore+SupportedPaths.swift` | 支持路径加 `notifications.titlebarBadge`。 |
+| `Sources/CmuxSettingsJSONPathSupport.swift` | `titlebarBadge` → `notificationTitlebarBadgeEnabled` 映射（照 `dockBadge`）。 |
+| `Sources/KeyboardShortcutSettingsFileStore+Template.swift` | notifications 模板块加 `"titlebarBadge": defaultTitlebarBadgeEnabled`（照 `dockBadge`）。 |
+| `schemas/config/cmux.schema.json` + 内嵌生成文件 | `notifications.titlebarBadge`：`type: boolean`、`default: true`、说明「Show the unread count on the titlebar bell.」。 |
+| `Packages/macOS/CmuxSettingsUI/.../Sections/AppSection.swift` | Dock Badge 下面新增一行 Toggle，`configurationReview: .json("notifications.titlebarBadge")`。 |
+| `Packages/macOS/CmuxSettingsUI/.../CuratedSettingEntry+Default.swift`、`Sources/SettingsSearchIndex.swift`、`Sources/SettingsSearchAliases.swift` | 搜索条目 `titlebar-badge`、路径锚点、`app:titlebar-badge` 别名（关键词含 titlebar / bell / badge / unread / 通知 / 角标）。 |
+| `Sources/CommandPalette/CommandPaletteSettingsToggle.swift` | 命令面板开关 `titlebarBadge`。 |
+| `Resources/Localizable.xcstrings` | `settings.app.titlebarBadge` / `.subtitle` / `settings.search.alias.setting.app.titlebar-badge`（只补 `en`，其它语言回落默认值）。 |
+| `Packages/macOS/CmuxSettingsUI/Tests/.../SettingsRowAnchorResolutionTests.swift` | 手维护的 `rowConfigPaths` 加一行 `"notifications.titlebarBadge"`（新增 settings 行的固定动作，否则该搜索结果被判 unreachable）。 |
+
+### 逻辑边界（刻意这么做）
+
+- **只控制这一个角标**：`unreadModel` 的计数、侧边栏未读徽标、通知历史 / 面板、桌面弹窗、声音、sidebar reorder、Dock 角标全部不动——它们读的还是各自的键。
+- **默认 true**：缺键 / 老用户升级后行为与改动前完全一致；只有显式设 false 才隐藏。
+- **不改上限格式**：标题栏继续 `min(count, 99)`（`99+` 是 Dock 角标的格式），开关只负责「显不显示」。
+- **不新增停止通知的语义**：关掉只是不画角标，通知照收照记。
+
+### 上游 rebase 冲突点
+
+`UpdateTitlebarAccessory.swift` 的 `TitlebarNotificationBadge`（上游若改角标样式 / 上限）、`AppSection.swift` 的 Dock Badge 行附近、`NotificationsCatalogSection.swift` 的 `dockBadge` 附近、schema 的 `notifications.properties`。rebase 后必须保留：① 角标文案来自 `TitlebarBadgePresentation.label`；② 开关用 `@LiveSetting`（不能退回 init 时读一次）；③ 默认值仍是 true。
+
+### 验证
+
+- `TitlebarBadgePresentationTests`（4 项：关闭恒 nil、0 恒 nil、1/42 原样、99/150 仍是 `99`）与 `TitlebarBadgeSettingTests`（catalog id / 默认 true、存 false 读回 false、reset 回 true）。
+- `python3 scripts/generate-cmux-config-schema.py --check`、`swiftc -parse -enable-bare-slash-regex`（改动文件逐个）、`./scripts/lint-pbxproj-test-wiring.sh`、`python3 scripts/lint-xcstrings.py`、`python3 scripts/localization_defaults.py` 全绿。
+- CI：`checks` 的 `scripts/check-swift-packages.py` 对 `CmuxNotifications` / `CmuxSettings` / `CmuxSettingsUI` 跑 `swift build` + `swift test`，覆盖两个新测试文件与搜索锚点契约；app target 的编译由 `build-macos` 兜底。
+- 真机验收（装新版后走）：设置 → App → Dock Badge 下面把 Titlebar Badge 关掉，角标立刻消失；侧边栏未读徽标、通知面板、桌面弹窗不受影响；再打开立刻恢复；重启后保持。

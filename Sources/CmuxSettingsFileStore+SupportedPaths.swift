@@ -96,6 +96,7 @@ extension CmuxSettingsFileStore {
         "terminal.resumeCommands",
         "terminal.uploadCommands",
         "notifications.dockBadge",
+        "notifications.titlebarBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
         "notifications.paneFlash",

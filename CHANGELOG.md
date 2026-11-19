@@ -2,6 +2,15 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-r28] - 2026-11-19
+
+### 新增（Markdown 面板就地编辑：一个光标、点哪儿改哪儿，不再弹编辑框，2026-11-19）
+
+- **为什么改**：旧实现点一个块会浮出一个带边框、阴影和「⌘↩ 保存 · Esc 取消」提示的编辑框；它还是 `position: fixed` 定位、按点击那一刻的视口坐标摆的，页面一滚动框就漂到别处。用户的原话是「我要和 vscode 里面的编辑功能一模一样，就是一个光标，然后直接在光标处编辑」。
+- **改了什么**：① 点块不再新建任何浮层——直接给该块本身设 `contenteditable`，用 `document.caretRangeFromPoint(点击坐标)` 把光标落在指针处（`focus()` 必须在设选区之前，否则选区会被 focus 重置到块首）；拖选（mousedown/mouseup 位移 > 4px）不算激活。② 提交时只把**被编辑的那一块**重新序列化成 markdown（标题 / 段落 / 列表 / 引用 / 围栏代码 + 行内 strong / em / del / code / 链接 / br），其余块逐字节不动；`Enter` 用 `insertLineBreak` 让块保持成一块，`Esc` / `⌘↩` / 点块外都提交（`Esc` 是提交不是回滚，与 VS Code 一致）。③ 含图片 / 表格 / 数学 / Mermaid / Vega / frontmatter 的块不进入编辑——这些块无法可靠地由 HTML 反序列化回源码，宁可只读也不改坏原文（需要时切文本模式）。④ `__cmuxRenderMarkdown` 的「要不要替换 DOM」判定改为先把编辑器自己打的痕迹（块偏移属性、`cmux-block`、编辑态的 `contenteditable`）从现状里剥掉再比：否则宿主每次把提交结果回推时都会被判成「变了」并整篇替换，把用户刚在下一段点的光标冲掉。⑤ 删掉编辑框样式（`.cmux-block-editor*`、`.cmux-block[hidden]`）与块的悬停底色。
+- **怎么验证**：新增 `scripts/tests/test_markdown_editor_inplace.swift`，在离屏 WKWebView 里加载真实 `shell.html` + `markdown-editor.js`，派发鼠标事件、用 `execCommand('insertText')` 打字、再经 `CmuxMarkdownEditor.flush()` 读回 markdown，**53 项断言**覆盖：点击无浮层 / 无 textarea / 无提示、块位置不位移、光标落在指针处、打字落在光标处、只改被编辑块、标题 / 列表 / 引用 / 代码围栏 / 行内强调往返、复杂块不被破坏、滚动时编辑面随文本走、锁定态只读、`Esc` 保留输入、切换块时两边改动都在、宿主回声不丢正在编辑的块。该 harness 已挂进 `checks` 门禁（约 10 秒，不需要 app 构建）。
+- **回归检查**：① Swift 侧接口（`install` / `uninstall` / `setLocked` / `markRendered` / `flush` / `closeActiveBlock` 与 `change` / `readonly` 消息）未变，`.editor` 模式的保存链路（`commitEditorAndSave` → `flush` → 写盘）未变；② 锁定态点击闪光提示与 `markdown.editor.locked` 记忆保留；③ 预览模式与文本模式行为不变；④ 含 Mermaid / KaTeX / 图片的文档因为 fragment 与已后处理的 DOM 不相等，仍走整篇重渲染——那类块本来不可编辑。
+
 ## [0.65.2.2-r27] - 2026-11-19
 
 ### 修复（Markdown 面板的锁 / 笔滑钮改成 VS Code 的 1:1 复刻，2026-11-19）

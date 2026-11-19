@@ -612,6 +612,29 @@
     return Boolean(target && target.closest && target.closest('a[href], input, button, summary'));
   }
 
+  /// 宿主 echo 回来的内容通常和页面里已经显示的一模一样；但编辑器会给渲染出来的
+  /// 节点打自己的痕迹（块偏移属性、`cmux-block`、编辑态 class 与可编辑属性），
+  /// 直接比较 `innerHTML` 每次都会「看起来变了」而整篇重渲染，正在编辑的块连同
+  /// 光标一起被换掉。这里返回去掉这些痕迹后的现状，供宿主判断「真的变了吗」。
+  function normalizedHTML() {
+    if (!contentEl) { return ''; }
+    var clone = contentEl.cloneNode(true);
+    var elements = clone.querySelectorAll('*');
+    for (var i = 0; i < elements.length; i++) {
+      var node = elements[i];
+      node.removeAttribute(BLOCK_ATTRIBUTE_START);
+      node.removeAttribute(BLOCK_ATTRIBUTE_END);
+      if (node.classList) {
+        node.classList.remove('cmux-block');
+        node.classList.remove(ACTIVE_CLASS);
+        if (node.classList.length === 0) { node.removeAttribute('class'); }
+      }
+      if (node.getAttribute('contenteditable') === 'true') { node.removeAttribute('contenteditable'); }
+      if (node.getAttribute('spellcheck') === 'false') { node.removeAttribute('spellcheck'); }
+    }
+    return clone.innerHTML;
+  }
+
   var CmuxMarkdownEditor = {
     install: function(options) {
       options = options || {};
@@ -645,6 +668,9 @@
     },
     setLocked: setLocked,
     isLocked: function() { return locked; },
+    /// 去掉编辑器痕迹后的当前 DOM（见 `normalizedHTML`）：宿主用它决定要不
+    /// 要重渲染整篇文档，安装前后都能调用。
+    normalizedHTML: normalizedHTML,
     closeActiveBlock: function(commit) { closeActiveBlock(commit !== false, true); },
     /// Commits any open block and hands the canonical document back, so the
     /// host can save without waiting for a follow-up message.

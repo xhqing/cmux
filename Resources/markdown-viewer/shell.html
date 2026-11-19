@@ -2231,7 +2231,17 @@ html { scroll-behavior: smooth; }
       );
       // Serialized only to detect an unchanged document; never re-parsed.
       var html = CmuxMarkdownSanitizer.serializeFragment(fragment, document);
-      var didReplaceContent = contentEl.innerHTML !== html;
+      // The editor stamps its own traces onto the rendered nodes (block byte
+      // offsets, `cmux-block`, the editable attributes of the active block), so
+      // a byte comparison against `innerHTML` reports a change on every echo —
+      // and the following replaceChildren throws away the block the caret is in.
+      // Compare against the same DOM with those traces stripped instead: an echo
+      // of an unchanged document then leaves the DOM (and the caret) alone.
+      var currentHTML = contentEl.innerHTML;
+      if (window.CmuxMarkdownEditor && window.CmuxMarkdownEditor.normalizedHTML) {
+        try { currentHTML = window.CmuxMarkdownEditor.normalizedHTML(); } catch (e) { currentHTML = contentEl.innerHTML; }
+      }
+      var didReplaceContent = currentHTML !== html;
       var scrollState = didReplaceContent ? captureMarkdownScrollState() : null;
       if (didReplaceContent) {
         contentEl.replaceChildren(fragment);

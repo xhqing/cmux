@@ -1,7 +1,7 @@
 <h1 align="center">
-  <img src="./Assets.xcassets/AppIcon.appiconset/512.png" alt="cmux" width="120" />
+  <img src="./Assets.xcassets/AppIconDark.imageset/AppIconDark.png" alt="cmux" width="120" />
   <br />
-  cmux <sub>（xhqing 自建版）</sub>
+  cmux
 </h1>
 
 <p align="center">基于 <a href="https://github.com/manaflow-ai/cmux">cmux</a> 的个人自建版，只保留 macOS 部分——Ghostty 内核、竖排标签页的终端。</p>

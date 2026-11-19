@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [未发布]
+## [0.65.2.2-r29] - 2026-11-19
 
 ### 新增（标题栏铃铛的未读角标可单独关闭：`notifications.titlebarBadge`，2026-11-19）
 

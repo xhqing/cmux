@@ -777,3 +777,49 @@ Markdown 面板（预览 / 就地编辑 / TextEdit）里打开的文件被外部
 - `python3 scripts/generate-cmux-config-schema.py --check`、`./scripts/lint-pbxproj-test-wiring.sh`、`python3 scripts/lint-xcstrings.py`、`python3 scripts/localization_defaults.py`：本机全绿（`localization_catalog.py check` 仍是既有的 6 条 `markdown.web.mathRenderFailed` 缺 locale，与本次无关）。
 - CI：`checks` 的 `scripts/check-swift-packages.py` 对两个包跑 `swift build` + `swift test`，覆盖 `Packages/macOS/CmuxBrowser/Tests/CmuxBrowserTests/ForceDark/` 与 `Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/BrowserThemeModeTests.swift`；app target 的编译与 UI 验收由 `build-macos` 兜底。
 - 真机验收（需装新版后逐条走）：选中 Force Dark 后打开 `business.facebook.com/business/loginpage/` 应变深色；GitHub 选 Force Dark 仍可读；勾选站点例外后当前站点恢复原样、其它站点仍深色且重启后保持；切回其它三档后页面恢复原样且刷新不再注入；新标签页 / popup / WebContent 崩溃重建后行为一致。
+
+## P16 — 构建产物可用固定证书签名，重建不再打断 TCC 授权（Issue #121）
+
+**状态**：已实现
+
+### 要解决的问题
+
+屏幕录制、辅助功能、输入监控等 TCC 授权，每次重新构建 / 重新安装 cmux 后都要重给一次；「系统设置 → 隐私与安全性 → 屏幕录制」里会堆积同一个 App 的多条旧记录。日常开发要频繁重建，等于每次重建都要重新授权一遍。
+
+### 根因
+
+两个构建入口都用 `codesign --sign -`（ad-hoc 签名）。ad-hoc 没有证书，macOS 记下的 **designated requirement** 只能退化成产物哈希 `cdhash H"…"`；每次构建 cdhash 都不同，系统就把它当成**另一个 App**，原有授权全部作废。换成固定证书后 requirement 变成 `identifier "com.xhqing.cmux" and certificate leaf = H"…"`，证书不变 → 重建后授权继续有效。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `scripts/resolve-sign-identity.sh`（新增，可执行） | 唯一的身份解析入口：读 `CMUX_DEV_SIGN_IDENTITY`，未设 / 空 / 全空白 → 输出 `-` 并提示 ad-hoc 的代价；显式 `-` → 输出 `-`；其它值 → 在 `security find-identity -v -p codesigning` 里按名字或 SHA-1 前缀匹配，命中则输出身份名，**找不到非零退出、stdout 为空**、stderr 指出变量名与可用身份。 |
+| `scripts/reload.sh`（开发构建） | 构建前解析 `SIGN_IDENTITY`（解析 stderr 进 reload 日志，成功路径不多打行）；`codesign --sign "$SIGN_IDENTITY"`，其余 flags 与 `CMUX_ALLOW_UNSIGNED_DEV_APP` 容错语义不变。 |
+| `scripts/reloads.sh`（Release / CI） | 同上，在 `xcodebuild` 之前解析（身份配错时立刻失败，不等几十分钟构建完）；codesign 的容错按身份区分：ad-hoc（`-`）保留原来的 `|| true`，用证书签名时失败即让构建失败（否则产物会静默停在 xcodebuild 的 ad-hoc 签名上）。 |
+| `.github/workflows/build.yml` | job env 读三个可选 secret；新增「导入签名证书（可选）」step（仅在配了 `CMUX_DEV_SIGNING_CERT_P12_BASE64` 时执行：临时钥匙串 + `security import -T /usr/bin/codesign` + `set-key-partition-list` + `add-trusted-cert -r trustAsRoot -p codeSign`，然后把 `CMUX_DEV_SIGN_IDENTITY` 写进 `$GITHUB_ENV`；**导入失败即构建失败，不静默回退 ad-hoc**）；新增「校验产物的签名身份」step（`codesign -d --requirements -`，配了身份时必须出现 `certificate leaf`、出现 `cdhash` 就 fail；没配时只打 warning）。 |
+| `.github/workflows/pr-checks.yml` | `checks` job 新增一个 step 跑 `python3 scripts/tests/test_resolve_sign_identity.py -v`（实测 <2 秒）；job 名与其它 step 未改。 |
+| `scripts/create-dev-signing-cert.sh`（新增，可执行） | 开发机自用证书工具：openssl 生成自签名证书（RSA 2048 / 3650 天 / `CA:FALSE` + `digitalSignature` + `codeSigning`），导入登录钥匙串（`-T /usr/bin/codesign -T /usr/bin/security`），导出 LibreSSL 兼容的 `.p12`（`-keypbe/-certpbe PBE-SHA1-3DES -macalg sha1`，失败回退 `-legacy`），备份到 `~/.dev/private/cmux/signing/`；支持 `--name` / `--out` / `--import <p12>`；同名证书已存在时拒绝覆盖；「始终信任」只打印步骤、不代做。 |
+| `scripts/build-sign-upload.sh`（上游遗留） | 给 `SIGN_HASH` 加注释说明它是上游 Developer ID 指纹、本仓库没有这张证书、不在发版链路上；pre-flight 增加身份可用性检查，缺证书时明确失败。 |
+| `DEVELOPMENT.md` | 新增第十节（症状 / requirement 对照 / 两个入口用法 / 建证书两条路 / 始终信任 / 第一次切换的 `tccutil reset` / 备份与换机 / Sparkle 一次性重装 / CI secret 配置 / 边界）；§二与 §9.2 的表述同步。 |
+| `README.md` / `README_cn.md`、`.pi/APPEND_SYSTEM.md` | 把「ad-hoc 签名」改成准确表述：默认仍 ad-hoc，可用 `CMUX_DEV_SIGN_IDENTITY` 固定证书身份；仍然没有公证、去隔离照旧。 |
+| `CHANGELOG.md` | 新增 `[未发布]` 条目。 |
+
+### 逻辑边界（刻意这么做）
+
+- **默认行为零变化**：未设 `CMUX_DEV_SIGN_IDENTITY`、CI 未配证书 → 仍然 `-`（ad-hoc），日志多一行说明。
+- **不静默回退**：指定的身份不可用时一律失败。静默回退等于把 Issue #121 的 bug 带回来，而且只会在下一次授权失效时才被发现。
+- **证书只解决自用**：自签名证书让本机重建不打断自己的 TCC 授权；对外分发仍需 Developer ID + 公证（未变）。
+- **不改 job 名**：`checks` 仍是分支保护认的那个名字；新增 step 只加检查、不改已有项。
+- **密钥不进仓库**：证书私钥只在 CI secret 与本机 `~/.dev/private/` 备份里；仓库只放生成脚本。
+
+### 上游 rebase 冲突点
+
+`scripts/reload.sh` 的 codesign 块、`scripts/reloads.sh` 的 identity 重签块、`.github/workflows/build.yml` 的 job env 与 build step 前后、`.github/workflows/pr-checks.yml` 的 step 顺序。rebase 后必须保留：① 两个入口仍调用 `resolve-sign-identity.sh` 且没有字面 `--sign -`；② CI 未配证书时 `CMUX_DEV_SIGN_IDENTITY` 仍是未设置状态（否则解析器会失败）。
+
+### 验证
+
+- `python3 scripts/tests/test_resolve_sign_identity.py -v`：8 项（1 项因本机没有证书而 skip）全过。
+- `bash -n scripts/reload.sh`、`bash -n scripts/reloads.sh`、`bash -n scripts/resolve-sign-identity.sh`、`bash -n scripts/create-dev-signing-cert.sh`、`bash -n scripts/build-sign-upload.sh` 全通过。
+- `ruby -ryaml -e 'YAML.load_file(...)'` 解析 `build.yml` 与 `pr-checks.yml` 通过。
+- 未做：本机完整构建（一轮几小时，按仓库规矩不在本机跑）；真实证书签名后的 TCC 保持需要用户按第十节建证书后实测。

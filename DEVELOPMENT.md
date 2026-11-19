@@ -116,7 +116,7 @@ cp -R "/tmp/cmux-xhqing/cmux.app" /Applications/
 open "/Applications/cmux.app"
 ```
 
-- 自建版是 **ad-hoc 签名**，没有 Developer ID 也没有公证，所以**必须先去掉隔离属性**（`xattr -dr com.apple.quarantine`），否则系统会报「已损坏」或「无法验证开发者」。
+- 自建版**默认是 ad-hoc 签名**（没有 Developer ID），也没做公证，所以**必须先去掉隔离属性**（`xattr -dr com.apple.quarantine`），否则系统会报「已损坏」或「无法验证开发者」。想要重建不打断屏幕录制等 TCC 授权，可以按第十节用固定证书签名（`CMUX_DEV_SIGN_IDENTITY`）；无论哪种签名，去隔离这一步都照旧。
 - **浏览器下载的 zip 及其解压副本会带 `com.apple.quarantine`**（Chrome / Safari 会给下载文件打上这个标记），所以手工安装必须 `xattr -dr`；`curl` 下载不会带这个属性，上面的安装脚本就是用 `curl` 下载的。
 - 本项目用独立 bundle id（`com.xhqing.cmux`）与独立 Preferences 域，和官方版互不干扰；socket 用 app 自己的默认路径 `~/.local/state/cmux/cmux.sock`（见第一节「socket 位置不在构建期写死」）；从旧的 `com.cmuxterm.app.staging.xhqing` 身份切换过来时，偏好设置域和会话快照需要一次性迁移。
 - **socket 起不来时怎么查**：先看 `~/Library/Logs/cmux/startup-com.xhqing.cmux.log`（启动面包屑，2026-11-11 起 `com.xhqing.cmux` 身份默认开启）里有没有 `socket.listener.didStart`；没有的话按顺序看 `socket.listener.startAttempt`（记了 mode / path / source / socket 目录状态）与 `socket.listener.failed`（stage / errno / hint）。`socket.listener.failed` 的 `stage` 是 POSIX 阶段名（`create_lock_directory` 表示连 socket 目录都没建出来），`hint` 直接指出目录缺在哪。同样的失败还会以 error 级写进统一日志：`log show --predicate 'subsystem == "com.cmuxterm.app" AND category == "ControlSocket"' --last 10m`。
@@ -215,12 +215,13 @@ r17 及更早的 app 里装的是**上游的** `SUPublicEDKey`，我们手里没
 
 ### 2. 门禁 `checks` 做什么
 
-`.github/workflows/pr-checks.yml`，job 名固定 `checks`（分支保护的必过检查认这个名字），`pull_request → main` 与 `push → main` 都触发，另外支持手动 `workflow_dispatch`。四个检查项：
+`.github/workflows/pr-checks.yml`，job 名固定 `checks`（分支保护的必过检查认这个名字），`pull_request → main` 与 `push → main` 都触发，另外支持手动 `workflow_dispatch`。五个检查项：
 
 1. **Swift 语法**（`swiftc -parse`）：只解析、不做类型检查，秒级到分钟级。抓语法错、文件截断、非法字符。
 2. **配置 schema 一致**：`web/data/*.schema.json` 必须是合法 JSON，且 `scripts/generate-cmux-config-schema.py --check` 通过（schema 改了却没重新生成对应的 Swift 常量会直接红）。
 3. **测试接线**：`scripts/lint-pbxproj-test-wiring.sh`——`cmuxTests/` 下的 Swift 文件必须在 `project.pbxproj` 里注册过，防止「测试文件加了但永远不会跑，PR 一路绿」。
 4. **密钥扫描**（`gitleaks`）：只扫**这次 PR 改到的文件**（不扫全仓库历史），规则用 `.github/gitleaks-ci.toml`（在官方默认规则之上只补 SVG 类的误报白名单）。
+5. **签名身份解析**（Issue #121）：`python3 scripts/tests/test_resolve_sign_identity.py -v`——纯 Python + 文本扫描，实测 <2 秒。它锁的是 `scripts/resolve-sign-identity.sh` 的对外行为（未设置输出 `-`、显式 `-` 照办、空白当未设置、身份不存在必须非零退出且 stdout 为空）与「两个构建入口不许再写死 `--sign -`」，防的是「为了修 TCC 授权加的证书支持被后续改动悄悄退回 ad-hoc」。
 
 ### 3. 为什么 PR 门禁是轻量的（本条偏离要写明理由）
 
@@ -330,3 +331,120 @@ JSON
 2. 开一个真实 PR，确认 `checks` 真的产生并且能跑绿（`gh pr checks <N>` 有结果）；
 3. 这时才把 required check 加上去：`required_status_checks` 设为 `{"strict": true, "contexts": ["checks"]}`（其余字段按 9.1 / 9.5 的完整 payload 写全，`PUT` 是整体替换语义）；
 4. 用一个 PR 复验「PR → checks 绿 → auto-merge → squash 合并 → 合并后 main push 也跑一遍」整条链路，并再试一次直推 `main` 确认仍被拒。
+
+## 十、代码签名身份与 TCC 授权（Issue #121）
+
+### 1. 症状与根因
+
+**症状**：每次重新构建 / 重新安装 cmux，屏幕录制（以及辅助功能、输入监控等）授权都要重给一次；「系统设置 → 隐私与安全性 → 屏幕录制」里会出现同一个 App 的多条旧记录。
+
+**根因**：构建脚本用 `codesign --sign -`（ad-hoc 签名）。ad-hoc 没有证书，macOS 记下的 **designated requirement** 只能退化成这一份二进制产物的哈希：
+
+| 签名方式 | designated requirement | 重建后 |
+| --- | --- | --- |
+| ad-hoc（`codesign --sign -`） | `cdhash H"a360b28b…"` | 每次重建 cdhash 都变 → 系统认为是**另一个 App** → TCC 授权作废 |
+| 证书签名（固定证书） | `identifier "com.xhqing.cmux" and certificate leaf = H"9f2c…"` | 证书与 bundle id 不变 → 授权继续有效 |
+
+### 2. 两个构建入口怎么用
+
+`scripts/reload.sh`（Debug / 开发版）与 `scripts/reloads.sh`（Release，CI 的 `build.yml` 也走它）都通过 `scripts/resolve-sign-identity.sh` 解析身份，认同一个环境变量 `CMUX_DEV_SIGN_IDENTITY`：
+
+```bash
+export CMUX_DEV_SIGN_IDENTITY="cmux Local Code Signing"   # 写进 ~/.zshrc 长期生效
+./scripts/reload.sh                                        # 开发版
+./scripts/reloads.sh --derived-data /tmp/cmux-build        # Release
+```
+
+- **未设置 / 空 / 全空白** → 输出 `-`，行为与以前完全一致（ad-hoc）。这种构建会在 stderr 上提示 TCC 授权会随重建失效。
+- **显式设为 `-`** → 明确要求 ad-hoc，照办。
+- **设为身份名（或它 SHA-1 指纹的前缀）** → 必须在 `security find-identity -v -p codesigning` 里找得到；**找不到直接让构建失败**，stdout 不输出任何身份。
+
+最后一条是刻意的：静默回退 ad-hoc 等于把 #121 的 bug 悄悄带回来——构建照样成功，用户要等到下一次系统提示「屏幕录制权限又失效了」才发现。
+
+### 3. 创建证书（开发机自用）
+
+**推荐：跑脚本**
+
+```bash
+./scripts/create-dev-signing-cert.sh
+```
+
+它会：生成 RSA 2048 / 3650 天、`basicConstraints=critical,CA:FALSE` + `keyUsage=critical,digitalSignature` + `extendedKeyUsage=critical,codeSigning` 的自签名证书（CN 默认 `cmux Local Code Signing`）→ 导入登录钥匙串（`-T /usr/bin/codesign -T /usr/bin/security`）→ 把可换机恢复的 `.p12` 与 PEM 备份到 `~/.dev/private/cmux/signing/`（p12 密码**不写盘**，请存进 KeePass 等密码库）。同名证书已存在时**拒绝覆盖**（重新生成会让证书哈希变化、TCC 授权再失效一次）。
+
+其他参数：`--name "<CN>"` 改名字、`--out <p12 路径>` 改备份位置、`--import <p12>` 换机恢复。
+
+**或者：钥匙串访问 GUI**
+
+「钥匙串访问 → 证书助理 → 创建证书…」→ 名称填 `cmux Local Code Signing`、「证书类型」选**代码签名**、「证书颁发机构」选「让我自定」、有效期 3650 天。
+
+### 4. 始终信任（必须手动做一次）
+
+自签名证书默认不被系统信任，`codesign` 不会用它：
+
+1. 「钥匙串访问」→ 左侧「登录」→「证书」→ 找到 `cmux Local Code Signing`；
+2. 双击 → 展开「信任」→「使用此证书时」选**始终信任** → 关闭窗口并输入系统密码。
+
+或命令行（效果相同，会要求管理员密码）：
+
+```bash
+sudo security add-trusted-cert -d -r trustAsRoot -p codeSign \
+  -k /Library/Keychains/System.keychain ~/.dev/private/cmux/signing/cmux-dev-signing.cert.pem
+```
+
+验证：
+
+```bash
+security find-identity -v -p codesigning
+# 输出里应出现 "cmux Local Code Signing"，且不再是 "0 valid identities found"
+```
+
+### 5. 第一次切到证书签名：重新授权一次
+
+旧记录认的是 ad-hoc 的 cdhash，换了签名身份之后系统会把它们当成历史垃圾。先清掉旧记录、再重新授权一次：
+
+```bash
+tccutil reset ScreenCapture com.xhqing.cmux      # Release 版
+tccutil reset ScreenCapture com.cmuxterm.app.debug   # 开发版（reload.sh 默认 bundle id）
+```
+
+然后打开 app、按系统提示重新授予屏幕录制等权限。**这只需要做一次**——之后证书不变，重建不再打断授权。
+
+### 6. 备份与换机
+
+- **备份**：`~/.dev/private/cmux/signing/` 下的 `.p12` + `.cert.pem`（本机私有目录，随 Syncthing 同步、不进仓库）；p12 的密码单独存进 KeePass 等密码库，**不要**和备份放在一起。
+- **换机恢复**：`./scripts/create-dev-signing-cert.sh --import <备份.p12>`，再按第 4 节重做「始终信任」。
+- **「始终信任」是本机设置**：它写在本机的信任设置里，不会随 p12 走；换机必须重设，否则 `security find-identity -v` 仍然看不到这张证书。
+- **证书重新生成会让 TCC 再失效一次**：新证书 = 新哈希 = 新的 designated requirement，所以不要为了「重来一遍」随手删掉证书。
+
+### 7. Sparkle 升级注意（一次性）
+
+r26 / r27 的安装包是 ad-hoc 签名。从它们升到**证书签名**的版本时，签名身份变了，Sparkle 会拒绝安装（它校验签名一致性）。需要一次性手动重装：
+
+```bash
+./scripts/install-release.sh --tag <第一个证书签名的版本>
+```
+
+之后版本之间签名身份一致，应用内更新恢复正常。
+
+### 8. CI 的证书配置（可选）
+
+`build.yml` 支持用两个（三个）secret 给产物挂固定身份；**都不配时行为与以前完全一致**（ad-hoc，日志里会打一条 warning 说明代价）：
+
+| Secret | 内容 | 必填 |
+| --- | --- | --- |
+| `CMUX_DEV_SIGNING_CERT_P12_BASE64` | 证书 + 私钥的 `.p12`，`base64 -i cmux-dev-signing.p12 \| pbcopy` 的结果 | 配了才启用 |
+| `CMUX_DEV_SIGNING_CERT_PASSWORD` | 该 `.p12` 的密码 | 同上 |
+| `CMUX_DEV_SIGNING_IDENTITY` | 证书 CN，默认 `cmux Local Code Signing` | 可选 |
+
+配置方法：`gh secret set CMUX_DEV_SIGNING_CERT_P12_BASE64 -R xhqing/cmux < <(base64 -i ~/.dev/private/cmux/signing/cmux-dev-signing.p12)`，密码用 `gh secret set CMUX_DEV_SIGNING_CERT_PASSWORD -R xhqing/cmux`（交互输入）。
+
+流水线行为：
+
+1. 「导入签名证书（可选）」只在 `CMUX_DEV_SIGNING_CERT_P12_BASE64` 非空时执行：临时钥匙串 + `security import -T /usr/bin/codesign` + `set-key-partition-list` + `add-trusted-cert -r trustAsRoot -p codeSign`，然后把 `CMUX_DEV_SIGN_IDENTITY` 写进 `$GITHUB_ENV`。**导入失败 / 身份找不到 = 构建直接红**，不静默退回 ad-hoc。
+2. 构建后「校验产物的签名身份」读 `codesign -d --requirements -`：配了身份时 requirement 里必须出现 `certificate leaf`（出现 `cdhash` 就失败）；没配时只打 warning。
+
+注意：`scripts/build-sign-upload.sh` 里那张 `SIGN_HASH` 是**上游**（manaflow-ai/cmux）的 Developer ID 证书指纹，本仓库没有这张证书、也没有 workflow 调用它——它不在本仓库的发版链路上，缺证书时现在会在 pre-flight 明确报错。
+
+### 9. 边界
+
+自签名证书只解决**开发机自用**（本机重建不打断自己的 TCC 授权）。对外分发仍然需要 Apple Developer Program 的 Developer ID Application 证书 + 公证（notarization），这一条没有变。

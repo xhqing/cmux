@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 APP_NAME="cmux"
 BUNDLE_ID="com.xhqing.cmux"
 BASE_APP_NAME="cmux"
@@ -138,6 +140,12 @@ if [[ -n "$TAG" ]]; then
     DERIVED_DATA="/tmp/cmux-build-${TAG_SLUG}"
   fi
 fi
+
+# 代码签名身份（Issue #121）：两套构建入口共用同一个解析器，解析规则与
+# CMUX_DEV_SIGN_IDENTITY 的语义见 scripts/resolve-sign-identity.sh。
+# 放在 xcodebuild 之前：指定的身份不存在时立刻失败，不要把两小时的构建跑完
+# 才发现签不了。未设置时解析成 `-`（ad-hoc），CI 未配证书时的行为完全不变。
+SIGN_IDENTITY="$("$SCRIPT_DIR/resolve-sign-identity.sh")"
 
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
@@ -281,7 +289,13 @@ if [[ -f "$INFO_PLIST" ]]; then
   if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
     rm -f "$CMUX_SOCKET_PATH_VALUE"
   fi
-  /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH" >/dev/null 2>&1 || true
+  if [[ "$SIGN_IDENTITY" == "-" ]]; then
+    /usr/bin/codesign --force --sign "$SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH" >/dev/null 2>&1 || true
+  else
+    # 用证书签名时失败必须让构建失败：xcodebuild 的产物本身是 ad-hoc 的，这里签不上
+    # 如果被吞掉，产物会静默停在 ad-hoc 上，Issue #121 的 bug 就悄悄回来了。
+    /usr/bin/codesign --force --sign "$SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH"
+  fi
 fi
 APP_PATH="$IDENTITY_APP_PATH"
 

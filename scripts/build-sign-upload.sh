@@ -46,6 +46,11 @@ if [[ $# -ne 1 ]]; then
 fi
 
 TAG="$1"
+# 上游（manaflow-ai/cmux）的 Developer ID Application 证书 SHA-1 指纹。这个脚本是从
+# 上游基线连同文件一起带过来的，本仓库的钥匙串里没有这张证书，也没有任何 workflow
+# 调用它——本仓库的发版走 .github/workflows/build.yml（签名身份由
+# scripts/resolve-sign-identity.sh 解析，CI 里可用 CMUX_DEV_SIGNING_CERT_P12_BASE64
+# 导入自签名证书）。下面的身份可用性检查会在缺证书时明确失败，而不是让人以为签成功了。
 SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
 ENTITLEMENTS="cmux.entitlements"
 APP_PATH="build/Build/Products/Release/cmux.app"
@@ -57,6 +62,19 @@ export SPARKLE_PRIVATE_KEY
 for tool in zig xcodebuild create-dmg xcrun codesign ditto gh; do
   command -v "$tool" >/dev/null || { echo "MISSING: $tool" >&2; exit 1; }
 done
+# 身份可用性：SIGN_HASH 是上游 Developer ID 的指纹，本仓库没有这张证书。少了它
+# 后面的 codesign 会一个个报「identity not found」，但那是构建几分钟之后的事；
+# 先说清楚缺的是什么、本仓库该走哪条发版链路。
+if ! security find-identity -v -p codesigning 2>/dev/null | grep -qi "${SIGN_HASH}"; then
+  cat >&2 <<EOF
+MISSING: 本机钥匙串里没有代码签名身份 ${SIGN_HASH}（$TAG 需要的 Developer ID Application）。
+         这个脚本是上游发布的遗留脚本，本仓库没有那张证书，也不在发版链路上；
+         本仓库的发版请用 .github/workflows/build.yml（tag 推送自动触发），
+         需要固定签名身份时配 CMUX_DEV_SIGNING_CERT_P12_BASE64 等 secrets，
+         本地开发机自用见 scripts/create-dev-signing-cert.sh 与 DEVELOPMENT.md 第十节。
+EOF
+  exit 1
+fi
 echo "Pre-flight checks passed"
 
 # --- Build GhosttyKit ---

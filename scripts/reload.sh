@@ -1617,6 +1617,12 @@ trap reload_finalize EXIT
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 
+# 代码签名身份（Issue #121）：统一走 scripts/resolve-sign-identity.sh。
+# 在构建之前解析，配错的身份（拼写错、本机没装证书）立刻失败，而不是等几十分钟
+# 编完才发现签不了；未设置 CMUX_DEV_SIGN_IDENTITY 时解析成 `-`（ad-hoc），与以前
+# 的默认行为完全一致。解析器的 stderr 已重定向进 reload 日志，成功路径不多打行。
+SIGN_IDENTITY="$("$SCRIPT_DIR/resolve-sign-identity.sh")"
+
 # Managed profiles already supply their own SourcePackages path. Warm that
 # exact path from local seeds before resolution; cache warming never downloads
 # on the reload path, and populated native state is never replaced.
@@ -2137,7 +2143,7 @@ fi
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
-if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
+if ! /usr/bin/codesign --force --sign "$SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
   if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
     echo "warning: codesign failed for $APP_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
   else

@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [Unreleased]
+## [0.65.2.2-r27] - 2026-11-19
 
 ### 修复（Markdown 面板的锁 / 笔滑钮改成 VS Code 的 1:1 复刻，2026-11-19）
 

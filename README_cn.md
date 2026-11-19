@@ -27,7 +27,7 @@
 
 - **关掉工作区 / 标签页 / 窗口时，不再因为「里面有进程在跑」就弹确认框**（设置键 `app.confirmCloseRunningProcess`，默认关闭）。未保存内容、pinned 工作区、进行中的 agent 会话的保护照旧生效。
 - **更新永远不会自动安装，而且只从本仓库获取**：应用内「Check for Updates…」读取随本仓库 Release 发布的签名 appcast。应用也可能按上游默认在后台检查更新、并在侧边栏显示更新提示；但你不点安装就不会有任何东西被替换。更新源永远不会指向官方 cmux 仓库。
-- 用的是 ad-hoc 签名，并采用本项目自己的正式身份：bundle id `com.xhqing.cmux`、独立偏好设置域，不再与官方版共用偏好设置与更新通道。控制 socket 用 app 自己的默认位置（`~/.local/state/cmux/cmux.sock`，启动时解析）——构建期写死的路径装到别的机器上必然不存在。
+- 默认用 ad-hoc 签名（没有 Developer ID，也没做公证），并采用本项目自己的正式身份：bundle id `com.xhqing.cmux`、独立偏好设置域，不再与官方版共用偏好设置与更新通道。本机构建可以指定固定证书身份（`CMUX_DEV_SIGN_IDENTITY`），让屏幕录制等 TCC 授权在重建后仍然有效（见 `DEVELOPMENT.md` 第十节）。控制 socket 用 app 自己的默认位置（`~/.local/state/cmux/cmux.sock`，启动时解析）——构建期写死的路径装到别的机器上必然不存在。
 
 每个补丁要解决什么问题、根因是什么，都写在 [PATCHES.md](PATCHES.md) 里。
 
@@ -70,7 +70,7 @@ xattr -dr com.apple.quarantine "/tmp/cmux-xhqing/cmux.app"
 cp -R "/tmp/cmux-xhqing/cmux.app" /Applications/
 ```
 
-这份构建是 ad-hoc 签名、没有公证。**用浏览器下载的 zip 及其解压副本会带 `com.apple.quarantine` 隔离属性**，双击时会被 Gatekeeper 拦下（弹窗「Apple could not verify "cmux" ...」），所以手工安装**必须**先 `xattr -dr com.apple.quarantine` 去掉它，否则系统会报「已损坏」或「无法验证开发者」。上面的脚本用 `curl` 下载（curl 不写这个属性），安装后还会再补一次 `xattr -dr`，所以不会有这个坑。
+这份构建默认是 ad-hoc 签名、没有公证（两种签名方式都没有公证）。把 `CMUX_DEV_SIGN_IDENTITY` 指向本机的代码签名证书，重建就不再打断屏幕录制等 TCC 授权，做法见 `DEVELOPMENT.md` 第十节。**用浏览器下载的 zip 及其解压副本会带 `com.apple.quarantine` 隔离属性**，双击时会被 Gatekeeper 拦下（弹窗「Apple could not verify "cmux" ...」），所以手工安装**必须**先 `xattr -dr com.apple.quarantine` 去掉它，否则系统会报「已损坏」或「无法验证开发者」。上面的脚本用 `curl` 下载（curl 不写这个属性），安装后还会再补一次 `xattr -dr`，所以不会有这个坑。
 
 ## 构建
 

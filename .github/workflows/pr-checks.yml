@@ -130,6 +130,13 @@ jobs:
           set -euo pipefail
           swift scripts/tests/test_markdown_editor_inplace.swift
 
+      - name: Signing identity resolution (Issue #121)
+        # 构建脚本的签名身份解析：ad-hoc 默认值、显式 `-`、空白值、不存在的身份要
+        # 大声失败（绝不静默回退 ad-hoc）、reload.sh / reloads.sh 不许再把 `--sign -`
+        # 写死。纯 Python + 文本扫描，实测 <2 秒，所以放进 PR 门禁。
+        # 测试文件由测试责任方维护，实现改动不得改断言迁就。
+        run: python3 scripts/tests/test_resolve_sign_identity.py -v
+
       - name: Config schema (generated Swift in sync)
         run: |
           set -euo pipefail

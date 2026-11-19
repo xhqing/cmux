@@ -122,6 +122,14 @@ jobs:
             --changed-file "$RUNNER_TEMP/changed.txt" \
             --test-skip 'Packages/macOS/CmuxFoundation=reconnectBackoffDiscardsQueuedTerminalInput'
 
+      - name: Markdown editor in-place editing (real page in WKWebView)
+        # 行为门禁：直接在离屏 WKWebView 里跑 Resources/markdown-viewer 的真实页面，
+        # 断言「点击只出现光标、不出现编辑框 / 不漂移 / 只改被编辑的那一块」。
+        # 约 10 秒，不需要 app target 构建，所以放在 PR 门禁里跑。
+        run: |
+          set -euo pipefail
+          swift scripts/tests/test_markdown_editor_inplace.swift
+
       - name: Signing identity resolution (Issue #121)
         # 构建脚本的签名身份解析：ad-hoc 默认值、显式 `-`、空白值、不存在的身份要
         # 大声失败（绝不静默回退 ad-hoc）、reload.sh / reloads.sh 不许再把 `--sign -`

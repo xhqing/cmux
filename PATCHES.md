@@ -796,7 +796,7 @@ Markdown 面板（预览 / 就地编辑 / TextEdit）里打开的文件被外部
 | --- | --- |
 | `scripts/resolve-sign-identity.sh`（新增，可执行） | 唯一的身份解析入口：读 `CMUX_DEV_SIGN_IDENTITY`，未设 / 空 / 全空白 → 输出 `-` 并提示 ad-hoc 的代价；显式 `-` → 输出 `-`；其它值 → 在 `security find-identity -v -p codesigning` 里按名字或 SHA-1 前缀匹配，命中则输出身份名，**找不到非零退出、stdout 为空**、stderr 指出变量名与可用身份。 |
 | `scripts/reload.sh`（开发构建） | 构建前解析 `SIGN_IDENTITY`（解析 stderr 进 reload 日志，成功路径不多打行）；`codesign --sign "$SIGN_IDENTITY"`，其余 flags 与 `CMUX_ALLOW_UNSIGNED_DEV_APP` 容错语义不变。 |
-| `scripts/reloads.sh`（Release / CI） | 同上，在 `xcodebuild` 之前解析（身份配错时立刻失败，不等几十分钟构建完）；原 `|| true` 保留。 |
+| `scripts/reloads.sh`（Release / CI） | 同上，在 `xcodebuild` 之前解析（身份配错时立刻失败，不等几十分钟构建完）；codesign 的容错按身份区分：ad-hoc（`-`）保留原来的 `|| true`，用证书签名时失败即让构建失败（否则产物会静默停在 xcodebuild 的 ad-hoc 签名上）。 |
 | `.github/workflows/build.yml` | job env 读三个可选 secret；新增「导入签名证书（可选）」step（仅在配了 `CMUX_DEV_SIGNING_CERT_P12_BASE64` 时执行：临时钥匙串 + `security import -T /usr/bin/codesign` + `set-key-partition-list` + `add-trusted-cert -r trustAsRoot -p codeSign`，然后把 `CMUX_DEV_SIGN_IDENTITY` 写进 `$GITHUB_ENV`；**导入失败即构建失败，不静默回退 ad-hoc**）；新增「校验产物的签名身份」step（`codesign -d --requirements -`，配了身份时必须出现 `certificate leaf`、出现 `cdhash` 就 fail；没配时只打 warning）。 |
 | `.github/workflows/pr-checks.yml` | `checks` job 新增一个 step 跑 `python3 scripts/tests/test_resolve_sign_identity.py -v`（实测 <2 秒）；job 名与其它 step 未改。 |
 | `scripts/create-dev-signing-cert.sh`（新增，可执行） | 开发机自用证书工具：openssl 生成自签名证书（RSA 2048 / 3650 天 / `CA:FALSE` + `digitalSignature` + `codeSigning`），导入登录钥匙串（`-T /usr/bin/codesign -T /usr/bin/security`），导出 LibreSSL 兼容的 `.p12`（`-keypbe/-certpbe PBE-SHA1-3DES -macalg sha1`，失败回退 `-legacy`），备份到 `~/.dev/private/cmux/signing/`；支持 `--name` / `--out` / `--import <p12>`；同名证书已存在时拒绝覆盖；「始终信任」只打印步骤、不代做。 |

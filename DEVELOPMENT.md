@@ -369,7 +369,7 @@ export CMUX_DEV_SIGN_IDENTITY="cmux Local Code Signing"   # 写进 ~/.zshrc 长�
 ./scripts/create-dev-signing-cert.sh
 ```
 
-它会：生成 RSA 2048 / 3650 天、`basicConstraints=critical,CA:FALSE` + `keyUsage=critical,digitalSignature` + `extendedKeyUsage=critical,codeSigning` 的自签名证书（CN 默认 `cmux Local Code Signing`）→ 导入登录钥匙串（`-T /usr/bin/codesign -T /usr/bin/security`）→ 把可换机恢复的 `.p12` 与密码、PEM 备份到 `~/.dev/private/cmux/signing/`。同名证书已存在时**拒绝覆盖**（重新生成会让证书哈希变化、TCC 授权再失效一次）。
+它会：生成 RSA 2048 / 3650 天、`basicConstraints=critical,CA:FALSE` + `keyUsage=critical,digitalSignature` + `extendedKeyUsage=critical,codeSigning` 的自签名证书（CN 默认 `cmux Local Code Signing`）→ 导入登录钥匙串（`-T /usr/bin/codesign -T /usr/bin/security`）→ 把可换机恢复的 `.p12` 与 PEM 备份到 `~/.dev/private/cmux/signing/`（p12 密码**不写盘**，请存进 KeePass 等密码库）。同名证书已存在时**拒绝覆盖**（重新生成会让证书哈希变化、TCC 授权再失效一次）。
 
 其他参数：`--name "<CN>"` 改名字、`--out <p12 路径>` 改备份位置、`--import <p12>` 换机恢复。
 
@@ -404,14 +404,14 @@ security find-identity -v -p codesigning
 
 ```bash
 tccutil reset ScreenCapture com.xhqing.cmux      # Release 版
-tccutil reset ScreenCapture com.cmuxterm.app     # 开发版（com.cmuxterm.app.debug 的前缀）
+tccutil reset ScreenCapture com.cmuxterm.app.debug   # 开发版（reload.sh 默认 bundle id）
 ```
 
 然后打开 app、按系统提示重新授予屏幕录制等权限。**这只需要做一次**——之后证书不变，重建不再打断授权。
 
 ### 6. 备份与换机
 
-- **备份**：`~/.dev/private/cmux/signing/` 下的 `.p12` + `.password` + `.cert.pem`（本机私有目录，随 Syncthing 同步、不进仓库）。
+- **备份**：`~/.dev/private/cmux/signing/` 下的 `.p12` + `.cert.pem`（本机私有目录，随 Syncthing 同步、不进仓库）；p12 的密码单独存进 KeePass 等密码库，**不要**和备份放在一起。
 - **换机恢复**：`./scripts/create-dev-signing-cert.sh --import <备份.p12>`，再按第 4 节重做「始终信任」。
 - **「始终信任」是本机设置**：它写在本机的信任设置里，不会随 p12 走；换机必须重设，否则 `security find-identity -v` 仍然看不到这张证书。
 - **证书重新生成会让 TCC 再失效一次**：新证书 = 新哈希 = 新的 designated requirement，所以不要为了「重来一遍」随手删掉证书。

@@ -77,6 +77,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if ! command -v openssl >/dev/null 2>&1; then
+  echo "error: 找不到 openssl（需要它生成证书与导出 .p12）" >&2
+  exit 1
+fi
+
 BACKUP_DIR="$(dirname "${OUT:-$DEFAULT_BACKUP_DIR/cmux-dev-signing.p12}")"
 OUT="${OUT:-$BACKUP_DIR/cmux-dev-signing.p12}"
 mkdir -p "$BACKUP_DIR"
@@ -178,9 +183,6 @@ EOF
   echo "==> 导出备份：$OUT"
   export_p12 "$WORK_DIR/key.pem" "$WORK_DIR/cert.pem" "$OUT"
   chmod 600 "$OUT"
-  PASSWORD_FILE="$BACKUP_DIR/$(basename "${OUT%.p12}").password"
-  printf '%s\n' "$PASSWORD" > "$PASSWORD_FILE"
-  chmod 600 "$PASSWORD_FILE"
 
   CERT_PEM="$BACKUP_DIR/$(basename "${OUT%.p12}").cert.pem"
   cp "$WORK_DIR/cert.pem" "$CERT_PEM"
@@ -215,11 +217,12 @@ $(if [[ -n "${CERT_PEM:-}" ]]; then printf '   sudo security add-trusted-cert -d
    然后重新构建一次（scripts/reload.sh / scripts/reloads.sh 都认这个变量），
    并**重新授权一次**屏幕录制等 TCC 权限（旧的 ad-hoc 记录认的是旧 cdhash）：
    tccutil reset ScreenCapture com.xhqing.cmux     # Release 版
-   tccutil reset ScreenCapture com.cmuxterm.app    # 开发版（reload.sh 默认 bundle id 前缀）
+   tccutil reset ScreenCapture com.cmuxterm.app.debug    # 开发版（reload.sh 默认 bundle id）
    再打开 app，按系统提示重新授予。
 
 备忘：
-- 备份：p12 与密码文件在 ${BACKUP_DIR}/（本机私有目录，不进仓库）。
+- 备份：p12 与 PEM 在 ${BACKUP_DIR}/（本机私有目录，不进仓库）。
+- p12 的密码**没有**写进备份目录（和备份放在一起等于没有备份）：请把它存进 KeePass 等密码库。
 - 换机恢复：./scripts/create-dev-signing-cert.sh --import <备份.p12>，
   但「始终信任」是本机设置，换机后必须重做第 ① 步。
 - 重新生成证书会让授权再失效一次；签名证书本身没有有效期问题（3650 天）。

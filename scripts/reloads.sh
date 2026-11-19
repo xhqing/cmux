@@ -289,7 +289,13 @@ if [[ -f "$INFO_PLIST" ]]; then
   if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
     rm -f "$CMUX_SOCKET_PATH_VALUE"
   fi
-  /usr/bin/codesign --force --sign "$SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH" >/dev/null 2>&1 || true
+  if [[ "$SIGN_IDENTITY" == "-" ]]; then
+    /usr/bin/codesign --force --sign "$SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH" >/dev/null 2>&1 || true
+  else
+    # 用证书签名时失败必须让构建失败：xcodebuild 的产物本身是 ad-hoc 的，这里签不上
+    # 如果被吞掉，产物会静默停在 ad-hoc 上，Issue #121 的 bug 就悄悄回来了。
+    /usr/bin/codesign --force --sign "$SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH"
+  fi
 fi
 APP_PATH="$IDENTITY_APP_PATH"
 

@@ -265,7 +265,7 @@ jobs:
           while IFS= read -r kc; do
             existing+=("$kc")
           done < <(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//')
-          security list-keychains -d user -s "${existing[@]}" "$KEYCHAIN"
+          security list-keychains -d user -s ${existing[@]+"${existing[@]}"} "$KEYCHAIN"
 
           # 自签名证书必须被系统信任为「代码签名」用途，codesign 才认。
           # trustAsRoot 只信任这张证书本身（不是信任整条链），且只影响这台 runner。

@@ -1,7 +1,7 @@
 <h1 align="center">
-  <img src="./Assets.xcassets/AppIcon.appiconset/512.png" alt="cmux" width="120" />
+  <img src="./Assets.xcassets/AppIconDark.imageset/AppIconDark.png" alt="cmux" width="120" />
   <br />
-  cmux <sub>(xhqing build)</sub>
+  cmux
 </h1>
 
 <p align="center">A personal, macOS-only build of <a href="https://github.com/manaflow-ai/cmux">cmux</a> — a Ghostty-based terminal with vertical tabs.</p>

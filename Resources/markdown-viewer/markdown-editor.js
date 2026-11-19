@@ -16,7 +16,6 @@
   var BLOCK_ATTRIBUTE_START = 'data-cmux-block-start';
   var BLOCK_ATTRIBUTE_END = 'data-cmux-block-end';
   var ACTIVE_CLASS = 'cmux-block-editing';
-  var EDITOR_CLASS = 'cmux-block-editor';
 
   var contentEl = null;
   var sourceText = '';
@@ -164,49 +163,323 @@
 
   // MARK: - Block editing
 
-  function closeActiveBlock(commit, notify) {
-    if (!activeBlock) { return; }
-    var state = activeBlock;
-    activeBlock = null;
-    var editor = state.editor;
+  // Rendered nodes that cannot be turned back into their own source by
+  // serializing the HTML: diagrams, math, images, tables, embedded controls.
+  // A block holding any of them stays read-only — refusing to open it is
+  // always better than rewriting hand-written markup into something else.
+  var UNEDITABLE_SELECTOR = [
+    'img', 'svg', 'canvas', 'iframe', 'video', 'audio',
+    'table', 'input', 'textarea', 'select',
+    '.cmux-mermaid', '.cmux-vega', '.cmux-math', '.cmux-frontmatter',
+    'mjx-container', '.katex'
+  ].join(', ');
 
-    state.element.classList.remove(ACTIVE_CLASS);
-    state.element.hidden = false;
-    if (editor && editor.parentNode) { editor.parentNode.removeChild(editor); }
-    global.document.removeEventListener('mousedown', state.onOutsidePointer, true);
-    global.document.removeEventListener('keydown', state.onKeyDown, true);
+  // Elements whose children are blocks rather than one inline run.
+  var BLOCK_TAGS = {
+    P: true, DIV: true, H1: true, H2: true, H3: true, H4: true, H5: true,
+    H6: true, UL: true, OL: true, LI: true, BLOCKQUOTE: true, PRE: true,
+    DL: true, DT: true, DD: true, FIGURE: true, FIGCAPTION: true,
+    DETAILS: true, SUMMARY: true, SECTION: true, ARTICLE: true
+  };
 
-    if (!commit) { return; }
+  function isBlockTag(node) {
+    return Boolean(node && node.nodeType === 1 && BLOCK_TAGS[node.tagName]);
+  }
+
+  // `matches` is checked as well as `querySelector`: when the clicked block
+  // *is* the forbidden element (a `<table>`, a math block), querySelector only
+  // looks at descendants and would let it open.
+  function canEditBlock(block) {
+    if (!block || block.nodeType !== 1) { return false; }
+    if (block.matches(UNEDITABLE_SELECTOR)) { return false; }
+    if (block.querySelector(UNEDITABLE_SELECTOR)) { return false; }
+    // A void block (an `<hr>`, an empty rule) has nothing to put a caret in.
+    if (!block.textContent && !block.querySelector('*')) { return false; }
+    return true;
+  }
+
+  // Code blocks are wrapped in `div.cmux-code-block` for the copy button, so
+  // the caret has to live inside the `<code>` element: making the wrapper
+  // editable would put the button itself into the editable run.
+  function editingHost(block) {
+    if (block.tagName === 'PRE') { return block.querySelector('code') || block; }
+    if (block.classList && block.classList.contains('cmux-code-block')) {
+      return block.querySelector('pre > code') || block.querySelector('pre') || block;
+    }
+    return block;
+  }
+
+  // The caret has to be placed explicitly: a synthetic mousedown/mouseup pair
+  // never moves WebKit's selection, and even for a real click the block only
+  // became editable a moment ago. `caretRangeFromPoint` resolves the same
+  // offset the browser would have used for a native click at that point.
+  function placeCaret(host, point) {
+    var selection = global.getSelection && global.getSelection();
+    if (!selection) { return; }
+    var range = null;
+    if (point && global.document.caretRangeFromPoint) {
+      try {
+        range = global.document.caretRangeFromPoint(point.x, point.y);
+      } catch (error) {
+        range = null;
+      }
+    }
+    if (!range || !host.contains(range.startContainer)) {
+      // A point outside the run (the block's padding, a click past the last
+      // line) opens the block with the caret where typing naturally continues.
+      range = global.document.createRange();
+      range.selectNodeContents(host);
+      range.collapse(false);
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  // MARK: - Single-block markdown serialization
+
+  // Only the block the user edited is ever re-serialized; every other block is
+  // copied byte for byte. These helpers therefore cover exactly what the
+  // renderer can put inside one block, and `canEditBlock` refuses the blocks
+  // they cannot express.
+  function escapeText(text) {
+    // Escaping keeps a typed "*" or "_" visible instead of turning it into
+    // emphasis on the next render.
+    return String(text == null ? '' : text).replace(/([\\`*_\[\]<])/g, '\\$1');
+  }
+
+  function inlineCodeSpan(text) {
+    var value = String(text == null ? '' : text);
+    var fence = '`';
+    while (value.indexOf(fence) >= 0) { fence += '`'; }
+    var pad = value.charAt(0) === '`' || value.charAt(value.length - 1) === '`' ? ' ' : '';
+    return fence + pad + value + pad + fence;
+  }
+
+  function inlineLink(node, inner) {
+    var href = node.getAttribute('href') || '';
+    var label = inner || escapeText(node.textContent || '');
+    return href ? '[' + label + '](' + href + ')' : label;
+  }
+
+  function inlineNode(node) {
+    if (!node) { return ''; }
+    if (node.nodeType === 3) { return escapeText(node.nodeValue); }
+    if (node.nodeType !== 1) { return ''; }
+    var tag = node.tagName;
+    if (tag === 'BR') { return '  \n'; }
+    if (tag === 'WBR' || tag === 'IMG') { return ''; }
+    if (tag === 'CODE') { return inlineCodeSpan(node.textContent || ''); }
+    var inner = inlineChildren(node);
+    switch (tag) {
+      case 'STRONG': case 'B': return inner.trim() ? '**' + inner + '**' : inner;
+      case 'EM': case 'I': return inner.trim() ? '*' + inner + '*' : inner;
+      case 'DEL': case 'S': case 'STRIKE': return inner.trim() ? '~~' + inner + '~~' : inner;
+      case 'A': return inlineLink(node, inner);
+      default:
+        if (isBlockTag(node)) { return inner; }
+        // Everything else the renderer can emit inline (mark, kbd, sup, sub,
+        // ins, small, abbr, …) is kept as inline HTML so its formatting
+        // survives the round-trip instead of being flattened into plain text.
+        return '<' + tag.toLowerCase() + '>' + inner + '</' + tag.toLowerCase() + '>';
+    }
+  }
+
+  function inlineChildren(node) {
+    var out = '';
+    var children = node ? node.childNodes : [];
+    for (var i = 0; i < children.length; i++) { out += inlineNode(children[i]); }
+    return out;
+  }
+
+  function languageFromClass(value) {
+    var match = /(?:^|\s)language-([\w+#.-]+)/.exec(value || '');
+    return match ? match[1] : '';
+  }
+
+  function serializeCodeBlock(block) {
+    var code = block.tagName === 'CODE' ? block : block.querySelector('code');
+    var element = code || block;
+    var raw = element.textContent || '';
+    var language = languageFromClass(element.className) || languageFromClass(block.className);
+    // The `<pre>` text owns the trailing newline the fence needs.
+    raw = raw.replace(/\n$/, '');
+    var fence = '```';
+    while (raw.indexOf(fence) >= 0) { fence += '`'; }
+    return fence + language + '\n' + raw + '\n' + fence;
+  }
+
+  function serializeListItem(item, marker, indent) {
+    var nodes = Array.prototype.slice.call(item.childNodes);
+    var inlineRun = '';
+    var nested = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      if (node.nodeType === 1 && (node.tagName === 'UL' || node.tagName === 'OL')) {
+        nested.push(node);
+        continue;
+      }
+      if (isBlockTag(node)) {
+        // A loose item (`<li><p>text</p>`) keeps its text on the marker line.
+        inlineRun += inlineChildren(node);
+        var innerLists = Array.prototype.slice.call(node.children).filter(function(child) {
+          return child.tagName === 'UL' || child.tagName === 'OL';
+        });
+        nested = nested.concat(innerLists);
+        continue;
+      }
+      inlineRun += inlineNode(node);
+    }
+    var text = inlineRun.replace(/\s+$/, '');
+    var lines = [text ? indent + marker + text : indent + marker.replace(/\s+$/, '')];
+    for (var n = 0; n < nested.length; n++) { lines.push(serializeList(nested[n], indent + '  ')); }
+    return lines.join('\n');
+  }
+
+  function serializeList(list, indent) {
+    var prefix = indent || '';
+    var ordered = list.tagName === 'OL';
+    var start = Number(list.getAttribute('start') || '1');
+    if (!Number.isFinite(start)) { start = 1; }
+    var items = Array.prototype.slice.call(list.children).filter(function(child) {
+      return child.tagName === 'LI';
+    });
+    var parts = [];
+    for (var i = 0; i < items.length; i++) {
+      var marker = ordered ? (start + i) + '. ' : '- ';
+      parts.push(serializeListItem(items[i], marker, prefix));
+    }
+    return parts.join('\n');
+  }
+
+  function serializeBlockquote(element) {
+    var inner = serializeChildren(element);
+    if (!inner) { return '>'; }
+    return inner.split('\n').map(function(line) {
+      return line ? '> ' + line : '>';
+    }).join('\n');
+  }
+
+  function serializeHeading(element) {
+    var level = Number(element.tagName.charAt(1)) || 1;
+    var text = inlineChildren(element).replace(/\s+$/, '');
+    return new Array(level + 1).join('#') + (text ? ' ' + text : '');
+  }
+
+  function serializeChildren(element) {
+    var parts = [];
+    var children = element ? element.children : [];
+    for (var i = 0; i < children.length; i++) {
+      var part = serializeElement(children[i]);
+      if (typeof part === 'string' && part) { parts.push(part); }
+    }
+    return parts.join('\n\n');
+  }
+
+  /// Returns the markdown for one rendered block, or `null` when this block is
+  /// not one of the shapes the serializer can reproduce faithfully.
+  function serializeElement(element) {
+    if (!element || element.nodeType !== 1) { return null; }
+    var tag = element.tagName;
+    if (/^H[1-6]$/.test(tag)) { return serializeHeading(element); }
+    if (tag === 'UL' || tag === 'OL') { return serializeList(element); }
+    if (tag === 'BLOCKQUOTE') { return serializeBlockquote(element); }
+    if (tag === 'PRE') { return serializeCodeBlock(element); }
+    if (tag === 'HR') { return '---'; }
+    if (element.classList && element.classList.contains('cmux-code-block')) {
+      return serializeCodeBlock(element);
+    }
+    if (tag === 'TABLE' || tag === 'IMG' || tag === 'DL' || tag === 'DETAILS' || tag === 'FIGURE') {
+      // Not expressible as regenerated markdown; `canEditBlock` refuses them
+      // anyway, this keeps a stray path from blanking them out.
+      return null;
+    }
+    // Paragraph-ish: one inline run.
+    return inlineChildren(element).replace(/^\s+/, '').replace(/\s+$/, '');
+  }
+
+  // MARK: - Committing one block
+
+  // After a commit the following blocks' byte ranges are stale until the host
+  // re-renders. Shifting them here keeps a second edit inside the same render
+  // writing to the right offsets.
+  function rebaseBlockRanges(element, delta) {
+    if (!delta || !contentEl) { return; }
+    var children = Array.prototype.slice.call(contentEl.children);
+    var index = children.indexOf(element);
+    if (index < 0) { return; }
+    for (var i = index; i < children.length; i++) {
+      var node = children[i];
+      var start = Number(node.getAttribute(BLOCK_ATTRIBUTE_START));
+      var end = Number(node.getAttribute(BLOCK_ATTRIBUTE_END));
+      if (!Number.isFinite(start) || !Number.isFinite(end)) { continue; }
+      if (i === index) {
+        node.setAttribute(BLOCK_ATTRIBUTE_END, String(end + delta));
+      } else {
+        node.setAttribute(BLOCK_ATTRIBUTE_START, String(start + delta));
+        node.setAttribute(BLOCK_ATTRIBUTE_END, String(end + delta));
+      }
+    }
+  }
+
+  function commitBlock(state, notify) {
     var range = blockRange(state.element);
     if (!range) { return; }
-    var next = state.text;
-    if (next === state.original) { return; }
-    // The block's raw source owns its trailing blank lines, so they must
-    // survive the replacement: dropping them would glue the edited block to
-    // the next one on the re-render.
-    var trailing = /[\r\n]+$/.exec(state.original);
-    next = next.replace(/[ \t\r\n]+$/, '') + (trailing ? trailing[0] : '');
-    var updated = sourceText.slice(0, range.start) + next + sourceText.slice(range.end);
-    sourceText = updated;
-    if (postToHost && notify !== false) { postToHost({ type: 'change', text: updated }); }
+    var raw = sourceText.slice(range.start, range.end);
+    var core = serializeElement(state.element);
+    if (typeof core !== 'string') { return; }
+    // Never blank out a block whose text the serializer could not read.
+    if (!core && String(state.element.textContent || '').trim()) { return; }
+    // The block's range also owns the blank lines around it (`marked` reports
+    // them as trivia of a neighbouring token); they are carried over verbatim
+    // so the surrounding document keeps its exact byte layout.
+    var lead = (/^[\r\n]*/.exec(raw) || [''])[0];
+    var trail = (/[\r\n]*$/.exec(raw) || [''])[0];
+    if (lead.length + trail.length > raw.length) { lead = raw; trail = ''; }
+    var next = lead + core + trail;
+    if (next === raw) { return; }
+    var delta = next.length - raw.length;
+    sourceText = sourceText.slice(0, range.start) + next + sourceText.slice(range.end);
+    rebaseBlockRanges(state.element, delta);
+    if (postToHost && notify !== false) { postToHost({ type: 'change', text: sourceText }); }
   }
 
-  // The block editor floats on document.body, so it inherits nothing from the
-  // palette MarkdownWebRenderer.applyTheme injects on #content. Copy the text
-  // colours over from the rendered document, so the editor's text is literally
-  // the same colour as the body text it is replacing — instead of falling back
-  // to the light-theme defaults on a dark surface.
-  function inheritContentPalette(el) {
-    var content = document.getElementById('content');
-    if (!content || !el) { return; }
-    var cs = getComputedStyle(content);
-    ['--fgColor-default', '--fgColor-muted'].forEach(function(name) {
-      var value = cs.getPropertyValue(name).trim();
-      if (value) { el.style.setProperty(name, value); }
-    });
+  function detachBlockEditing(state) {
+    global.document.removeEventListener('mousedown', state.onOutsidePointer, true);
+    global.document.removeEventListener('keydown', state.onKeyDown, true);
+    try {
+      var selection = global.getSelection && global.getSelection();
+      if (selection && selection.rangeCount > 0 && state.host.contains(selection.anchorNode)) {
+        selection.removeAllRanges();
+      }
+    } catch (error) { /* the selection can be owned by another document */ }
+    state.element.classList.remove(ACTIVE_CLASS);
+    state.host.removeAttribute('contenteditable');
+    state.host.removeAttribute('spellcheck');
   }
 
-  function openBlock(element) {
+  function closeActiveBlock(commit, notify) {
+    var state = activeBlock;
+    if (!state) { return; }
+    activeBlock = null;
+    detachBlockEditing(state);
+    if (commit === false) { return; }
+    // A detached block means the document was re-rendered under the edit: the
+    // recorded offsets no longer describe anything, so the edit is dropped
+    // instead of being written into the wrong place.
+    if (!state.element.isConnected || !contentEl || !contentEl.contains(state.element)) { return; }
+    commitBlock(state, notify);
+  }
+
+  /// Drops the open edit without writing anything (used when a re-render
+  /// replaced the element the caret was living in).
+  function discardActiveBlock() {
+    var state = activeBlock;
+    if (!state) { return; }
+    activeBlock = null;
+    detachBlockEditing(state);
+  }
+
+  function openBlock(element, point) {
     if (locked) {
       shineLockPill();
       return;
@@ -216,76 +489,49 @@
       closeActiveBlock(true, true);
     }
     var range = blockRange(element);
-    if (!range) {
-      shineLockPill();
-      return;
-    }
+    if (!range) { return; }
+    if (!canEditBlock(element)) { return; }
+    var host = editingHost(element);
+    if (!host || !canEditBlock(host)) { return; }
 
-    var rect = element.getBoundingClientRect();
-    var editor = document.createElement('div');
-    editor.className = EDITOR_CLASS;
-    inheritContentPalette(editor);
-    editor.style.left = Math.max(0, rect.left - 12) + 'px';
-    editor.style.top = Math.max(0, rect.top - 8) + 'px';
-    editor.style.width = Math.max(320, rect.width + 24) + 'px';
-
-    var textarea = document.createElement('textarea');
-    textarea.className = EDITOR_CLASS + '-input';
-    textarea.spellcheck = false;
-    textarea.value = sourceText.slice(range.start, range.end);
-    editor.appendChild(textarea);
-
-    var hint = document.createElement('div');
-    hint.className = EDITOR_CLASS + '-hint';
-    hint.textContent = '⌘↩ 保存 · Esc 取消';
-    editor.appendChild(hint);
-
-    document.body.appendChild(editor);
-    autoSize(textarea);
-
-    var state = {
-      element: element,
-      editor: editor,
-      text: textarea.value,
-      original: textarea.value,
-      onOutsidePointer: function(event) {
-        if (editor.contains(event.target)) { return; }
+    var state = { element: element, host: host, onOutsidePointer: null, onKeyDown: null };
+    state.onOutsidePointer = function(event) {
+      if (activeBlock !== state) { return; }
+      if (state.element.contains(event.target) || state.host.contains(event.target)) { return; }
+      closeActiveBlock(true, true);
+    };
+    state.onKeyDown = function(event) {
+      if (activeBlock !== state) { return; }
+      if (event.key === 'Escape') {
+        // VS Code's editor has no "rollback on Escape": the typed text stays.
+        event.preventDefault();
         closeActiveBlock(true, true);
-      },
-      onKeyDown: function(event) {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          closeActiveBlock(false, false);
-          return;
-        }
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-          event.preventDefault();
-          closeActiveBlock(true, true);
-          return;
-        }
+        return;
+      }
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        closeActiveBlock(true, true);
+        return;
+      }
+      if (event.key === 'Enter' && !event.shiftKey) {
+        // Splitting one rendered block into two would leave the second half
+        // without a source range; a hard break keeps the block a single unit.
+        event.preventDefault();
+        if (global.document.execCommand) { global.document.execCommand('insertLineBreak'); }
       }
     };
     activeBlock = state;
-    element.hidden = true;
     element.classList.add(ACTIVE_CLASS);
-
-    textarea.addEventListener('input', function() {
-      state.text = textarea.value;
-      autoSize(textarea);
-    });
-    textarea.addEventListener('keydown', function(event) {
-      event.stopPropagation();
-    });
-
+    host.setAttribute('contenteditable', 'true');
+    host.setAttribute('spellcheck', 'false');
+    try {
+      host.focus({ preventScroll: true });
+    } catch (error) {
+      try { host.focus(); } catch (ignored) { /* older WebKit: focus is best effort */ }
+    }
+    placeCaret(host, point);
     global.document.addEventListener('mousedown', state.onOutsidePointer, true);
     global.document.addEventListener('keydown', state.onKeyDown, true);
-    textarea.focus();
-    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-  }
-
-  function autoSize(textarea) {
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.max(48, textarea.scrollHeight + 8) + 'px';
   }
 
   // MARK: - Wiring
@@ -353,7 +599,10 @@
         return;
       }
       if (activeBlock && activeBlock.element === element) { return; }
-      openBlock(element);
+      // The caret has to be resolved from the click itself: a synthetic
+      // mousedown/mouseup pair never moves WebKit's selection, so the block
+      // would open with the caret at its first character.
+      openBlock(element, { x: event.clientX, y: event.clientY });
     }, true);
   }
 
@@ -361,6 +610,29 @@
     // Links, task checkboxes and other embedded controls keep their own
     // behaviour: activating a block must not swallow them.
     return Boolean(target && target.closest && target.closest('a[href], input, button, summary'));
+  }
+
+  /// 宿主 echo 回来的内容通常和页面里已经显示的一模一样；但编辑器会给渲染出来的
+  /// 节点打自己的痕迹（块偏移属性、`cmux-block`、编辑态 class 与可编辑属性），
+  /// 直接比较 `innerHTML` 每次都会「看起来变了」而整篇重渲染，正在编辑的块连同
+  /// 光标一起被换掉。这里返回去掉这些痕迹后的现状，供宿主判断「真的变了吗」。
+  function normalizedHTML() {
+    if (!contentEl) { return ''; }
+    var clone = contentEl.cloneNode(true);
+    var elements = clone.querySelectorAll('*');
+    for (var i = 0; i < elements.length; i++) {
+      var node = elements[i];
+      node.removeAttribute(BLOCK_ATTRIBUTE_START);
+      node.removeAttribute(BLOCK_ATTRIBUTE_END);
+      if (node.classList) {
+        node.classList.remove('cmux-block');
+        node.classList.remove(ACTIVE_CLASS);
+        if (node.classList.length === 0) { node.removeAttribute('class'); }
+      }
+      if (node.getAttribute('contenteditable') === 'true') { node.removeAttribute('contenteditable'); }
+      if (node.getAttribute('spellcheck') === 'false') { node.removeAttribute('spellcheck'); }
+    }
+    return clone.innerHTML;
   }
 
   var CmuxMarkdownEditor = {
@@ -396,6 +668,9 @@
     },
     setLocked: setLocked,
     isLocked: function() { return locked; },
+    /// 去掉编辑器痕迹后的当前 DOM（见 `normalizedHTML`）：宿主用它决定要不
+    /// 要重渲染整篇文档，安装前后都能调用。
+    normalizedHTML: normalizedHTML,
     closeActiveBlock: function(commit) { closeActiveBlock(commit !== false, true); },
     /// Commits any open block and hands the canonical document back, so the
     /// host can save without waiting for a follow-up message.

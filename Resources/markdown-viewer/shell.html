@@ -349,56 +349,9 @@ html { scroll-behavior: smooth; }
   #content.cmux-locked .cmux-block {
     cursor: default;
   }
-  #content:not(.cmux-locked) .cmux-block:hover {
-    background: var(--bgColor-neutral-muted, rgba(129, 139, 152, 0.08));
-    border-radius: 6px;
-  }
-  /* Floating block editor. It has to hide the text it is covering, so it paints
-     the panel's opaque surface colour (the content area itself is transparent)
-     and reuses the lock pill's outline tint instead of an accent-blue border.
-     The text colours are copied from #content by markdown-editor.js; the
-     fallbacks below are per-scheme but should never actually be used. */
-  .cmux-block-editor {
-    position: fixed;
-    z-index: 70;
-    box-sizing: border-box;
-    padding: 8px 8px 6px;
-    border-radius: 8px;
-    border: 1px solid var(--borderColor-default, rgba(255, 255, 255, 0.2));
-    background: var(--cmux-panel-surface, #0d1117);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
-  }
-  .cmux-block-editor-input {
-    display: block;
-    width: 100%;
-    box-sizing: border-box;
-    border: 0;
-    outline: none;
-    resize: none;
-    background: transparent;
-    color: var(--fgColor-default, #e6edf3);
-    font: 13px/1.6 "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    white-space: pre-wrap;
-    overflow: hidden;
-  }
-  .cmux-block-editor-hint {
-    padding-top: 4px;
-    text-align: right;
-    font: 11px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
-    color: var(--fgColor-muted, #8d96a0);
-  }
-  @media (prefers-color-scheme: light) {
-    .cmux-block-editor {
-      border-color: var(--borderColor-default, rgba(0, 0, 0, 0.18));
-      background: var(--cmux-panel-surface, #ffffff);
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
-    }
-    .cmux-block-editor-input { color: var(--fgColor-default, #1f2328); }
-    .cmux-block-editor-hint { color: var(--fgColor-muted, #59636e); }
-  }
-  .cmux-block[hidden] {
-    display: none !important;
-  }
+  /* Editing happens in place: the clicked block itself becomes an editable run,
+     so there is no editor chrome to paint — no overlay, no textarea, no hint,
+     and no hover tint that would put a box around a block the pointer crosses. */
 </style>
 </head>
 <body>

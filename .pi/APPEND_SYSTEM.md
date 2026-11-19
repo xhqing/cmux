@@ -21,12 +21,12 @@
 - **Zig 必须 0.16.0**：不能用 `brew install zig` 的 latest（现在是 0.17.x，`scripts/setup.sh` 会直接报不兼容）；需要时从 ziglang.org 下载固定版本。
 - **架构只编 arm64**：`universal` 是整个 app 编两遍，实测一轮 3.5 小时还没完。
 - 版本号注入：`VERSION` 去掉 `-rN` 后缀写进 `CFBundleShortVersionString`，完整版本写进 `CMUXVersion`（About 面板显示）；构建末尾有校验 step。
-- 安装：ad-hoc 签名、无公证，**必须先 `xattr -dr com.apple.quarantine`**，否则系统报「已损坏」（手工路径；用 `scripts/install-release.sh` 安装则会自动下载、校验、去隔离）。
+- 安装：默认 ad-hoc 签名、无公证，**必须先 `xattr -dr com.apple.quarantine`**，否则系统报「已损坏」（手工路径；用 `scripts/install-release.sh` 安装则会自动下载、校验、去隔离）。想重建不打断屏幕录制等 TCC 授权，把 `CMUX_DEV_SIGN_IDENTITY` 指向本机固定代码签名证书（`scripts/create-dev-signing-cert.sh` 生成，`reload.sh` / `reloads.sh` 都认；详见 `DEVELOPMENT.md` 第十节）。
 - **更新通道（Sparkle）**：自动**安装**关着（`SUAutomaticallyUpdate=false`），自动检查沿用上游默认；CI 用 GitHub secret `SPARKLE_PRIVATE_KEY` 生成并签名 `appcast.xml`，`attach-release-asset` 自动挂到 Release。改 `project.pbxproj` 的 `SPARKLE_PUBLIC_KEY`（两处）**必须**同步更新该 secret，否则签名对不上、app 内更新装不上；私钥本机备份在 macOS 钥匙串（服务名 `cmux-sparkle-eddsa`、账号 `private-key`）。详见 `DEVELOPMENT.md` 第四节。
 
 ## PR 门禁只能说轻量（刻意的取舍，别去"优化"）
 
-`checks` job 只做四项：Swift 语法（`swiftc -parse`）、配置 schema 一致性、测试接线（`cmuxTests/` 文件必须注册进 `project.pbxproj`）、gitleaks 扫描改动文件。
+`checks` job 只做五项：Swift 语法（`swiftc -parse`）、配置 schema 一致性、测试接线（`cmuxTests/` 文件必须注册进 `project.pbxproj`）、gitleaks 扫描改动文件、签名身份解析（`scripts/tests/test_resolve_sign_identity.py`，Issue #121，纯 Python + 文本扫描、实测 <2 秒）。
 
 - **不要提议把完整构建塞进 PR 门禁**：两万多个文件 + ghostty 子模块 + Metal 工具链，`build-macos` 实测 2~4 小时；当门禁的实际后果是流程废掉或被绕过。完整编译正确性由 `build-macos` 兜底。
 - **改门禁时不要改 job 名**——分支保护的必过检查认的就是 `checks` 这个名字。

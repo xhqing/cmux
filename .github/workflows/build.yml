@@ -63,6 +63,14 @@ jobs:
       # 而不是整包跳过签名后再补一刀 --deep。
       CODE_SIGN_IDENTITY: "-"
       CODE_SIGNING_REQUIRED: "NO"
+      # 可选的固定签名证书（Issue #121）。三个 secret 都不配时下面一切照旧，产物仍是
+      # ad-hoc；配了之后由「导入签名证书（可选）」那一步把 CMUX_DEV_SIGN_IDENTITY 写进
+      # $GITHUB_ENV，scripts/reloads.sh 就会用这张证书签最终产物。
+      # 注意 CMUX_DEV_SIGN_IDENTITY 刻意不在这里设置：没配证书时它必须是未设置状态，
+      # 否则解析器会因为「指定的身份不存在」直接失败。
+      CMUX_DEV_SIGNING_CERT_P12_BASE64: ${{ secrets.CMUX_DEV_SIGNING_CERT_P12_BASE64 }}
+      CMUX_DEV_SIGNING_CERT_PASSWORD: ${{ secrets.CMUX_DEV_SIGNING_CERT_PASSWORD }}
+      CMUX_DEV_SIGNING_IDENTITY: ${{ secrets.CMUX_DEV_SIGNING_IDENTITY }}
       # 并行编译数（Issue #104）。scripts/reloads.sh 读这个变量。
       # 实测：-jobs 2 构建 75:49，-jobs 4 构建 84:38（3 核 runner 上超过核数反而更慢），
       # 所以默认保持 2。
@@ -227,6 +235,56 @@ jobs:
           restore-keys: |
             dd-${{ runner.os }}-
 
+      - name: 导入签名证书（可选，Issue #121）
+        # 只在配了 CMUX_DEV_SIGNING_CERT_P12_BASE64 时执行：没配 = 以前的 ad-hoc 行为，
+        # 一步都不跑、构建结果与以前完全一致。配了就**必须**成功——导入失败、身份找不到
+        # 都直接让构建红，绝不静默退回 ad-hoc：那等于把 Issue #121 的 bug（TCC 授权
+        # 每次重建都失效）又悄悄带回来。
+        if: env.CMUX_DEV_SIGNING_CERT_P12_BASE64 != ''
+        run: |
+          set -euo pipefail
+          IDENTITY="${CMUX_DEV_SIGNING_IDENTITY:-cmux Local Code Signing}"
+          KEYCHAIN="$RUNNER_TEMP/cmux-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          P12="$RUNNER_TEMP/cmux-signing.p12"
+          CERT_PEM="$RUNNER_TEMP/cmux-signing-cert.pem"
+          # macOS 的 base64 行为在不同版本间有差异，统一用 openssl 解码。
+          printf '%s' "$CMUX_DEV_SIGNING_CERT_P12_BASE64" | openssl base64 -d -A > "$P12"
+
+          # 临时钥匙串：不碰 runner 的登录钥匙串，构建结束随机器一起销毁。
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$P12" -k "$KEYCHAIN" -P "$CMUX_DEV_SIGNING_CERT_PASSWORD" \
+            -T /usr/bin/codesign
+          # 没有这一步，codesign 取私钥时可能被钥匙串 ACL 挡住（headless 上没人点「允许」）。
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null 2>&1 || true
+          # 把临时钥匙串加进用户搜索列表（保留原有条目，不要整体覆盖）。
+          existing=()
+          while IFS= read -r kc; do
+            existing+=("$kc")
+          done < <(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//')
+          security list-keychains -d user -s "${existing[@]}" "$KEYCHAIN"
+
+          # 自签名证书必须被系统信任为「代码签名」用途，codesign 才认。
+          # trustAsRoot 只信任这张证书本身（不是信任整条链），且只影响这台 runner。
+          # 优先用 openssl 取 PEM；LibreSSL 读不了新式 PBES2 加密时回退到 security 导出。
+          if ! openssl pkcs12 -in "$P12" -clcerts -nokeys \
+                 -passin "pass:$CMUX_DEV_SIGNING_CERT_PASSWORD" -out "$CERT_PEM" 2>/dev/null; then
+            security find-certificate -c "$IDENTITY" -p "$KEYCHAIN" > "$CERT_PEM"
+          fi
+          sudo security add-trusted-cert -d -r trustAsRoot -p codeSign \
+            -k /Library/Keychains/System.keychain "$CERT_PEM"
+
+          if ! security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then
+            echo "::error::导入后仍找不到代码签名身份 \"$IDENTITY\"；确认 CMUX_DEV_SIGNING_IDENTITY 与证书 CN 一致"
+            security find-identity -v -p codesigning || true
+            exit 1
+          fi
+          echo "CMUX_DEV_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "签名身份已就绪：$IDENTITY"
+
       - name: 构建 Release（本项目正式身份）
         run: |
           set -uo pipefail
@@ -256,6 +314,28 @@ jobs:
           echo "=== 内存峰值采样 ==="
           cat /tmp/build-mem.log 2>/dev/null || echo "（无采样数据）"
           exit "$STATUS"
+
+      - name: 校验产物的签名身份（Issue #121）
+        run: |
+          set -euo pipefail
+          APP="/tmp/cmux-build/Build/Products/Release/cmux.app"
+          # 看 designated requirement：ad-hoc 是 cdhash（每次重建都变，TCC 授权随之
+          # 失效），证书签名是 certificate leaf（证书不变 → 重建后授权继续有效）。
+          REQ="$(codesign -d --requirements - "$APP" 2>&1 || true)"
+          echo "$REQ"
+          if [ -n "${CMUX_DEV_SIGN_IDENTITY:-}" ]; then
+            if echo "$REQ" | grep -q 'cdhash'; then
+              echo "::error::产物仍是 ad-hoc 签名（designated requirement 里是 cdhash）：配置的证书没有生效，TCC 授权会继续随每次重建失效"
+              exit 1
+            fi
+            if ! echo "$REQ" | grep -q 'certificate leaf'; then
+              echo "::error::designated requirement 里没有 certificate leaf，说明没有用导入的证书签名（期望身份：$CMUX_DEV_SIGN_IDENTITY）"
+              exit 1
+            fi
+            echo "签名身份校验通过：requirement 绑定到证书，重建不再打断 TCC 授权"
+          else
+            echo "::warning::本次产物是 ad-hoc 签名（未配置 CMUX_DEV_SIGNING_CERT_P12_BASE64）：屏幕录制等 TCC 授权会在每次重新构建后失效，配置方法见 DEVELOPMENT.md 第十节"
+          fi
 
       - name: 校验产物不含构建机 home 路径
         run: |

@@ -35,11 +35,13 @@ Behaviour differences from the official cmux build:
   releases. The app may also check in the background (upstream default) and show a passive
   update pill, but nothing is installed until you click Install; the feed never points at the
   official cmux repo.
-- The app is ad-hoc signed and uses this project's own identity — bundle id
-  `com.xhqing.cmux` and its own Preferences domain — so it never shares preferences or the
-  update channel with the official cmux build. The control socket uses the app's own default
-  location (`~/.local/state/cmux/cmux.sock`, resolved at launch), because a build-time path
-  cannot survive being installed on another machine.
+- The app is ad-hoc signed by default (no Developer ID, no notarization) and uses this
+  project's own identity — bundle id `com.xhqing.cmux` and its own Preferences domain — so it
+  never shares preferences or the update channel with the official cmux build. A local build
+  can opt into a fixed signing identity (`CMUX_DEV_SIGN_IDENTITY`) so Screen Recording and
+  other TCC grants survive rebuilds (see DEVELOPMENT.md §10). The control socket uses the
+  app's own default location (`~/.local/state/cmux/cmux.sock`, resolved at launch), because a
+  build-time path cannot survive being installed on another machine.
 
 The patch list with the reasoning behind each change is in [PATCHES.md](PATCHES.md).
 
@@ -90,9 +92,11 @@ xattr -dr com.apple.quarantine "/tmp/cmux-xhqing/cmux.app"
 cp -R "/tmp/cmux-xhqing/cmux.app" /Applications/
 ```
 
-The build is ad-hoc signed (no notarization). **A zip downloaded through a browser — and
-everything extracted from it — carries the `com.apple.quarantine` attribute**, so
-Gatekeeper blocks the app on first launch ("Apple could not verify \"cmux\" ...").
+The build is ad-hoc signed by default (no notarization either way). Setting
+`CMUX_DEV_SIGN_IDENTITY` to a local code-signing identity keeps Screen Recording and other
+TCC grants alive across rebuilds — see DEVELOPMENT.md §10. **A zip downloaded through a
+browser — and everything extracted from it — carries the `com.apple.quarantine` attribute**,
+so Gatekeeper blocks the app on first launch ("Apple could not verify \"cmux\" ...").
 Manual installs therefore **must** run `xattr -dr com.apple.quarantine` first; otherwise
 macOS reports the app as damaged or from an unidentified developer. The script above
 downloads with `curl` (which does not set that attribute) and strips quarantine again

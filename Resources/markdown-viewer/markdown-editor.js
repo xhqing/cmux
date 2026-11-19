@@ -139,22 +139,18 @@
     var pill = document.getElementById('cmux-markdown-lock');
     if (!pill) { return; }
     pill.classList.toggle('is-locked', locked);
-    pill.setAttribute('aria-pressed', locked ? 'false' : 'true');
-    pill.setAttribute('aria-label', locked ? 'Read only' : 'Editing');
-    pill.setAttribute('title', locked ? 'Read only — click to edit' : 'Editing — click to lock');
-    // Both icons stay visible (VS Code shows lock on the left, pen on the
-    // right, always); the active one is picked out by the .is-locked class.
+    // Same state wording as VS Code's toggle (it uses the label instead of
+    // aria-pressed, so assistive tech hears the action, not a toggle state).
+    pill.setAttribute('aria-label', locked ? 'Locked; switch to editing' : 'Editing; switch to locked mode');
+    pill.setAttribute('title', locked ? 'Read-only: editing disabled. Click to edit.' : 'Editing enabled. Click to lock.');
+    if (!locked) { pill.classList.remove('cmux-shine'); }
     if (contentEl) { contentEl.classList.toggle('cmux-locked', locked); }
   }
 
   function shineLockPill() {
     var pill = document.getElementById('cmux-markdown-lock');
-    if (!pill) { return; }
-    pill.classList.remove('cmux-shine');
-    // Force a style flush so the animation restarts on rapid repeats.
-    void pill.offsetWidth;
+    if (!pill || pill.classList.contains('cmux-shine')) { return; }
     pill.classList.add('cmux-shine');
-    global.setTimeout(function() { pill.classList.remove('cmux-shine'); }, 900);
   }
 
   function setLocked(next) {
@@ -547,14 +543,18 @@
     pill.type = 'button';
     pill.className = 'cmux-markdown-lock';
     pill.innerHTML =
-      '<span class="cmux-lock-icon" aria-hidden="true">' +
-      '<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">' +
-      '<path d="M4 6.5V5a4 4 0 1 1 8 0v1.5h.5A1.5 1.5 0 0 1 14 8v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13V8a1.5 1.5 0 0 1 1.5-1.5H4Zm1.5 0h5V5a2.5 2.5 0 0 0-5 0v1.5Z"/>' +
-      '</svg></span>' +
-      '<span class="cmux-pen-icon" aria-hidden="true">' +
-      '<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">' +
-      '<path d="M11.9 1.6a1.5 1.5 0 0 1 2.1 0l.4.4a1.5 1.5 0 0 1 0 2.1l-8 8a1 1 0 0 1-.5.3l-2.8.7a.6.6 0 0 1-.7-.7l.7-2.8a1 1 0 0 1 .3-.5l8-8Zm1.4 1.4-8 8-.4 1.5 1.5-.4 8-8-.4-.4-.7-.7Z"/>' +
-      '</svg></span>';
+      '<span class="cmux-lock-indicator" aria-hidden="true"></span>' +
+      '<svg class="cmux-lock-icon cmux-lock-icon-locked" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">' +
+      '<path d="M8 9C8.55228 9 9 9.44771 9 10C9 10.5523 8.55228 11 8 11C7.44772 11 7 10.5523 7 10C7 9.44771 7.44772 9 8 9Z"/>' +
+      '<path fill-rule="evenodd" clip-rule="evenodd" d="M8 1C9.654 1 11 2.346 11 4V6H12C13.103 6 14 6.897 14 8V13C14 14.103 13.103 15 12 15H4C2.897 15 2 14.103 2 13V8C2 6.897 2.897 6 4 6H5V4C5 2.346 6.346 1 8 1ZM4 7C3.449 7 3 7.449 3 8V13C3 13.551 3.449 14 4 14H12C12.551 14 13 13.551 13 13V8C13 7.449 12.551 7 12 7H4ZM8 2C6.897 2 6 2.897 6 4V6H10V4C10 2.897 9.103 2 8 2Z"/>' +
+      '</svg>' +
+      '<svg class="cmux-lock-icon cmux-lock-icon-editing" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">' +
+      '<path d="M14.236 1.76386C13.2123 0.740172 11.5525 0.740171 10.5289 1.76386L2.65722 9.63549C2.28304 10.0097 2.01623 10.4775 1.88467 10.99L1.01571 14.3755C0.971767 14.5467 1.02148 14.7284 1.14646 14.8534C1.27144 14.9783 1.45312 15.028 1.62432 14.9841L5.00978 14.1151C5.52234 13.9836 5.99015 13.7168 6.36433 13.3426L14.236 5.47097C15.2596 4.44728 15.2596 2.78755 14.236 1.76386ZM11.236 2.47097C11.8691 1.8378 12.8957 1.8378 13.5288 2.47097C14.162 3.10413 14.162 4.1307 13.5288 4.76386L12.75 5.54269L10.4571 3.24979L11.236 2.47097ZM9.75002 3.9569L12.0429 6.24979L5.65722 12.6355C5.40969 12.883 5.10023 13.0595 4.76117 13.1465L2.19447 13.8053L2.85327 11.2386C2.9403 10.8996 3.1168 10.5901 3.36433 10.3426L9.75002 3.9569Z"/>' +
+      '</svg>';
+
+    pill.addEventListener('animationend', function(event) {
+      if (event.animationName === 'cmux-lock-shine') { pill.classList.remove('cmux-shine'); }
+    });
 
     pill.addEventListener('click', function() {
       locked = !locked;

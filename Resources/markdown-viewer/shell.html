@@ -264,87 +264,137 @@ html { scroll-behavior: smooth; }
     z-index: 60;
     pointer-events: none;
   }
-  /* VS Code's markdown editor look: lock on the left, pen on the right, both
-     always visible; the idle icon is neutral grey and the active one sits on a
-     blue rounded-square pad. The pill lives outside #content, so its fill and
-     outline come from the theme variables MarkdownWebRenderer.applyTheme also
-     injects on the document root — they track the real panel background instead
-     of falling back to a light-theme white. */
+  /* VS Code Markdown Editor's read-only toggle, matched 1:1 (2026-11-19):
+     a 58x32 pill, lock on the left and pen on the right, both always visible,
+     with one 24px circular accent pad that slides between them. The idle fill
+     is transparent (VS Code Dark Modern's button.secondaryBackground is
+     #00000000), the outline is button.border (white at 10%), and the glyphs
+     are VS Code's own 16px paths at 62% opacity when idle. Reference:
+     `@vscode/markdown-editor`'s editor.css (.md-readonly-toggle /
+     -indicator / -icon) as shipped inside VS Code. */
   .cmux-markdown-lock {
-    --cmux-lock-fill: var(--bgColor-muted, rgba(255, 255, 255, 0.05));
-    --cmux-lock-border: var(--borderColor-default, rgba(255, 255, 255, 0.2));
-    --cmux-lock-border-hover: #4a4a4a;
-    --cmux-lock-icon-idle: #8a8a8a;
+    --cmux-lock-accent: #0078d4;
+    --cmux-lock-accent-foreground: #ffffff;
+    --cmux-lock-foreground: #cccccc;
+    --cmux-lock-hover-fill: rgba(255, 255, 255, 0.054);
     pointer-events: auto;
     position: relative;
-    display: inline-flex;
+    display: inline-grid;
+    grid-template-columns: repeat(2, 24px);
     align-items: center;
-    justify-content: space-between;
+    justify-items: center;
     gap: 2px;
-    width: 54px;
-    height: 28px;
-    padding: 2px;
+    width: 58px;
+    height: 32px;
+    padding: 3px;
     box-sizing: border-box;
-    border-radius: 14px;
-    border: 1px solid var(--cmux-lock-border);
-    background: var(--cmux-lock-fill);
-    /* The outline is a translucent tint computed against the panel background;
-       clipping the fill to the padding box keeps it from stacking underneath
-       that translucent border (which would make the outline read brighter
-       than the 1.92 contrast it was derived for). */
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
     background-clip: padding-box;
-    color: var(--cmux-lock-icon-idle);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    color: var(--cmux-lock-foreground);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.08);
+    font-size: 16px;
+    line-height: 1;
+    direction: ltr;
+    appearance: none;
+    -webkit-appearance: none;
     cursor: pointer;
     overflow: hidden;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
   }
-  /* The host paints light panels with the same variables; these are only the
-     fallbacks for the (should not happen) case where none were injected. */
+  /* VS Code Light Modern: accent #005fb8, secondary foreground #3b3b3b,
+     button.border #0000001a, secondary hover background #cccccc. */
   @media (prefers-color-scheme: light) {
     .cmux-markdown-lock {
-      --cmux-lock-fill: var(--bgColor-muted, rgba(0, 0, 0, 0.04));
-      --cmux-lock-border: var(--borderColor-default, rgba(0, 0, 0, 0.18));
-      --cmux-lock-border-hover: #b3b3b3;
-      --cmux-lock-icon-idle: #616161;
+      --cmux-lock-accent: #005fb8;
+      --cmux-lock-foreground: #3b3b3b;
+      --cmux-lock-hover-fill: rgba(0, 0, 0, 0.2);
+      border-color: rgba(0, 0, 0, 0.1);
     }
   }
   .cmux-markdown-lock:hover {
-    border-color: var(--cmux-lock-border-hover);
+    background-color: var(--cmux-lock-hover-fill);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12), 0 6px 16px rgba(0, 0, 0, 0.10);
   }
   .cmux-markdown-lock:focus-visible {
-    outline: 2px solid #0078d4;
-    outline-offset: 2px;
+    outline: 2px solid var(--cmux-lock-accent);
+    outline-offset: 1px;
   }
-  .cmux-markdown-lock .cmux-lock-icon,
-  .cmux-markdown-lock .cmux-pen-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 5px;
-    color: var(--cmux-lock-icon-idle);
-    transition: background 0.15s ease, color 0.15s ease;
+  /* The single pad that slides between the two glyphs (VS Code's
+     .md-readonly-toggle-indicator): 24px circle, left 3px, translated 26px
+     into the second grid cell when unlocked and back home when locked. */
+  .cmux-markdown-lock .cmux-lock-indicator {
+    position: absolute;
+    top: 50%;
+    left: 3px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--cmux-lock-accent);
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.25);
+    transform: translate(26px, -50%);
+    transition: background-color 0.12s ease, transform 0.16s ease;
   }
-  .cmux-markdown-lock.is-locked .cmux-lock-icon,
-  .cmux-markdown-lock:not(.is-locked) .cmux-pen-icon {
-    background: #0078d4;
-    color: #ffffff;
+  .cmux-markdown-lock .cmux-lock-icon {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 16px;
+    height: 16px;
+    color: var(--cmux-lock-foreground);
+    opacity: 0.62;
+    pointer-events: none;
+    transition: color 0.12s ease, opacity 0.12s ease;
   }
-  /* The shine sweep is the "you are trying to edit a locked document" cue. */
-  .cmux-markdown-lock.cmux-shine::after {
+  .cmux-markdown-lock:not(.is-locked) .cmux-lock-icon-editing,
+  .cmux-markdown-lock.is-locked .cmux-lock-icon-locked {
+    color: var(--cmux-lock-accent-foreground);
+    opacity: 1;
+  }
+  .cmux-markdown-lock.is-locked .cmux-lock-indicator {
+    transform: translateY(-50%);
+  }
+  /* The shine sweep is the "you are trying to edit a locked document" cue;
+     same 24px skewed beam, 2s linear pass and glow as VS Code. */
+  .cmux-markdown-lock::after {
     content: "";
     position: absolute;
-    inset: 0;
-    background: linear-gradient(105deg, transparent 28%, rgba(255, 255, 255, 0.9) 50%, transparent 72%);
-    transform: translateX(-130%);
-    animation: cmux-lock-shine 0.8s ease-out;
+    z-index: 2;
+    top: -8px;
+    bottom: -8px;
+    left: -30px;
+    width: 24px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.16) 24%,
+      #ffffff 50%,
+      rgba(255, 255, 255, 0.16) 76%,
+      transparent
+    );
+    box-shadow: 0 0 8px 2px rgba(255, 255, 255, 0.58);
+    opacity: 0;
     pointer-events: none;
+    transform: skew(-20deg);
+  }
+  .cmux-markdown-lock.cmux-shine::after {
+    animation: cmux-lock-shine 2s linear;
+    will-change: transform, opacity;
   }
   @keyframes cmux-lock-shine {
-    from { transform: translateX(-130%); }
-    to { transform: translateX(130%); }
+    0% { opacity: 0; transform: translate(0) skew(-20deg); }
+    12%, 88% { opacity: 1; }
+    to { opacity: 0; transform: translate(122px) skew(-20deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cmux-markdown-lock,
+    .cmux-markdown-lock .cmux-lock-indicator,
+    .cmux-markdown-lock .cmux-lock-icon,
+    .cmux-markdown-lock.cmux-shine::after {
+      animation: none;
+      transition: none;
+    }
   }
   #content.cmux-locked .cmux-block {
     cursor: default;

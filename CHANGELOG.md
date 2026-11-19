@@ -2,6 +2,15 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.2-r27] - 2026-11-19
+
+### 修复（Markdown 面板的锁 / 笔滑钮改成 VS Code 的 1:1 复刻，2026-11-19）
+
+- **为什么改**：蓝底激活态是 22×22 / 5px 圆角方形，VS Code 的 Markdown Editor 是 58×32 的胶囊 + 24px 正圆，锁 / 笔图标也是自己画的近似形状，与用户日常看到的 VS Code 不一致。
+- **改了什么**：滑钮改成 VS Code `@vscode/markdown-editor` 的实测参数——容器 58×32、`border-radius: 999px`、内边距 3、两列 24px 网格（gap 2）、一块 24px 正圆指示垫在 `is-locked` 之间滑动 26px；锁与笔改用 VS Code 自己的 16px SVG 路径（`viewBox="0 0 16 16"`，锁是「锁体轮廓 + 锁孔」两条 path，笔是 VS Code 的实心铅笔）；未激活图标 `#cccccc` 62%（深色文档上呈 `#8a8a8a`）、激活图标纯白；胶囊空闲填充透明（VS Code Dark Modern 的 `button.secondaryBackground` 就是 `#00000000`）、描边白色 10%、蓝色 `#0078d4`（浅色主题 `#005fb8`）、阴影 / 悬停 / 焦点环 / 2s 镜面扫光都按 VS Code 的 `editor.css` 抄。`aria-pressed` 去掉，状态改由与 VS Code 相同的 `aria-label` / `title` 承担。
+- **怎么验证**：`node --check Resources/markdown-viewer/markdown-editor.js`；headless Chrome 以 2x 渲染滑钮，逐项断言容器 58×32、圆垫 24×24 正圆（`border-radius` 50%）、圆垫深色态 `#0078d4`、图标 16×16 且未激活 `#8a8a8a`、激活白色、空闲填充与背景同色、浅色主题 `#005fb8`；再与参考截图同尺寸裁切比对几何位置。
+- **回归检查**：块内就地编辑、锁定点击闪光泽、`markdown.editor.locked` 记忆、`readonly` 消息桥、块编辑浮层样式均未改；只动滑钮的 DOM / CSS。
+
 ## [0.65.2.2-r26] - 2026-11-18
 
 ### 新增（浏览器第四档主题 Force Dark：内置 Dark Reader，把没有深色主题的站点也变深色，2026-11-18，Issue #109）

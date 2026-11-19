@@ -831,6 +831,69 @@ do {
     try page.eval("window.__test.type('二'); true")
     let bothEdits = try page.flush()
     checks.equalText("scenario 9: switching blocks keeps both edits", normalized(bothEdits), normalized("# 甲二\n\n乙一段。"))
+    // MARK: Scenario 10 — the host echoing a commit back must not kill the caret
+
+    // The panel reacts to a committed block by pushing the whole document back
+    // into the page (`pushMarkdown` -> `__cmuxRenderMarkdown`). When that echo
+    // lands while the next block is already being edited, the edit must survive
+    // it — otherwise clicking from paragraph to paragraph would keep dropping
+    // the caret the user just placed.
+    try page.eval("window.__test.clickOutsideContent(); true")
+    _ = try page.flush()
+    try page.render("# 甲\n\n乙段。\n\n丙段。\n")
+    try page.installEditor(locked: false)
+    _ = try page.eval(
+        """
+        (function() {
+          var block = window.__test.elementWithText('#content p', '乙段');
+          var point = window.__test.pointForChar(block, 1);
+          if (point) { window.__test.clickAt(point.x, point.y); }
+          window.__test.type('一');
+          return true;
+        })()
+        """
+    )
+    let switchedToThird = try page.eval(
+        """
+        (function() {
+          var block = window.__test.elementWithText('#content p', '丙段');
+          var point = window.__test.pointForChar(block, 1);
+          if (point) { window.__test.clickAt(point.x, point.y); }
+          return true;
+        })()
+        """
+    ) as? Bool ?? false
+    checks.isTrue("scenario 10: the third paragraph is clickable", switchedToThird)
+
+    let echo = try page.eval(
+        """
+        (function() {
+          var posts = window.__testPosts || [];
+          for (var i = posts.length - 1; i >= 0; i--) {
+            if (posts[i] && posts[i].type === 'change' && typeof posts[i].text === 'string') { return posts[i].text; }
+          }
+          return '';
+        })()
+        """
+    ) as? String ?? ""
+    checks.isTrue("scenario 10: the commit is echoed with the first edit", echo.contains("乙一段"), "echo: \(echo.prefix(120))")
+
+    // The host echo, byte for byte.
+    try page.eval("window.__cmuxRenderMarkdown(\(try jsStringLiteral(echo))); true")
+    let afterEcho = try page.json("window.__test.state()")
+    checks.equal("scenario 10: the freshly clicked block stays editable through the echo", afterEcho["editableCount"] as? Int ?? -1, 1)
+    checks.isTrue(
+        "scenario 10: the caret is restored in the re-rendered block",
+        (afterEcho["blockText"] as? String ?? "").contains("丙段"),
+        "block text: \(afterEcho["blockText"] ?? "nil")"
+    )
+    checks.equalText("scenario 10: the caret sits where the click landed", afterEcho["caretPrefix"] as? String ?? "<none>", "丙")
+    try page.eval("window.__test.type('二'); true")
+    checks.equalText(
+        "scenario 10: typing after the echo lands in the new block",
+        normalized(try page.flush()),
+        normalized("# 甲\n\n乙一段。\n\n丙二段。")
+    )
 } catch {
     print("❌ harness error: \(error)")
     exit(1)

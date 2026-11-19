@@ -4,6 +4,13 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 新增（标题栏铃铛的未读角标可单独关闭：`notifications.titlebarBadge`，2026-11-19）
+
+- **为什么改**：标题栏左侧铃铛右上角一直挂着蓝色未读数字（来源是 pi agent 的 turn-complete 通知），用户不想要这个角标，但其它通知能力（侧边栏未读、通知历史 / 面板、桌面弹窗、声音）都要留着。用户原话：「cmux左上角的这个通知角标能否关掉，设置成不通知」。
+- **改了什么**：① 新增设置键 `notifications.titlebarBadge`（Bool，**默认 true**，`userDefaultsKey` = `notificationTitlebarBadgeEnabled`）：true 时维持「未读 > 0 显示角标」，false 时标题栏铃铛不画这个角标。② 角标文案抽成 `CmuxNotifications` 里的纯函数 `TitlebarBadgePresentation.label(unreadCount:isEnabled:)`，用 `@LiveSetting` 驱动（设置里一关、已开着的窗口立刻消失，不用重启）；上限格式不变，仍是 `min(count, 99)`（「99+」是 Dock 角标的格式）。③ 设置页在 App 段 Dock Badge 下面加一行 Toggle，并接入搜索（`titlebar-badge` 条目 + `app:titlebar-badge` 别名）、命令面板开关、`cmux.json` schema / 模板 / 文件映射。
+- **怎么验证**：新增 `TitlebarBadgePresentationTests`（关闭时任意计数都返回 nil、0 不显示、1/42 原样、99/150 仍是 `"99"`）与 `TitlebarBadgeSettingTests`（catalog id / 默认 true、存 false 读回 false、reset 回 true）；`python3 scripts/generate-cmux-config-schema.py --check`、`swiftc -parse`、xcstrings / schema / 测试接线检查全绿；真机：设置里关掉后角标立刻消失、侧边栏未读徽标与通知面板不受影响，改回开立刻恢复。
+- **回归检查**：① Dock 角标（`notifications.dockBadge`）与菜单栏、未读 pane ring / pane flash、桌面弹窗、声音、sidebar 重排全部未动，读的还是各自原有的键；② 默认值 true，且文件映射缺键时回落 `defaultTitlebarBadgeEnabled`，升级后行为与现在一致；③ `99+` 只属于 Dock 角标，标题栏仍是 `99`。
+
 ### 修复（构建产物可用固定证书签名，重建不再打断 TCC 授权，2026-11-19，Issue #121）
 
 - **为什么改**：两个构建入口都用 `codesign --sign -`（ad-hoc），没有证书时 macOS 记下的 designated requirement 只能退化成产物的 cdhash，每次重建都变，系统于是把它当成「另一个 App」——屏幕录制、辅助功能等 TCC 授权每次重装都要重给一次，「系统设置 → 隐私与安全性 → 屏幕录制」里还会堆积同一个 App 的多条旧记录。换成固定证书后 requirement 变成 `identifier "com.xhqing.cmux" and certificate leaf = H"…"`，证书不变即重建不掉授权。

@@ -144,6 +144,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"
             ),
             .init(section: .app, id: "dock-badge", title: String(localized: "settings.app.dockBadge", defaultValue: "Dock Badge"), synonyms: "Dock Badge notifications.dockBadge badge dock unread count icon notifications red bubble"),
+            .init(section: .app, id: "titlebar-badge", title: String(localized: "settings.app.titlebarBadge", defaultValue: "Titlebar Badge"), synonyms: "Titlebar Badge notifications.titlebarBadge titlebar bell badge unread count notification 通知 角标"),
             .init(section: .app, id: "show-menu-bar", title: String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"), synonyms: "Show in Menu Bar notifications.showInMenuBar menubar menu bar status item tray extra"),
             .init(section: .app, id: "unread-pane-ring", title: String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"), synonyms: "Unread Pane Ring notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), synonyms: "Pane Flash notifications.paneFlash flash blink highlight pane notification pulse"),

@@ -131,6 +131,7 @@ extension CmuxSettingsFileStore {
             [
                 "notifications": [
                     "dockBadge": NotificationBadgeSettings.defaultDockBadgeEnabled,
+                    "titlebarBadge": NotificationBadgeSettings.defaultTitlebarBadgeEnabled,
                     "showInMenuBar": MenuBarExtraSettings.defaultShowInMenuBar,
                     "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
                     "paneFlash": NotificationPaneFlashSettings.defaultEnabled,

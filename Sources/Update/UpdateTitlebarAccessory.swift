@@ -988,11 +988,11 @@ private struct TitlebarNotificationBadge: View {
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    @LiveSetting(\.notifications.titlebarBadge) private var titlebarBadgeEnabled
 
     var body: some View {
-        let unreadCount = unreadModel.totalUnreadCount
-        if unreadCount > 0 {
-            Text("\(min(unreadCount, 99))")
+        if let label = TitlebarBadgePresentation.label(unreadCount: unreadModel.totalUnreadCount, isEnabled: titlebarBadgeEnabled) {
+            Text(label)
                 .cmuxFont(
                     size: titlebarNotificationBadgeFontSize(for: config)
                         / max(1, GlobalFontMagnification.scale(for: globalFontPercent)),

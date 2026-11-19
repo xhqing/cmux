@@ -8,6 +8,14 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationDockBadgeEnabled"
     )
 
+    /// Unread count drawn on the titlebar bell. Off hides the badge only; the
+    /// sidebar badge, notification history and desktop banners are unaffected.
+    public let titlebarBadge = DefaultsKey<Bool>(
+        id: "notifications.titlebarBadge",
+        defaultValue: true,
+        userDefaultsKey: "notificationTitlebarBadgeEnabled"
+    )
+
     public let showInMenuBar = DefaultsKey<Bool>(
         id: "notifications.showInMenuBar",
         defaultValue: true,

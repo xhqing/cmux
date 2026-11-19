@@ -1403,6 +1403,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show the unread count in the Dock tile."
         },
+        "titlebarBadge": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Show the unread count on the titlebar bell."
+        },
         "showInMenuBar": {
           "x-cmux-scopes": ["global"],
           "type": "boolean",

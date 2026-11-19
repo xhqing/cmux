@@ -111,6 +111,7 @@ struct SettingsRowAnchorResolutionTests {
         "notifications.agentTurnComplete",
         "notifications.command",
         "notifications.dockBadge",
+        "notifications.titlebarBadge",
         "notifications.paneFlash",
         "notifications.paneFlashDoubleBlink",
         "notifications.paneFlashOnTyping",

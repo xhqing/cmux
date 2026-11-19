@@ -22,7 +22,7 @@ struct TitlebarBadgeSettingTests {
         settings.set(false, for: key)
         #expect(settings.value(for: key) == false)
 
-        settings.reset(for: key)
+        settings.reset(key)
         #expect(settings.value(for: key) == true)
     }
 }

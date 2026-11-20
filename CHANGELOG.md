@@ -4,6 +4,13 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 文档（CI 证书签名已启用 + 证书轮换的代价写清楚，2026-11-20，Issue #121）
+
+- **为什么改**：三个 `CMUX_DEV_SIGNING_*` secret 已配进仓库，r29 之后的 Release 都该是证书签名；但 `DEVELOPMENT.md` 第十节还写着「可选」，既没写非交互配法（旧写法用 `pbcopy` 与交互输入，换台机器就无从下手），也没写轮换的真正代价。
+- **改了什么**：第十节第 8 节重写成「已启用」口径：三个 secret 的含义 / 缺省后果、**密码不经命令行的**非交互配法、流水线两段行为（导入、`codesign -d --requirements -` 断言）、实测的 designated requirement（`identifier "com.xhqing.cmux" and certificate leaf = H"a186d9…"`，同一张证书签两次 DR 完全一致），以及**轮换 = TCC 授权再失效 + 全体手动重装一次 + 三个 secret 与本机 `~/.zshrc` 必须同批更新**。第 7 节补了下一个 Release notes 必须用的那句「首个证书签名版需手动重装一次」。
+- **怎么验证**：对着上一条 `build.yml` 的证书签名实测（产物 requirement 为 `certificate leaf`、非 `cdhash`）；本次只改文档，不涉构建行为。
+- **回归检查**：只动 `DEVELOPMENT.md`，workflow / 脚本 / 产物逻辑一行未改。
+
 ### 修复（Cloud 属性测试的轮询上限按 CI 负载放宽，2026-11-20）
 
 - **为什么改**：`unit-tests` 全量在 CI 上（1072 个 suite 并行）会随机挂一条「等异步链路到位」的属性用例，每次挂的还不是同一条：r26（run 44279417854）与 r29 rerun（run 44561495533）挂的是 `CloudPortRoutePlanTests.stopDuringStart`（`wait` 10 秒到期，`phase` 未进 `.stopping`），修复分支合并后的 main（run 44688219519）挂的是 `CloudDesktopNavigationLifecycleTests.leaveAndReenter`（8 秒到期，`documentRequests == 2 && desktopConnected` 未成立）。两者各只手挂了 1 条，而且挂的是不同的用例——这与 `coordinationContentionResolvesWithinOneWaitingRequest` 那类「断言写错」不同，是**轮询预算**在慢 runner 上不够：这些链路在空载本机远不到 1 秒，CI 上却要 8–10 秒。

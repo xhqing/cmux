@@ -72,7 +72,7 @@ struct CloudDesktopNavigationLifecycleTests {
             let profile = try #require(profiles.createProfile(named: "Desktop fixture \(UUID())"))
             defer { _ = profiles.deleteProfile(id: profile.id) }
             #expect(second.switchToProfile(profile.id))
-            try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(8)) {
+            try #require(await AppKitTestEventPump().waitUntil(timeout: CloudDesktopNavigationFixture.documentLoadBudget) {
                 fixture.documentRequests == 3 && second.cloudAccess.desktopConnected
             })
             #expect(second.cloudAccess.resourceID == fixture.app.display.id)
@@ -87,7 +87,7 @@ struct CloudDesktopNavigationLifecycleTests {
             let first = try await fixture.open()
             try #require(await fixture.waitForDocument(first))
             _ = first.reload()
-            try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(8)) {
+            try #require(await AppKitTestEventPump().waitUntil(timeout: CloudDesktopNavigationFixture.documentLoadBudget) {
                 fixture.documentRequests == 2 && first.cloudAccess.desktopConnected
             })
             let projection = try await fixture.app.catalog.project(
@@ -131,7 +131,7 @@ struct CloudDesktopNavigationLifecycleTests {
             #expect(browser.cloudAccess.model == nil)
             #expect(fixture.provider.configureBrowser(browser, url: remote,
                 resourceID: fixture.app.display.id))
-            try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(8)) {
+            try #require(await AppKitTestEventPump().waitUntil(timeout: CloudDesktopNavigationFixture.documentLoadBudget) {
                 fixture.documentRequests == 2 && browser.cloudAccess.desktopConnected
             })
             #expect(browser.cloudAccess.resourceID == fixture.app.display.id)

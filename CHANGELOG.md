@@ -4,6 +4,13 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 修复（Cloud 属性测试的轮询上限按 CI 负载放宽，2026-11-20）
+
+- **为什么改**：`unit-tests` 全量在 CI 上（1072 个 suite 并行）会随机挂一条「等异步链路到位」的属性用例，每次挂的还不是同一条：r26（run 44279417854）与 r29 rerun（run 44561495533）挂的是 `CloudPortRoutePlanTests.stopDuringStart`（`wait` 10 秒到期，`phase` 未进 `.stopping`），修复分支合并后的 main（run 44688219519）挂的是 `CloudDesktopNavigationLifecycleTests.leaveAndReenter`（8 秒到期，`documentRequests == 2 && desktopConnected` 未成立）。两者各只手挂了 1 条，而且挂的是不同的用例——这与 `coordinationContentionResolvesWithinOneWaitingRequest` 那类「断言写错」不同，是**轮询预算**在慢 runner 上不够：这些链路在空载本机远不到 1 秒，CI 上却要 8–10 秒。
+- **改了什么**：① `CloudDesktopNavigationFixture.waitForDocument` 的预算提成共享常量 `documentLoadBudget = 30s`，`CloudDesktopNavigationLifecycleTests` 里三处内联的 8 秒 `waitUntil` 全改用它（同一类文档加载链路，不拆成两种预算）；② `CloudPortRoutePlanTests.wait` 的 10 秒 → 30 秒，并把 `await Task.yield()` 忙轮询改成 `Task.sleep(for: .milliseconds(2))`——它等的是**同一个主 actor 上**的 `stop()` 任务，紧循环 yield 会把自己要等的任务一起卡住，睡眠式轮询让出执行权。
+- **怎么验证**：`swiftc -parse` 三个文件均通过；合并后在 main 上手动 dispatch `unit-tests` 跑全量（9460 tests / 1072 suites）转绿。
+- **回归检查**：只动轮询上限与让出方式，所有断言条件一字未改；超时仍是硬上限（真挂住还是会在 30 秒内报错，只是失败反馈变慢）；不涉及任何产品代码。
+
 ### 修复（`CodexWriterAdmissionRecoveryTests` 的 coordination 争用用例不再依赖调度时序，2026-11-20）
 
 - **为什么改**：`coordinationContentionResolvesWithinOneWaitingRequest` 先 `flock(LOCK_EX)` 占住 `.coordination.lock`，再用 `asyncAfter(+0.3s)` 在后台释放，然后才发请求，断言首次请求必须回 `recovering: true`、第二次必须 `admitted: true`。这等于把「请求的第一次探测发生在 0.3 秒内」当成前提——主 actor 一忙（CI 上 1072 个 suite 并行、还有大量 AppKit 用例），请求的第一跳 `v2MainAsync`（取 restore record）就可能被压到 0.3 秒之后，探针于是看到 coordination 锁已释放、按设计判成 `claimLaunch`：首次请求回 `admitted`、第二次回 `concurrentLaunch`。产品行为是对的，错的是断言。CI r26（run 44279417854）与 r29（run 44561495533）挂的正是第 78、82 行这两条，而 r28 全量是绿的。

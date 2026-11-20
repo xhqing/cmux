@@ -95,8 +95,14 @@ final class CloudDesktopNavigationFixture {
         ))
     }
 
+    /// The Cloud Desktop document chain (route release → provider configure →
+    /// WebKit document request) finishes in well under a second on an idle machine,
+    /// but CI runs 1072 suites in parallel and the same chain has taken over 8
+    /// seconds there. The budget only bounds how long a real failure waits.
+    static let documentLoadBudget: Duration = .seconds(30)
+
     func waitForDocument(_ panel: BrowserPanel) async -> Bool {
-        await AppKitTestEventPump().waitUntil(timeout: .seconds(8)) {
+        await AppKitTestEventPump().waitUntil(timeout: Self.documentLoadBudget) {
             self.documentRequests > 0 && panel.cloudAccess.desktopConnected
         }
     }

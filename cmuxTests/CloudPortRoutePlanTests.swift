@@ -567,9 +567,16 @@ struct CloudPortRoutePlanTests {
 
     private enum TestForwardError: Error { case unavailable }
 
+    /// Cloud state transitions are asynchronous and were budgeted at 10 seconds,
+    /// which CI (1072 suites in parallel) has blown twice: `stopDuringStart` waits
+    /// for a main-actor `stop()` while this loop competes for the same actor, and a
+    /// tight `Task.yield()` loop keeps the actor busy. Sleeping between probes lets
+    /// the awaited task run, and the wider budget only bounds a real failure.
     private func wait(_ condition: @MainActor () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+        while !condition(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(2))
+        }
         return condition()
     }
 }

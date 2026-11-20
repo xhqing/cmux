@@ -387,9 +387,11 @@ export CMUX_DEV_SIGN_IDENTITY="cmux Local Code Signing"   # 写进 ~/.zshrc 长�
 或命令行（效果相同，会要求管理员密码）：
 
 ```bash
-sudo security add-trusted-cert -d -r trustAsRoot -p codeSign \
+sudo security add-trusted-cert -d -r trustRoot \
   -k /Library/Keychains/System.keychain ~/.dev/private/cmux/signing/cmux-dev-signing.cert.pem
 ```
+
+自签名证书自己就是根，所以用 `-r trustRoot`。**不要用 `-r trustAsRoot -p codeSign`**：2026-11-20 在 macOS 26.7.2 上实测会直接报 `SecTrustSettingsSetTrustSettings: One or more parameters passed to a function were not valid.`（`errSecParam`），CI 的第一次证书构建就是栽在这里。
 
 验证：
 
@@ -453,7 +455,9 @@ gh secret set CMUX_DEV_SIGNING_IDENTITY -R xhqing/cmux --body "cmux Local Code S
 
 流水线行为：
 
-1. 「导入签名证书（可选）」只在 `CMUX_DEV_SIGNING_CERT_P12_BASE64` 非空时执行：临时钥匙串 + `security import -T /usr/bin/codesign` + `set-key-partition-list` + `add-trusted-cert -r trustAsRoot -p codeSign`，然后把 `CMUX_DEV_SIGN_IDENTITY` 写进 `$GITHUB_ENV`。**导入失败 / 身份找不到 = 构建直接红**，不静默退回 ad-hoc。
+1. 「导入签名证书（可选）」只在 `CMUX_DEV_SIGNING_CERT_P12_BASE64` 非空时执行：临时钥匙串 + `security import -T /usr/bin/codesign` + `set-key-partition-list` + `add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain`，然后把 `CMUX_DEV_SIGN_IDENTITY` 写进 `$GITHUB_ENV`。**导入失败 / 身份找不到 = 构建直接红**，不静默退回 ad-hoc。
+   - 用 `-r trustRoot`（自签名证书自己就是根）。**`-r trustAsRoot -p codeSign` 在 macOS 26.7.2 runner 上会 `errSecParam`**，实测过一次红（run 44756697684），诊断结论见 run 44760741998。
+   - 导出 PEM 后先校一次 `BEGIN CERTIFICATE` 再交给 `add-trusted-cert`：空文件只会换来一句含糊的 `errSecParam`，不如直接报「p12 与密码不匹配」。
 2. 构建后「校验产物的签名身份」读 `codesign -d --requirements -`：配了身份时 requirement 里必须出现 `certificate leaf`（出现 `cdhash` 就失败）；没配时只打 warning。
 
 **证书已实测的 designated requirement**（同一张证书签两次、内容不同，DR 完全一致——这正是 TCC 跨构建保留授权的前提）：

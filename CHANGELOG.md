@@ -4,6 +4,13 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 修复（CI 证书信任命令改成 `-r trustRoot`，首次证书构建才能跑通，2026-11-20，Issue #121）
+
+- **为什么改**：三个 `CMUX_DEV_SIGNING_*` secret 配好之后首次 dispatch `build.yml`（run 44756697684）在「导入签名证书」这一步就红了：`security import` 成功、`sudo security add-trusted-cert -d -r trustAsRoot -p codeSign` 报 `SecTrustSettingsSetTrustSettings: One or more parameters passed to a function were not valid.`（`errSecParam`）。带诊断的分支实测（run 44760741998，runner macOS 26.7.2）定位：同一条命令换成 `-r trustRoot` 立即 `exit=0`、`find-identity -v -p codesigning` 出现这张证书；`-r trustAsRoot` 才是失败那一支。自签名证书自己就是根，`trustRoot` 本来就是正确口径。
+- **改了什么**：① `build.yml` 导入步骤改成 `add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain`（去掉 `-p codeSign`）；② 导出 PEM 后先校一次 `BEGIN CERTIFICATE` 再交给 `add-trusted-cert`，空 / 坏文件直接报「p12 与密码不匹配」，不再让它换来一句含糊的 `errSecParam`；③ `scripts/create-dev-signing-cert.sh` 打印的本地信任命令同步改成 `-r trustRoot`（原来教的也是错的）；④ `DEVELOPMENT.md` 第十节第 4 / 8 节同步这个结论与实测 run 号。
+- **怎么验证**：诊断分支上已实测 `trustRoot` 让身份可用；修复后用 `workflow_dispatch` 跑一次完整构建，产物在本机 `codesign -dv` / `codesign -d --requirements -` 复核。
+- **回归检查**：未配证书时行为不变（导入步骤仍整段跳过、只打 warning）；断言步（要求 `certificate leaf`、拒绝 `cdhash`）未改；证书轮换口径未变。
+
 ### 文档（CI 证书签名已启用 + 证书轮换的代价写清楚，2026-11-20，Issue #121）
 
 - **为什么改**：三个 `CMUX_DEV_SIGNING_*` secret 已配进仓库，r29 之后的 Release 都该是证书签名；但 `DEVELOPMENT.md` 第十节还写着「可选」，既没写非交互配法（旧写法用 `pbcopy` 与交互输入，换台机器就无从下手），也没写轮换的真正代价。

@@ -203,7 +203,8 @@ cat <<EOF
    → 双击 → 展开「信任」→「使用此证书时」选「始终信任」→ 关闭窗口，输入系统密码。
 
    或者用命令行（会提示输入管理员密码，效果相同）：
-$(if [[ -n "${CERT_PEM:-}" ]]; then printf '   sudo security add-trusted-cert -d -r trustAsRoot -p codeSign -k /Library/Keychains/System.keychain "%s"\n' "$CERT_PEM"; else printf '   （先导出 PEM：security find-certificate -c "%s" -p > /tmp/cmux-cert.pem 再传给 add-trusted-cert）\n' "$NAME"; fi)
+$(if [[ -n "${CERT_PEM:-}" ]]; then printf '   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "%s"\n' "$CERT_PEM"; else printf '   （先导出 PEM：security find-certificate -c "%s" -p > /tmp/cmux-cert.pem 再传给 add-trusted-cert）\n' "$NAME"; fi)
+   # 自签名证书自己就是根，用 -r trustRoot；不要用 -r trustAsRoot（macOS 26 上会 errSecParam）。
 
 ② 验证身份已经可用：
 

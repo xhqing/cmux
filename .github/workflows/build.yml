@@ -267,14 +267,24 @@ jobs:
           done < <(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//')
           security list-keychains -d user -s ${existing[@]+"${existing[@]}"} "$KEYCHAIN"
 
-          # 自签名证书必须被系统信任为「代码签名」用途，codesign 才认。
-          # trustAsRoot 只信任这张证书本身（不是信任整条链），且只影响这台 runner。
-          # 优先用 openssl 取 PEM；LibreSSL 读不了新式 PBES2 加密时回退到 security 导出。
+          # 证书 PEM：优先 openssl 从 p12 取，取不到再让 security 从钥匙串导。
+          # 两条都失败就报清楚是哪一层坏了，别把空文件交给 add-trusted-cert（它只会回一句
+          # “SecTrustSettingsSetTrustSettings: One or more parameters ... not valid”）。
           if ! openssl pkcs12 -in "$P12" -clcerts -nokeys \
-                 -passin "pass:$CMUX_DEV_SIGNING_CERT_PASSWORD" -out "$CERT_PEM" 2>/dev/null; then
+                 -passin "pass:$CMUX_DEV_SIGNING_CERT_PASSWORD" -out "$CERT_PEM" 2>/dev/null \
+             || ! grep -q 'BEGIN CERTIFICATE' "$CERT_PEM"; then
             security find-certificate -c "$IDENTITY" -p "$KEYCHAIN" > "$CERT_PEM"
           fi
-          sudo security add-trusted-cert -d -r trustAsRoot -p codeSign \
+          if ! grep -q 'BEGIN CERTIFICATE' "$CERT_PEM"; then
+            echo "::error::没能导出证书（CN=$IDENTITY）：CMUX_DEV_SIGNING_CERT_P12_BASE64 与 CMUX_DEV_SIGNING_CERT_PASSWORD 必须成对、且与证书匹配"
+            exit 1
+          fi
+
+          # 自签名证书必须被系统信任为「代码签名」用途，codesign 才认。
+          # 用 -r trustRoot：自签名证书本身就是自己的根。
+          # 不要用 -r trustAsRoot（2026-11-20 实测 macOS 26.7.2 runner 上直接
+          # SecTrustSettingsSetTrustSettings errSecParam → 构建红）；也不加 -p codeSign（全局信任就够 codeSign）。
+          sudo security add-trusted-cert -d -r trustRoot \
             -k /Library/Keychains/System.keychain "$CERT_PEM"
 
           if ! security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then

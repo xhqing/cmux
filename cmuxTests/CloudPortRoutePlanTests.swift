@@ -567,11 +567,13 @@ struct CloudPortRoutePlanTests {
 
     private enum TestForwardError: Error { case unavailable }
 
-    /// Cloud state transitions are asynchronous and were budgeted at 10 seconds,
-    /// which CI (1072 suites in parallel) has blown twice: `stopDuringStart` waits
-    /// for a main-actor `stop()` while this loop competes for the same actor, and a
-    /// tight `Task.yield()` loop keeps the actor busy. Sleeping between probes lets
-    /// the awaited task run, and the wider budget only bounds a real failure.
+    /// Cloud 状态迁移是异步的。原来的 10 秒预算在 CI（1072 个 suite 并行，且 XCTest 与
+    /// Swift Testing 同进程）上会到期；把预算提到了 30 秒（run 44755916546）后
+    /// `stopDuringStart` 仍然把 30 秒跑满才报错，所以**不是预算太窄，是主 actor 被别的
+    /// 测试长时间占着**——本循环等的 `stop()` 任务与它同一个 actor。此处只保留两个改善：
+    /// ① 用 `Task.sleep` 而不是 `Task.yield()` 忙轮询（后者会把自己要等的任务一起饿着）；
+    /// ② 预算放宽到 30 秒，这是硬上限、不是断言（真挂住仍在 30 秒内报错）。
+    /// 真正的修法是进程级隔离或套件级重试策略，见 `TODO.md` 的 T13。
     private func wait(_ condition: @MainActor () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while !condition(), ContinuousClock.now < deadline {

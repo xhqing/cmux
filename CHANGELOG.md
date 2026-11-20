@@ -4,6 +4,13 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 更正（CloudPort 那条用例不是预算太窄，是主 actor 被占着，2026-11-21）
+
+- **为什么改**：PR #129 把 `CloudPortRoutePlanTests.wait` 的预算从 10 秒提到 30 秒，当时的理由是「轮询预算在慢 runner 上不够」。run 44755916546（main `977671a`，含该改动）推翻了这条结论：`stopDuringStart` 把 **30 秒跑满**才报错，说明状态根本没有转过去，而不是「慢一点」。
+- **改了什么**：只改注释与记录，不改行为——`wait` 保持 30 秒硬上限 + `Task.sleep(2ms)` 让出（这两点本身没坏处），但注释改成真实结论：同一进程里 XCTest 与 Swift Testing 混跑、1072 个套件并行，主 actor 会被别的测试长时间占着，而本用例等的 `stop()` 任务与它同一个 actor；光调 timeout 只能让失败变慢。`TODO.md` 的 T13 补上这次证据。
+- **怎么验证**：与 run 44755916546 的日志对照（`CloudPortRoutePlanTests.swift:503`，failed after 30.021 seconds）；同一次跑里 codex 那条用例是通过的（第三次），所以 #128 的修法不受影响。
+- **回归检查**：本次不动任何断言条件、不动产品代码。
+
 ### 修复（CI 证书信任命令改成 `-r trustRoot`，首次证书构建才能跑通，2026-11-20，Issue #121）
 
 - **为什么改**：三个 `CMUX_DEV_SIGNING_*` secret 配好之后首次 dispatch `build.yml`（run 44756697684）在「导入签名证书」这一步就红了：`security import` 成功、`sudo security add-trusted-cert -d -r trustAsRoot -p codeSign` 报 `SecTrustSettingsSetTrustSettings: One or more parameters passed to a function were not valid.`（`errSecParam`）。带诊断的分支实测（run 44760741998，runner macOS 26.7.2）定位：同一条命令换成 `-r trustRoot` 立即 `exit=0`、`find-identity -v -p codesigning` 出现这张证书；`-r trustAsRoot` 才是失败那一支。自签名证书自己就是根，`trustRoot` 本来就是正确口径。

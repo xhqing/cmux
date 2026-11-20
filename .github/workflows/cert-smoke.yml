@@ -1,0 +1,59 @@
+name: cert-smoke
+
+# 临时诊断工作流（Issue #121）：只验证「导入 p12 → 导出 PEM → 信任 → find-identity」
+# 这条链在 macos-26 runner 上到底哪一步失败。诊断完即删，不进 main。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: macos-26
+    timeout-minutes: 10
+    env:
+      CMUX_DEV_SIGNING_CERT_P12_BASE64: ${{ secrets.CMUX_DEV_SIGNING_CERT_P12_BASE64 }}
+      CMUX_DEV_SIGNING_CERT_PASSWORD: ${{ secrets.CMUX_DEV_SIGNING_CERT_PASSWORD }}
+      CMUX_DEV_SIGNING_IDENTITY: ${{ secrets.CMUX_DEV_SIGNING_IDENTITY }}
+
+    steps:
+      - name: 导入 / 导出 / 信任 全链路诊断
+        run: |
+          set -uo pipefail
+          IDENTITY="${CMUX_DEV_SIGNING_IDENTITY:-cmux Local Code Signing}"
+          echo "runner macOS: $(sw_vers -productVersion)"
+          echo "openssl: $(openssl version)"
+          KEYCHAIN="$RUNNER_TEMP/cmux-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          P12="$RUNNER_TEMP/cmux-signing.p12"
+          CERT_PEM="$RUNNER_TEMP/cmux-signing-cert.pem"
+          printf '%s' "$CMUX_DEV_SIGNING_CERT_P12_BASE64" | openssl base64 -d -A > "$P12"
+          echo "p12 bytes: $(wc -c < "$P12" | tr -d ' ')"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"; echo "create-keychain=$?"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$P12" -k "$KEYCHAIN" -P "$CMUX_DEV_SIGNING_CERT_PASSWORD" -T /usr/bin/codesign; echo "import=$?"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null 2>&1; echo "partition=$?"
+
+          echo "--- find-certificate（临时钥匙串）---"
+          security find-certificate -c "$IDENTITY" -p "$KEYCHAIN" > "$CERT_PEM" 2>/dev/null; echo "find-certificate=$?"
+          echo "pem bytes: $(wc -c < "$CERT_PEM" | tr -d ' ') / cert count: $(grep -c 'BEGIN CERTIFICATE' "$CERT_PEM")"
+          head -1 "$CERT_PEM"
+
+          echo "--- find-identity（信任之前）---"
+          security find-identity -v -p codesigning || true
+          security list-keychains -d user || true
+
+          echo "--- openssl 导出对照 ---"
+          openssl pkcs12 -in "$P12" -clcerts -nokeys -passin "pass:$CMUX_DEV_SIGNING_CERT_PASSWORD" -out "$RUNNER_TEMP/openssl.pem"; echo "openssl=$?"
+          echo "openssl pem bytes: $(wc -c < "$RUNNER_TEMP/openssl.pem" 2>/dev/null | tr -d ' ' || echo 0)"
+
+          echo "--- trustAsRoot ---"
+          sudo security add-trusted-cert -d -r trustAsRoot -p codeSign -k /Library/Keychains/System.keychain "$CERT_PEM"; echo "trustAsRoot=$?"
+          echo "--- trustRoot ---"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$CERT_PEM"; echo "trustRoot=$?"
+
+          echo "--- find-identity（信任之后）---"
+          security find-identity -v -p codesigning || true

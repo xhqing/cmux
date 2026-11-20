@@ -2,6 +2,15 @@
 
 All notable changes to cmux are documented here.
 
+## [未发布]
+
+### 修复（`CodexWriterAdmissionRecoveryTests` 的 coordination 争用用例不再依赖调度时序，2026-11-20）
+
+- **为什么改**：`coordinationContentionResolvesWithinOneWaitingRequest` 先 `flock(LOCK_EX)` 占住 `.coordination.lock`，再用 `asyncAfter(+0.3s)` 在后台释放，然后才发请求，断言首次请求必须回 `recovering: true`、第二次必须 `admitted: true`。这等于把「请求的第一次探测发生在 0.3 秒内」当成前提——主 actor 一忙（CI 上 1072 个 suite 并行、还有大量 AppKit 用例），请求的第一跳 `v2MainAsync`（取 restore record）就可能被压到 0.3 秒之后，探针于是看到 coordination 锁已释放、按设计判成 `claimLaunch`：首次请求回 `admitted`、第二次回 `concurrentLaunch`。产品行为是对的，错的是断言。CI r26（run 44279417854）与 r29（run 44561495533）挂的正是第 78、82 行这两条，而 r28 全量是绿的。
+- **改了什么**：只改测试。coordination 锁改成**贯穿整个首次请求**持有，首次请求必然看到 `.changing`、返回 `recovering: true`；时长上限由 4 秒放宽到 6 秒（`CodexWriterLockSettle.delays` 合计 3.57 秒，6 秒仍能区分「走完 lock-namespace 的 settle 预算」与「整段耗在 8 秒证据等待上」）；拿到首次响应后再 `LOCK_UN`，第二次请求必然 `admitted: true`。删掉 `DispatchGroup` + `asyncAfter` 的定时释放。settle 循环「命名空间一释放就提前收手」的行为由 `CodexWriterLockTests.settleRetriesOnlyNamespaceChangesUntilTheyEnd`（在 `CMUXAgentLaunch` 包里、用假 `awaitChange` 驱动）覆盖，集成层不再重复承担这条时序断言。
+- **怎么验证**：`swiftc -parse` 通过；`unit-tests` 工作流在修复分支与合并后的 main 各跑一次全量（9460 tests / 1072 suites）转绿；r29 那次失败的 job 重跑同一份代码也转绿（证明是 flake 而非回归）。
+- **回归检查**：只动 `cmuxTests/` 与 CHANGELOG，产品代码（`TerminalController+AgentRestoreAdmission.swift`、`CodexWriterLockSettle.swift`、`CodexWriterLockInspector.swift`）一行未改；用例仍覆盖「coordination 争用下首次请求返回 recovering 且不耗尽 8 秒证据预算、第二次请求正常 admit」，只是不再断言调度时序。
+
 ## [0.65.2.2-r29] - 2026-11-19
 
 ### 新增（标题栏铃铛的未读角标可单独关闭：`notifications.titlebarBadge`，2026-11-19）

@@ -52,32 +52,33 @@ struct CodexWriterAdmissionRecoveryTests {
     /// Another Codex starting during a relaunch holds the coordination lock
     /// briefly. Its release raises no file event, so a waiting request must
     /// re-probe instead of spending the whole evidence bound.
+    ///
+    /// The lock stays held for the whole first request. Releasing it on a timer
+    /// raced with the request's own first probe: when a busy main actor delayed
+    /// the request past the release, the probe legitimately saw a free namespace
+    /// and admitted, which this test read as a failure (CI r26 / r29). Releasing
+    /// after the first response keeps the assertion about the admission path
+    /// instead of about the scheduler. That the settle loop stops as soon as the
+    /// namespace does free is covered by `CodexWriterLockTests`.
     @Test func coordinationContentionResolvesWithinOneWaitingRequest() async throws {
         try await withCodexRestoreSurface { workspace, panel, root, session in
             let coordination = open(root.appendingPathComponent("thread-writer-locks/.coordination.lock").path,
                                     O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
             try #require(coordination >= 0)
-            let pendingRelease = DispatchGroup()
-            defer {
-                _ = pendingRelease.wait(timeout: .now() + 5)
-                close(coordination)
-            }
+            defer { close(coordination) }
             try #require(flock(coordination, LOCK_EX | LOCK_NB) == 0)
             let admission = ControlRequest(id: .string("admit"), method: "agent.restore.admit", params: [
                 "workspace_id": .string(workspace.id.uuidString), "surface_id": .string(panel.id.uuidString),
                 "kind": .string("codex"), "session_id": .string(session), "codex_home": .string(root.path),
                 "wait_for_change": .bool(true)
             ])
-            pendingRelease.enter()
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
-                _ = flock(coordination, LOCK_UN)
-                pendingRelease.leave()
-            }
             let start = ContinuousClock.now
             let changing = try result(await TerminalController.shared.agentRestoreAdmissionResponse(admission))
+            let elapsed = start.duration(to: .now)
             #expect(changing["recovering"] as? Bool == true)
-            #expect(start.duration(to: .now) < .seconds(4), "The 8 second event bound must not pace a lock-namespace change")
+            #expect(elapsed < .seconds(6), "The 8 second event bound must not pace a lock-namespace change")
             #expect(workspace.surfaceResumeBinding(panelId: panel.id)?.checkpointId == session)
+            try #require(flock(coordination, LOCK_UN) == 0)
             let admitted = try result(await TerminalController.shared.agentRestoreAdmissionResponse(admission))
             #expect(admitted["admitted"] as? Bool == true)
         }

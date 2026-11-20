@@ -274,8 +274,28 @@ jobs:
                  -passin "pass:$CMUX_DEV_SIGNING_CERT_PASSWORD" -out "$CERT_PEM" 2>/dev/null; then
             security find-certificate -c "$IDENTITY" -p "$KEYCHAIN" > "$CERT_PEM"
           fi
-          sudo security add-trusted-cert -d -r trustAsRoot -p codeSign \
-            -k /Library/Keychains/System.keychain "$CERT_PEM"
+
+          # ==== 诊断块（临时，确定 macOS 26 runner 上 add-trusted-cert 的失败原因）====
+          echo "runner macOS: $(sw_vers -productVersion)"
+          echo "openssl: $(openssl version)"
+          echo "identity: $IDENTITY"
+          echo "cert pem bytes: $(wc -c < "$CERT_PEM" | tr -d ' ')"
+          echo "cert pem count: $(grep -c 'BEGIN CERTIFICATE' "$CERT_PEM" || true)"
+          echo "--- pem head/tail"; head -2 "$CERT_PEM"; tail -2 "$CERT_PEM"
+          echo "--- openssl extract 对照"
+          openssl pkcs12 -in "$P12" -clcerts -nokeys \
+            -passin "pass:$CMUX_DEV_SIGNING_CERT_PASSWORD" -out "$RUNNER_TEMP/openssl-cert.pem"; echo "openssl=$?"
+          echo "openssl pem bytes: $(wc -c < "$RUNNER_TEMP/openssl-cert.pem" 2>/dev/null | tr -d ' ' || echo 0)"
+          echo "--- find-identity（信任前）"; security find-identity -v -p codesigning || true
+          echo "--- list-keychains"; security list-keychains -d user || true
+          for variant in "-r trustRoot" "-r trustAsRoot" "-r trustRoot -p codeSign" "-r trustAsRoot -p codeSign"; do
+            echo "--- add-trusted-cert $variant"
+            # shellcheck disable=SC2086
+            sudo security add-trusted-cert -d $variant -k /Library/Keychains/System.keychain "$CERT_PEM"; echo "exit=$?"
+            security find-identity -v -p codesigning || true
+          done
+          echo "--- dump-trust-settings (admin)"; sudo security dump-trust-settings -d 2>&1 | head -20 || true
+          # ==== 诊断块结束 ====
 
           if ! security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then
             echo "::error::导入后仍找不到代码签名身份 \"$IDENTITY\"；确认 CMUX_DEV_SIGNING_IDENTITY 与证书 CN 一致"

@@ -4,6 +4,11 @@
 
 ## 🟠 橙色（边界情况、防护缺口，可能演化为实际问题）
 
+- [ ] **T13** `unit-tests` 全量在 CI 上的 flake / 挂死面收口（记录：2026-11-20 22:45）
+  **现状**：codex 那条调度竞态用例（`coordinationContentionResolvesWithinOneWaitingRequest`）已修（PR #128，两度实测转绿）；两条 Cloud 用例的轮询预算已放宽到 30s（PR #129）。但同一时期的全量仍有第三条不同的用例红，每次还不是同一条：r26 / r29 rerun 是 `CloudPortRoutePlanTests.stopDuringStart`，修复后 main（run 44688219519）是 `CloudDesktopNavigationLifecycleTests.leaveAndReenter`（都是轮询预算到期）；2026-11-20 那次 dispatch（run 44703813508）更是在 `UpgradeAnalyticsTests.welcomeOtherOutcomes` 上挂死 4 小时、最后撞 360 分钟 job 上限被 cancelled（同一条用例在前两次跑里 1.8s 通过），整轮没有结论。
+  **要做什么**：① 给「等外部信号」的用例路径（`analytics.drain()`、窗口 present / dismiss、`waitUntil`）加**有界**等待，避免无超时的挂死把整轮拖到 job 上限；② 评估给 workflow 加 per-step `timeout-minutes`（挂死能快速失败、不再烧 6 小时）；③ 定 flake 策略：继续按 SKIP 名单逐个排除（已有 4 轮先例）还是接受「全量红不阻塞发版」（现 `build-macos` 与 Release 资产不受影响）。
+  **注意**：不要把 timeout 当成「改测试迁就实现」——上述用例挂的都是「等异步链路到位」，断言条件本身没错。
+
 - [ ] **T9** 删掉残留的旧 fork `xhqing/cmux-upstream-fork-archive`（就是原来那个 1.1 GiB 的 fork，2026-11-02 让位改名后留下的）：当前 gh token 没有 `delete_repo` 权限，需要 `gh auth refresh -h github.com -s delete_repo` 之后 `gh repo delete xhqing/cmux-upstream-fork-archive --yes`，或者直接在网页 Settings → Danger Zone 删除（记录：2026-11-03 07:20）
 - [ ] **T10** 把 `cmuxTests` / `cmuxCLITests` 接入 CI（记录：2026-11-16 18:20）
   **进展（2026-11-16）**：`cmuxTests` 已拆到独立 `.github/workflows/unit-tests.yml`（与 `build-macos` 并行，不再占出包时间线，Issue #93）；r23 的测试编译错误（`RCChannelIdentityTests` 缺 `import CmuxFoundation`）已修；r24 实测 3 条 MarkdownPanel 新用例全绿。**剩余**：① `cmuxCLITests` 仍未接入；② 全量 `cmuxTests` 首次真正跑完就暴露 136 个既有失败（GUI / 快捷键 / 窗口行为类，其中 `AppDelegateShortcutRoutingTests` 44 个）与 Swift Testing 那套 90 分钟以上未跑完——已开独立 Issue 追踪，这是让这套测试真能当回归网的前提；③ Debug 整套重编约 90 分钟仍是最贵的环节。

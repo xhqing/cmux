@@ -418,7 +418,7 @@ tccutil reset ScreenCapture com.cmuxterm.app.debug   # 开发版（reload.sh 默
 
 ### 7. Sparkle 升级注意（一次性）
 
-r26 / r27 的安装包是 ad-hoc 签名。从它们升到**证书签名**的版本时，签名身份变了，Sparkle 会拒绝安装（它校验签名一致性）。需要一次性手动重装：
+r26 / r27 / r28 / r29 的安装包都是 ad-hoc 签名。从它们升到**证书签名**的版本时，签名身份变了，Sparkle 会拒绝安装（它校验签名一致性）。需要一次性手动重装：
 
 ```bash
 ./scripts/install-release.sh --tag <第一个证书签名的版本>
@@ -426,22 +426,43 @@ r26 / r27 的安装包是 ad-hoc 签名。从它们升到**证书签名**的版�
 
 之后版本之间签名身份一致，应用内更新恢复正常。
 
-### 8. CI 的证书配置（可选）
+**下一个 Release 的 notes 必须写这一句**（2026-11-20 起 CI 已按证书签名出包，所以下一个 tag 就是那个「第一个」）：
 
-`build.yml` 支持用两个（三个）secret 给产物挂固定身份；**都不配时行为与以前完全一致**（ad-hoc，日志里会打一条 warning 说明代价）：
+> 本次是首个使用固定证书签名的版本，从旧版应用内更新会被 Sparkle 拒绝（签名身份变了）。需要手动重装一次：`./scripts/install-release.sh --tag v<版本>`；之后再更新可以照常用应用内更新。
 
-| Secret | 内容 | 必填 |
+证书轮换（见第 8 节）会让这句话再成立一次——换身份 = 又一次一次性手动重装。
+
+### 8. CI 的证书配置（2026-11-20 起已启用）
+
+`build.yml` 用三个 secret 给 Release 产物挂固定身份。**2026-11-20 已配置**（`gh secret list -R xhqing/cmux` 可见），所以从那之后的每个 tag 出包都应该是证书签名；三个 secret 全部删掉时行为会回退成 ad-hoc（日志里打一条 warning 说明代价）。
+
+| Secret | 内容 | 缺省会怎样 |
 | --- | --- | --- |
-| `CMUX_DEV_SIGNING_CERT_P12_BASE64` | 证书 + 私钥的 `.p12`，`base64 -i cmux-dev-signing.p12 \| pbcopy` 的结果 | 配了才启用 |
-| `CMUX_DEV_SIGNING_CERT_PASSWORD` | 该 `.p12` 的密码 | 同上 |
-| `CMUX_DEV_SIGNING_IDENTITY` | 证书 CN，默认 `cmux Local Code Signing` | 可选 |
+| `CMUX_DEV_SIGNING_CERT_P12_BASE64` | 证书 + 私钥的 `.p12` 的单行 base64（`base64 < cmux-dev-signing.p12 \| tr -d '\n'`） | 不导入证书，产物退回 ad-hoc |
+| `CMUX_DEV_SIGNING_CERT_PASSWORD` | 该 `.p12` 的密码 | 导入失败 → 构建红 |
+| `CMUX_DEV_SIGNING_IDENTITY` | 证书 CN，`cmux Local Code Signing` | 回落到同名默认值 |
 
-配置方法：`gh secret set CMUX_DEV_SIGNING_CERT_P12_BASE64 -R xhqing/cmux < <(base64 -i ~/.dev/private/cmux/signing/cmux-dev-signing.p12)`，密码用 `gh secret set CMUX_DEV_SIGNING_CERT_PASSWORD -R xhqing/cmux`（交互输入）。
+非交互配置（**密码不要经过命令行参数**，它会进 `ps` 与 shell 历史）：
+
+```bash
+base64 < ~/.dev/private/cmux/signing/cmux-dev-signing.p12 | tr -d '\n' \
+  | gh secret set CMUX_DEV_SIGNING_CERT_P12_BASE64 -R xhqing/cmux
+tr -d '\n' < <密码文件> | gh secret set CMUX_DEV_SIGNING_CERT_PASSWORD -R xhqing/cmux
+gh secret set CMUX_DEV_SIGNING_IDENTITY -R xhqing/cmux --body "cmux Local Code Signing"
+```
 
 流水线行为：
 
 1. 「导入签名证书（可选）」只在 `CMUX_DEV_SIGNING_CERT_P12_BASE64` 非空时执行：临时钥匙串 + `security import -T /usr/bin/codesign` + `set-key-partition-list` + `add-trusted-cert -r trustAsRoot -p codeSign`，然后把 `CMUX_DEV_SIGN_IDENTITY` 写进 `$GITHUB_ENV`。**导入失败 / 身份找不到 = 构建直接红**，不静默退回 ad-hoc。
 2. 构建后「校验产物的签名身份」读 `codesign -d --requirements -`：配了身份时 requirement 里必须出现 `certificate leaf`（出现 `cdhash` 就失败）；没配时只打 warning。
+
+**证书已实测的 designated requirement**（同一张证书签两次、内容不同，DR 完全一致——这正是 TCC 跨构建保留授权的前提）：
+
+```
+identifier "com.xhqing.cmux" and certificate leaf = H"a186d9902f87057d5c4090c677d3ad1797323503"
+```
+
+**证书轮换（慎入）**：换证书 = 换 DR 哈希 = ① 全网 TCC 授权（屏幕录制、辅助功能等）**再失效一次**，每台机器都要重新授权；② Sparkle 跨身份拒绝更新，每台机器要**再手动重装一次**（见第 7 节那句 notes）；③ 三个 secret 与 `~/.zshrc` 的 `CMUX_DEV_SIGN_IDENTITY` 必须同批更新，否则本机与 CI 的产物 DR 不一致、用户会在两套身份之间反复失效。没有迫不得已的原因（比如私钥疑似泄露）不要轮换。
 
 注意：`scripts/build-sign-upload.sh` 里那张 `SIGN_HASH` 是**上游**（manaflow-ai/cmux）的 Developer ID 证书指纹，本仓库没有这张证书、也没有 workflow 调用它——它不在本仓库的发版链路上，缺证书时现在会在 pre-flight 明确报错。
 

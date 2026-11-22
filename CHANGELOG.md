@@ -4,6 +4,8 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+> **首个证书签名版本（下一个 tag）需要手动重装一次**：从 r29 及更早（ad-hoc 签名）升级会被 Sparkle 拒绝——签名身份变了。请手动重装：`./scripts/install-release.sh --tag <新版本>`；之后版本之间签名身份一致，应用内更新恢复正常。证书轮换（见 `DEVELOPMENT.md` 第十节第 8 小节）会让这句话再成立一次。
+
 ### 修复（CI 证书签名在长构建末尾挂死，作业撞 6 小时上限，2026-11-22，Issue #121）
 
 - **为什么改**：三个 `CMUX_DEV_SIGNING_*` secret 配好之后，`build.yml` 两次 dispatch（run 44762116495 / 44820370848）都在「构建 Release」这一步耗到 6 小时作业上限才被取消，后面的签名校验 / 打包 / 上传全部 skipped，证书签名链路一次都没成功出包。

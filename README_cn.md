@@ -58,7 +58,7 @@ curl -fsSL https://raw.githubusercontent.com/xhqing/cmux/main/scripts/install-re
 bash /tmp/cmux-install.sh
 ```
 
-脚本默认装最新版到 `/Applications`，覆盖旧版本前会先问你；常用参数：`--tag v0.65.2.2-r29` 指定版本、`--dest <目录>` 换安装目录、`--no-launch` 装完不启动、`--yes` 跳过确认（非交互环境必须加）、`--skip-checksum` 应急跳过校验。
+脚本默认装最新版到 `/Applications`，覆盖旧版本前会先问你；常用参数：`--tag v0.65.2.2-r30` 指定版本、`--dest <目录>` 换安装目录、`--no-launch` 装完不启动、`--yes` 跳过确认（非交互环境必须加）、`--skip-checksum` 应急跳过校验。
 
 ### 手工安装（兜底）
 

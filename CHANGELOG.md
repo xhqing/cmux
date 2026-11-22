@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [未发布]
+## [0.65.2.2-r30] - 2026-11-22
 
 > **首个证书签名版本（下一个 tag）需要手动重装一次**：从 r29 及更早（ad-hoc 签名）升级会被 Sparkle 拒绝——签名身份变了。请手动重装：`./scripts/install-release.sh --tag <新版本>`；之后版本之间签名身份一致，应用内更新恢复正常。证书轮换（见 `DEVELOPMENT.md` 第十节第 8 小节）会让这句话再成立一次。
 

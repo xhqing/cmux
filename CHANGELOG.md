@@ -4,6 +4,15 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 修复（CI 证书签名在长构建末尾挂死，作业撞 6 小时上限，2026-11-22，Issue #121）
+
+- **为什么改**：三个 `CMUX_DEV_SIGNING_*` secret 配好之后，`build.yml` 两次 dispatch（run 44762116495 / 44820370848）都在「构建 Release」这一步耗到 6 小时作业上限才被取消，后面的签名校验 / 打包 / 上传全部 skipped，证书签名链路一次都没成功出包。
+- **先纠正一条误判**：把「日志最后一行是 codesign」当成卡住位置是错的——GitHub 的 step 日志按体积截断（构建步骤约 6.3 MiB），成功那次 r29（run 44561499331）的日志也停在同一类编译行（16:32:39，而构建实际跑到 17:33:54）。真凭据在取消时的收尾：`Terminate orphan process: pid (76285) (codesign)`——`xcodebuild` 已经退出、只剩一个 `codesign` 活着，说明卡在 `reloads.sh` 末尾那次用证书签最终产物的 `codesign --sign` 上。
+- **根因**：导入步骤把临时钥匙串设成 `set-keychain-settings -lut 3600`（空闲 1 小时自动锁定）。构建要 1.5~2 小时，中途没有任何一步使用这个钥匙串，它必然在签名之前锁上；末尾那次 `codesign` 去等 SecurityAgent 解锁，runner 上无人应答 → 无限挂起，直到作业超时。
+- **改了什么**：① `build.yml` 改成 `set-keychain-settings -l`（只锁睡眠、`no-timeout`）；② `set-key-partition-list` 不再 `|| true`，失败直接构建红；③ 把 `CMUX_DEV_SIGN_KEYCHAIN` / `_PASSWORD` 写进 `$GITHUB_ENV`，`reloads.sh` 签名前显式解锁、解不开即失败；④ `reloads.sh` 给 `codesign` 套 600 秒 watchdog（`CMUX_CODESIGN_TIMEOUT` 可调），卡住就报错而不是耗到作业上限；⑤ 构建步骤加 `timeout-minutes: 270` 兜底；⑥ 签名校验步骤打印 `security show-keychain-info`，下次从日志就能看到钥匙串状态。
+- **怎么验证**：`bash -n scripts/reloads.sh` 与 `ruby -ryaml` 解析 workflow 均通过；`set-keychain-settings -l` 在 macOS 上用 `security show-keychain-info` 实测显示 `no-timeout`；perl `alarm` watchdog 实测按时杀掉子进程（exit 142）；随后 dispatch 一次完整构建确认端到端（结果补在本节下方）。
+- **回归检查**：未配证书时导入步骤整段跳过、`CMUX_DEV_SIGN_KEYCHAIN` 不设 → `reloads.sh` 的解锁与 watchdog 都不激活，仍走原来的 `codesign` 路径；ad-hoc 分支保留 `|| true`；证书签名失败仍让构建失败。
+
 ### 更正（CloudPort 那条用例不是预算太窄，是主 actor 被占着，2026-11-21）
 
 - **为什么改**：PR #129 把 `CloudPortRoutePlanTests.wait` 的预算从 10 秒提到 30 秒，当时的理由是「轮询预算在慢 runner 上不够」。run 44755916546（main `977671a`，含该改动）推翻了这条结论：`stopDuringStart` 把 **30 秒跑满**才报错，说明状态根本没有转过去，而不是「慢一点」。

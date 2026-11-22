@@ -141,6 +141,26 @@ if [[ -n "$TAG" ]]; then
   fi
 fi
 
+# 证书签名的一次性前置 + 看门狗（Issue #121，2026-11-20 CI 挂死教训）：
+#   * 解锁：CI 的临时钥匙串由 build.yml 创建，1 小时空闲自动锁定曾经让长构建末尾那次
+#     codesign 去等 SecurityAgent 解锁——runner 上无人应答，于是挂到 6 小时作业上限
+#     （运行 44762116495 / 44820370848，取消时还留着一个活着的 codesign 进程）。
+#     build.yml 已经改成不设空闲锁定；这里再兜一层：只要它传了 CMUX_DEV_SIGN_KEYCHAIN，
+#     签名前显式解锁，解不开就直接失败（不让它退化成「等解锁」）。
+#   * 看门狗：正常签名只要几秒，超过 CMUX_CODESIGN_TIMEOUT（默认 600 秒）一定是卡住，
+#     直接失败，别让流水线空转到作业上限。
+sign_with_watchdog() {
+  if [[ -n "${CMUX_DEV_SIGN_KEYCHAIN:-}" ]]; then
+    if ! /usr/bin/security unlock-keychain -p "${CMUX_DEV_SIGN_KEYCHAIN_PASSWORD:-}" \
+           "$CMUX_DEV_SIGN_KEYCHAIN"; then
+      echo "error: 解锁签名钥匙串失败（$CMUX_DEV_SIGN_KEYCHAIN）：签名会一直等解锁，直接判失败" >&2
+      return 1
+    fi
+  fi
+  /usr/bin/perl -e 'alarm shift; exec @ARGV' "${CMUX_CODESIGN_TIMEOUT:-600}" \
+    /usr/bin/codesign "$@"
+}
+
 # 代码签名身份（Issue #121）：两套构建入口共用同一个解析器，解析规则与
 # CMUX_DEV_SIGN_IDENTITY 的语义见 scripts/resolve-sign-identity.sh。
 # 放在 xcodebuild 之前：指定的身份不存在时立刻失败，不要把两小时的构建跑完
@@ -290,11 +310,11 @@ if [[ -f "$INFO_PLIST" ]]; then
     rm -f "$CMUX_SOCKET_PATH_VALUE"
   fi
   if [[ "$SIGN_IDENTITY" == "-" ]]; then
-    /usr/bin/codesign --force --sign "$SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH" >/dev/null 2>&1 || true
+    sign_with_watchdog --force --sign "$SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH" >/dev/null 2>&1 || true
   else
     # 用证书签名时失败必须让构建失败：xcodebuild 的产物本身是 ad-hoc 的，这里签不上
     # 如果被吞掉，产物会静默停在 ad-hoc 上，Issue #121 的 bug 就悄悄回来了。
-    /usr/bin/codesign --force --sign "$SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH"
+    sign_with_watchdog --force --sign "$SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$IDENTITY_APP_PATH"
   fi
 fi
 APP_PATH="$IDENTITY_APP_PATH"

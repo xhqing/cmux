@@ -6,6 +6,13 @@ All notable changes to cmux are documented here.
 
 > **首个证书签名版本（下一个 tag）需要手动重装一次**：从 r29 及更早（ad-hoc 签名）升级会被 Sparkle 拒绝——签名身份变了。请手动重装：`./scripts/install-release.sh --tag <新版本>`；之后版本之间签名身份一致，应用内更新恢复正常。证书轮换（见 `DEVELOPMENT.md` 第十节第 8 小节）会让这句话再成立一次。
 
+### 新增（内置文件编辑器自动保存 + 外部改动冲突保护，2026-11-22，Issue #136）
+
+- **为什么改**：内置文件预览编辑器只有 ⌘S 一条写盘路径。一次真实事故：面板里改着内容、另一个进程（`git checkout` / 合并）重写了同一个文件，两边都以为自己在改唯一的那份——面板从未落盘，另一侧的写入也没被察觉。要的是「停手一会儿就自动存」加「文件被别人动过就绝不静默覆盖」。
+- **改了什么**：① 新增 `fileEditor.autoSave`（默认开）与 `fileEditor.autoSaveDelay`（默认 600 毫秒，范围 200~5000）；② 包层新增 `FileEditorAutoSavePolicy`（判定优先级 disabled → composing → fileTooLarge → diskChanged → save，5 MB 恰等于时放行）、`FileEditorDiskState`（dev / inode / size / mtime 秒+纳秒指纹，缺文件时 `byteCount == 0`）与 `FileEditorAutoSaveController`（可取消的防抖写；到点再取一次指纹与字节数复核，漂移只报 `.conflict`、一个字节都不写；写完推进自己的基线）；③ 面板接线：写入走 `FileContentChangeCoordinator.saveTextContent(…using:excluding:)`（否则自己的自动保存会被 watcher 当成外部改动）、输入法组合中不写、手工 ⌘S 与「载入磁盘版本」都重设基线、外部改动保留脏缓冲区时显示横幅（覆盖磁盘 / 载入磁盘版本两个按钮）、关闭面板取消在途任务；④ 设置页、`cmux.json` schema（含生成的 Swift）、搜索 / 别名 / 命令面板路径、`cmux-settings` 键参考全链路补齐。
+- **怎么验证**：`cmuxTests` 不新增；断言在 `CmuxFilePreviewCore` 的 `FileEditorAutoSaveTests`（策略五档、连发只写最后一次、外部改动转冲突且不写盘、重设基线后可再写、关闭 / 取消不写、组合中不写、超 5 MB 跳过）与 `CmuxSettings` 的 `FileEditorAutoSaveSettingTests`，加 `scripts/tests/test_file_editor_autosave_schema.py`（schema 与目录默认值 / 范围必须一致，已进门禁）。本机无 Testing 模块，包层行为先用等价 harness 逐条跑通，权威验证在 CI 的 `swift test`。
+- **回归检查**：自动保存关闭时与改动前完全一致；⌘S / Revert / 关闭确认提示逻辑未动；标记文本与超大文件两条限制保证不会把半成品或超预期体量写进磁盘。
+
 ### 修复（CI 证书签名在长构建末尾挂死，作业撞 6 小时上限，2026-11-22，Issue #121）
 
 - **为什么改**：三个 `CMUX_DEV_SIGNING_*` secret 配好之后，`build.yml` 两次 dispatch（run 44762116495 / 44820370848）都在「构建 Release」这一步耗到 6 小时作业上限才被取消，后面的签名校验 / 打包 / 上传全部 skipped，证书签名链路一次都没成功出包。

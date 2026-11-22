@@ -357,6 +357,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: fileEditorSettings.catalog.currentLineHighlight.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorAutoSave",
+                settingsKey: "fileEditor.autoSave",
+                title: {
+                    String(localized: "settings.app.fileEditorAutoSave", defaultValue: "File Editor Auto-Save")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.autoSave", "auto", "save", "autosave", "write", "disk", "debounce"],
+                defaultValue: fileEditorSettings.catalog.autoSave.defaultValue,
+                defaultsKey: fileEditorSettings.catalog.autoSave.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "iMessageMode",
                 settingsKey: "app.iMessageMode",
                 title: {

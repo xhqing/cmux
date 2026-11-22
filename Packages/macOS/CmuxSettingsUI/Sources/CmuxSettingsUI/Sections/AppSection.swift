@@ -48,6 +48,8 @@ public struct AppSection: View {
     @State private var fileEditorIndentGuides: DefaultsValueModel<Bool>
     @State private var fileEditorCurrentLineHighlight: DefaultsValueModel<Bool>
     @State private var fileEditorTabWidth: DefaultsValueModel<Int>
+    @State private var fileEditorAutoSave: DefaultsValueModel<Bool>
+    @State private var fileEditorAutoSaveDelay: DefaultsValueModel<Int>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<WorkspaceAutoReorderMode>
     @State private var dockBadge: DefaultsValueModel<Bool>
@@ -125,6 +127,8 @@ public struct AppSection: View {
         _fileEditorIndentGuides = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.indentGuides))
         _fileEditorCurrentLineHighlight = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.currentLineHighlight))
         _fileEditorTabWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.tabWidth))
+        _fileEditorAutoSave = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.autoSave))
+        _fileEditorAutoSaveDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.autoSaveDelay))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
@@ -180,7 +184,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, markdownLoadRemoteImages, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, titlebarBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseAgentSession, warnCloseX, warnCloseWorkspace, warnCloseWindow, confirmCloseRunningProcess, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, markdownLoadRemoteImages, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, fileEditorAutoSave, fileEditorAutoSaveDelay, iMessage, reorder, dockBadge, titlebarBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseAgentSession, warnCloseX, warnCloseWorkspace, warnCloseWindow, confirmCloseRunningProcess, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -636,6 +640,43 @@ public struct AppSection: View {
                     String(localized: "settings.app.fileEditorTabWidth", defaultValue: "File Editor Tab Width")
                 )
                 .accessibilityIdentifier("SettingsFileEditorTabWidthStepper")
+            }
+            SettingsCardDivider()
+
+            // File Editor Auto-Save
+            SettingsCardRow(
+                configurationReview: .json("fileEditor.autoSave"),
+                String(localized: "settings.app.fileEditorAutoSave", defaultValue: "File Editor Auto-Save"),
+                subtitle: String(localized: "settings.app.fileEditorAutoSave.subtitle", defaultValue: "Write edits back to disk after a short idle pause. Files above 5 MB, marked text from an input method, and files that changed on disk are never overwritten.")
+            ) {
+                Toggle("", isOn: Binding(get: { fileEditorAutoSave.current }, set: { fileEditorAutoSave.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsFileEditorAutoSaveToggle")
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("fileEditor.autoSaveDelay"),
+                String(localized: "settings.app.fileEditorAutoSaveDelay", defaultValue: "File Editor Auto-Save Delay"),
+                subtitle: String(localized: "settings.app.fileEditorAutoSaveDelay.subtitle", defaultValue: "Milliseconds of idle time before an automatic save.")
+            ) {
+                Stepper(
+                    value: Binding(
+                        get: { fileEditorAutoSaveDelay.current },
+                        set: { fileEditorAutoSaveDelay.set($0) }
+                    ),
+                    in: FileEditorCatalogSection.supportedAutoSaveDelayRange,
+                    step: 50
+                ) {
+                    Text("\(fileEditorAutoSaveDelay.current) ms")
+                        .monospacedDigit()
+                }
+                .disabled(!fileEditorAutoSave.current)
+                .accessibilityLabel(
+                    String(localized: "settings.app.fileEditorAutoSaveDelay", defaultValue: "File Editor Auto-Save Delay")
+                )
+                .accessibilityIdentifier("SettingsFileEditorAutoSaveDelayStepper")
             }
             SettingsCardDivider()
 

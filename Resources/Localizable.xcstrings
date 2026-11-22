@@ -653955,6 +653955,215 @@
           }
         }
       }
+    },
+    "settings.app.fileEditorAutoSave": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Auto-Save"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器自动保存"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorAutoSave.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write edits back to disk after a short idle pause. Files above 5 MB, marked text from an input method, and files that changed on disk are never overwritten."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止输入片刻后自动把编辑写回磁盘。超过 5 MB 的文件、输入法尚未上屏的标记文本，以及磁盘上已被改动过的文件都不会被覆盖。"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorAutoSaveDelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Editor Auto-Save Delay"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器自动保存延迟"
+          }
+        }
+      }
+    },
+    "settings.app.fileEditorAutoSaveDelay.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Milliseconds of idle time before an automatic save."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动保存前需要空闲的毫秒数。"
+          }
+        }
+      }
+    },
+    "settings.search.fileEditor.autoSave": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "file editor auto save autosave automatic write disk debounce idle"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器 自动保存 自动写入 磁盘 防抖 空闲"
+          }
+        }
+      }
+    },
+    "settings.search.fileEditor.autoSaveDelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "file editor auto save autosave delay milliseconds debounce idle timer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器 自动保存 延迟 毫秒 防抖 空闲 计时"
+          }
+        }
+      }
+    },
+    "schemaDescriptions.fileEditor.autoSave": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write edits back to disk after a short idle pause. Files above 5 MB, marked text from an input method, and files that changed on disk after the buffer's baseline are never auto-saved; a file that moved on disk is reported as a conflict instead of being overwritten."
+          }
+        }
+      }
+    },
+    "schemaDescriptions.fileEditor.autoSaveDelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle delay, in milliseconds, before an automatic save."
+          }
+        }
+      }
+    },
+    "filePreview.externalChange.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file changed on disk. Your unsaved changes were kept."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘上的文件已被更新，未保存的编辑已保留。"
+          }
+        }
+      }
+    },
+    "filePreview.externalChange.loadDiskVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load Disk Version"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "载入磁盘版本"
+          }
+        }
+      }
+    },
+    "filePreview.externalChange.overwrite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overwrite Disk"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "覆盖磁盘"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-auto-save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.autoSave file editor auto save autosave automatic write to disk debounce idle"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.autoSave 文件编辑器 自动保存 自动写入磁盘 防抖 空闲"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.file-editor-auto-save-delay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.autoSaveDelay file editor auto save autosave delay milliseconds debounce idle timer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.autoSaveDelay 文件编辑器 自动保存 延迟 毫秒 防抖 空闲 计时"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

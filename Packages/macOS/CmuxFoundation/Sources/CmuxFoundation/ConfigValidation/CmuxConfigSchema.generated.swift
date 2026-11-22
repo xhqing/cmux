@@ -2457,6 +2457,22 @@ enum CmuxEmbeddedConfigSchema {
           "maximum": 8,
           "description": "Columns per tab stop for indent guides.",
           "descriptionKey": "schemaDescriptions.fileEditor.tabWidth"
+        },
+        "autoSave": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Write edits back to disk after a short idle pause. Files above 5 MB, marked text from an input method, and files that changed on disk after the buffer's baseline are never auto-saved; a file that moved on disk is reported as a conflict instead of being overwritten.",
+          "descriptionKey": "schemaDescriptions.fileEditor.autoSave"
+        },
+        "autoSaveDelay": {
+          "x-cmux-scopes": ["global"],
+          "type": "integer",
+          "default": 600,
+          "minimum": 200,
+          "maximum": 5000,
+          "description": "Idle delay, in milliseconds, before an automatic save.",
+          "descriptionKey": "schemaDescriptions.fileEditor.autoSaveDelay"
         }
       }
     },

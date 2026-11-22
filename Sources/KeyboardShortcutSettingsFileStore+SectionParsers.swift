@@ -358,6 +358,22 @@ extension CmuxSettingsFileStore {
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
+        parseFileEditorBool(
+            section,
+            jsonKey: "autoSave",
+            defaultsKey: fileEditorSettings.catalog.autoSave.userDefaultsKey,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        if let value = jsonInt(section["autoSaveDelay"]) {
+            if fileEditorSettings.catalog.autoSaveDelayRange.contains(value) {
+                snapshot.managedUserDefaults[fileEditorSettings.catalog.autoSaveDelay.userDefaultsKey] = .int(value)
+            } else {
+                logInvalid("fileEditor.autoSaveDelay", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("autoSaveDelay") {
+            logInvalid("fileEditor.autoSaveDelay", sourcePath: sourcePath)
+        }
         if let value = jsonInt(section["tabWidth"]) {
             if fileEditorSettings.catalog.tabWidthRange.contains(value) {
                 snapshot.managedUserDefaults[fileEditorSettings.catalog.tabWidth.userDefaultsKey] = .int(value)

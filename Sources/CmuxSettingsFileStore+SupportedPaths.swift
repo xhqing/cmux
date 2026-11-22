@@ -231,6 +231,8 @@ extension CmuxSettingsFileStore {
         "fileEditor.indentGuides",
         "fileEditor.currentLineHighlight",
         "fileEditor.tabWidth",
+        "fileEditor.autoSave",
+        "fileEditor.autoSaveDelay",
         "fileExplorer.doubleClickAction",
         "agentMessages.enabled",
         "shortcuts.bindings",

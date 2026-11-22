@@ -16,6 +16,17 @@ public struct FileEditorCatalogSection: SettingCatalogSection {
     /// Inclusive tab-stop range accepted by the editor and JSON schema.
     public var tabWidthRange: ClosedRange<Int> { Self.supportedTabWidthRange }
 
+    /// Inclusive auto-save delay range, in milliseconds, accepted by the
+    /// editor and JSON schema (#136).
+    ///
+    /// Same contract as ``supportedTabWidthRange``: one constant shared by the
+    /// editor, the settings UI, and the `cmux.json` parser.
+    public static let supportedAutoSaveDelayRange: ClosedRange<Int> = 200...5000
+
+    /// Inclusive auto-save delay range, in milliseconds, accepted by the
+    /// editor and JSON schema.
+    public var autoSaveDelayRange: ClosedRange<Int> { Self.supportedAutoSaveDelayRange }
+
     /// Whether long lines soft-wrap at the editor's right edge.
     ///
     /// `false` (the default) preserves the established behavior: lines extend
@@ -61,6 +72,23 @@ public struct FileEditorCatalogSection: SettingCatalogSection {
         id: "fileEditor.tabWidth",
         defaultValue: 4,
         userDefaultsKey: "fileEditor.tabWidth"
+    )
+
+    /// Whether edits are written back to disk after a short idle pause.
+    ///
+    /// Files above 5 MB, marked text from an input method, and files that
+    /// changed on disk after the buffer's baseline are never auto-saved.
+    public let autoSave = DefaultsKey<Bool>(
+        id: "fileEditor.autoSave",
+        defaultValue: true,
+        userDefaultsKey: "fileEditor.autoSave"
+    )
+
+    /// Idle delay, in milliseconds, before an automatic save.
+    public let autoSaveDelay = DefaultsKey<Int>(
+        id: "fileEditor.autoSaveDelay",
+        defaultValue: 600,
+        userDefaultsKey: "fileEditor.autoSaveDelay"
     )
 
     /// Creates the file editor settings section with its default keys.

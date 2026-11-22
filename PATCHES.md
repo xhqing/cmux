@@ -873,3 +873,64 @@ Markdown 面板（预览 / 就地编辑 / TextEdit）里打开的文件被外部
 - `python3 scripts/generate-cmux-config-schema.py --check`、`swiftc -parse -enable-bare-slash-regex`（改动文件逐个）、`./scripts/lint-pbxproj-test-wiring.sh`、`python3 scripts/lint-xcstrings.py`、`python3 scripts/localization_defaults.py` 全绿。
 - CI：`checks` 的 `scripts/check-swift-packages.py` 对 `CmuxNotifications` / `CmuxSettings` / `CmuxSettingsUI` 跑 `swift build` + `swift test`，覆盖两个新测试文件与搜索锚点契约；app target 的编译由 `build-macos` 兜底。
 - 真机验收（装新版后走）：设置 → App → Dock Badge 下面把 Titlebar Badge 关掉，角标立刻消失；侧边栏未读徽标、通知面板、桌面弹窗不受影响；再打开立刻恢复；重启后保持。
+
+## P18 — 内置文件编辑器自动保存 + 外部改动冲突保护（`fileEditor.autoSave*`，Issue #136）
+
+**状态**：已实现
+
+### 要解决的问题
+
+内置文件预览编辑器只有 ⌘S 一条写盘路径。真实事故：面板里改着内容、另一个进程（`git checkout` / 合并）重写了同一个文件——面板从未落盘，另一侧的写入也没被察觉，两边都以为自己在改唯一的那份。需要两件事：停手一会儿自动存；文件被别人动过时绝不静默覆盖。
+
+### 根因
+
+- `FilePreviewPanel.saveTextContent()` 是唯一写入口，编辑本身只更新缓冲区与 dirty 标记。
+- 外部改动到达时 `applyTextLoadResult(replacingDirtyContent: false)` 会把 `originalTextContent` 换成磁盘内容、同时保留缓冲区（`:1625` 附近）。任何「按 `originalTextContent` 判脏 / 当基线」的自动保存都会把外部改动当成新基线再覆盖回去。
+- 面板自己的写入若绕过 `FileContentChangeCoordinator`，会被自己的 watcher 当成外部改动，每次自动保存都弹一次冲突。
+
+### 改法
+
+| 文件 | 改动 |
+| --- | --- |
+| `Packages/macOS/CmuxFilePreviewCore/Sources/CmuxFilePreviewCore/FileEditorAutoSavePolicy.swift`（新增） | `FileEditorAutoSaveDecision`（save / disabled / composing / fileTooLarge / diskChanged）与 `FileEditorAutoSavePolicy.maximumFileBytes = 5 MiB`。判定顺序：disabled → composing → fileTooLarge（`> maximum` 才拒绝，恰等于放行）→ diskChanged → save。 |
+| `.../FileEditorDiskState.swift`（新增） | 磁盘指纹：exists / device / inode / size / mtime（秒 + 纳秒），对外只暴露 `byteCount`（缺文件为 0）。与 app 的 `FilePreviewFileState` 同思路但独立实现，不在 app 与包之间搬类型——app 那个仍归 watcher。 |
+| `.../FileEditorAutoSave.swift`（新增） | `FileEditorAutoSaveSettings` / `FileEditorAutoSaveOutcome` / `@MainActor FileEditorAutoSaveController`：`rebaseToCurrentDiskState()` 重设基线并取消在途任务；`noteEdit` 每次先取消上一个任务，`settings()` 实时读开关与延迟，`decision != .save` 时既不排任务也不发 outcome；到点后**再取一次**指纹与字节数复核，仍 `.save` 才调 `writer`，成功推进基线并报 `.saved`，失败报 `.failed`，复核为 `.diskChanged` 只报 `.conflict`（不写盘）。`hasPendingAutoSave` 在任务结束 / 取消后为 false。`public import Foundation`（public API 用 `URL` / `String.Encoding`）。 |
+| `Packages/macOS/CmuxSettings/.../Keys/FileEditorCatalogSection.swift` | `supportedAutoSaveDelayRange = 200...5000`、`autoSaveDelayRange`、`autoSave`（默认 true）、`autoSaveDelay`（默认 600）。 |
+| `schemas/config/cmux.schema.json` + `CmuxConfigSchema.generated.swift` | `fileEditor.autoSave`（boolean / true / `schemaDescriptions.fileEditor.autoSave`）与 `fileEditor.autoSaveDelay`（integer / 600 / 200~5000 / `schemaDescriptions.fileEditor.autoSaveDelay`），均带 `x-cmux-scopes: ["global"]`；重跑 `scripts/generate-cmux-config-schema.py`。 |
+| `Sources/CmuxSettingsJSONPathSupport.swift`、`Sources/CmuxSettingsFileStore+SupportedPaths.swift` | 两个新路径登记。 |
+| `Sources/KeyboardShortcutSettingsFileStore+SectionParsers.swift` | `parseFileEditorSection` 解析 `autoSave`（bool）与 `autoSaveDelay`（整数且必须落在目录范围内，越界 `logInvalid`），否则 `cmux.json` 里写了也被静默忽略。 |
+| `Sources/SettingsSearchIndex.swift`、`Sources/SettingsSearchAliases.swift` | 两条搜索条目 + 两条 `settingID` 映射 + 两条别名。 |
+| `Packages/macOS/CmuxSettingsUI/.../Sections/AppSection.swift` | 两个 `@State`、初始化、观察列表、两行 `SettingsCardRow`（Toggle 与 200~5000 的 Stepper，步长 50，自动保存关闭时禁用）。 |
+| `Packages/macOS/CmuxSettingsUI/.../CuratedSettingEntry+Default.swift` | 两条 curated entry（路径即两个键）。 |
+| `Resources/Localizable.xcstrings` | 设置页标题 + subtitle、两条搜索 / 别名、两条 `schemaDescriptions.*`、冲突横幅文案与两个按钮（`filePreview.externalChange.*`）。 |
+| `skills/cmux-settings/references/all-keys.md` | 两条键行。 |
+| `Sources/Panels/FilePreviewEditorSettings.swift` | `isAutoSaveEnabled` / `autoSaveDelayMilliseconds`（按 `autoSaveDelayRange` 夹取）/ `autoSaveSettings`。 |
+| `Sources/Panels/FilePreviewPanel.swift` | 新增 `@Published private(set) var hasPendingExternalChange` 与 `let autoSaveController`（`init` 加可选注入参数；配置闭包每次读 `FilePreviewEditorSettings(defaults: .standard)`，设置改了立即生效）。`writer` 走 `fileContentChangeCoordinator.saveTextContent(_:to:encoding:using:excluding:)` 拿 `.saved` → true——**这是关键**：绕过 coordinator 的话自己的自动保存会被 watcher 当成外部改动。`onOutcome`：`.saved` 把 `originalTextContent` 推进到刚写成功的内容（buffer 之后又改过仍是脏，不 reload）、`.conflict` 置横幅、`.failed` 走 `isFileUnavailable`。`updateTextContent` 在更新 buffer / dirty 后 `noteEdit`；`noteTextEditing(isComposing:)` 置位并在组合中取消在途任务。`applyTextLoadResult`：内容被替换时 `rebaseToCurrentDiskState()` + 清横幅；脏内容被保留时置横幅且**不** rebase（`lastObservedFileState` 仍归 watcher）。手工 ⌘S 开始前取消在途任务，成功后重设基线并清横幅（若保存在途期间又打字，按新基线重新排任务）。新增 `acceptPendingExternalContent()` / `overwritePendingExternalContent()`；`close()` 取消在途任务。 |
+| `Sources/Panels/FilePreviewPanel.swift`（视图） | header 下方在 `hasPendingExternalChange` 时插横幅（照 `MarkdownPanelView` 外观）：文案 + 载入磁盘版本 / 覆盖磁盘两个按钮，`accessibilityIdentifier("filePreview-external-change-banner")`。 |
+| `Sources/Panels/FilePreviewTextEditor.swift` | 协议加 `noteTextEditing(isComposing:)`（扩展里默认空实现，`MarkdownPanel` 不用改）；`Coordinator.textDidChange` 先报组合状态再 `updateTextContent`。 |
+
+### 逻辑边界（刻意这么做）
+
+- **基线只由三件事推进**：控制器自己的成功写入、`rebaseToCurrentDiskState()`（载入磁盘版本、手工 ⌘S 成功、内容被整段替换）。watcher 事件一律不推进——这正是 Issue 评论点名的陷阱。
+- **冲突只报不写**：到点复核发现漂移就只发 `.conflict`，磁盘一个字节都不动，由用户选「载入磁盘版本」或「覆盖磁盘」。
+- **关闭 / 取消不写**：关闭面板、进入输入法组合、手工保存前都取消在途任务；关闭带未保存内容的确认提示保持原样。
+- **超大文件不自动存**：按当前磁盘字节数判 `> 5 MiB`（恰等于 5 MiB 仍放行），避免把大文件整段写回。
+- **自动保存关闭时行为与改动前一致**：不排任务、不发 outcome。
+
+### 已知风险
+
+- 自动保存把「脏」窗口压到延迟（默认 600 毫秒）以内；在这个窗口里直接关掉面板，且关闭确认被设置关掉时，这一小段编辑会丢。这是自动保存的固有取舍（VS Code / 浏览器同理）。
+- 指纹依赖 inode 与 mtime 纳秒精度；极端情况下（同尺寸、同时间戳、非原子改写，例如某些网络文件系统）可能漏判。watcher 与「到点复核」两层仍可能同时漏掉这类改写。
+- 「到点复核 → 写入」之间有毫秒级窗口：若另一个进程恰好在这个窗口内写完，本次写入仍会覆盖它（检查与写入不是原子操作）。这不是基线逻辑的漏洞（复核已经挡住绝大多数情况），要彻底消除需要文件锁或写后再比对，代价大于收益。
+- 非 UTF-8 文件：控制器 `init` 固定 `.utf8`，app 侧 writer 以面板的 `textEncoding` 为准，避免用错编码写盘；包层默认 writer 只按传入编码写。
+
+### 上游 rebase 冲突点
+
+`FilePreviewPanel.swift` 的 `init` / `close` / `updateTextContent` / `applyTextLoadResult` / `saveTextContent`、`FilePreviewTextEditor.swift` 的协议与 `textDidChange`、`FileEditorCatalogSection.swift`、schema 的 `fileEditor` 段、`AppSection.swift` 的 fileEditor 行尾、`CuratedSettingEntry+Default.swift`、`SettingsSearchIndex.swift` / `SettingsSearchAliases.swift`、`KeyboardShortcutSettingsFileStore+SectionParsers.swift` 的 `parseFileEditorSection`、`Resources/Localizable.xcstrings`。rebase 后必须保留：① 自动保存写入走 `FileContentChangeCoordinator`（带 `excluding`）；② watcher 不推进自动保存基线、`applyTextLoadResult` 脏保留分支不 rebase；③ 关闭 / 组合中 / 手工保存前取消在途任务。
+
+### 验证
+
+- `CmuxFilePreviewCore`：`FileEditorAutoSaveTests`（策略五档 + 5 MiB 边界、连发只写最后一次、外部改动转冲突且不写盘、重设基线后可再写、关闭 / 取消不写、组合中延后到上屏、超限跳过）。
+- `CmuxSettings`：`FileEditorAutoSaveSettingTests`（id / userDefaultsKey / 默认值 / 范围，`SettingCatalog()` 能取到两个键）。
+- 门禁：`scripts/tests/test_file_editor_autosave_schema.py`（schema 与目录默认值 / 范围一致）、`scripts/generate-cmux-config-schema.py --check`、`swiftc -parse -enable-bare-slash-regex` 逐个改动文件。
+- 本机（CommandLineTools，无 Testing 模块）用等价 harness（临时文件 + 可控时钟 + 真实 `stat`）把上述包层断言逐条跑过；权威验证是 CI 的 `swift build` + `swift test`，app target 由 `build-macos` 兜底。

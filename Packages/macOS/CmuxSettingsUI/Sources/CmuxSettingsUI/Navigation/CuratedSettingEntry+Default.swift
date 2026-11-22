@@ -113,6 +113,22 @@ extension Array where Element == CuratedSettingEntry {
                 title: String(localized: "settings.app.fileEditorTabWidth", defaultValue: "File Editor Tab Width"),
                 synonyms: "fileEditor.tabWidth " + String(localized: "settings.search.fileEditor.tabWidth", defaultValue: "tab width indent columns")
             ),
+            .init(
+                section: .app,
+                id: "file-editor-auto-save",
+                title: String(localized: "settings.app.fileEditorAutoSave", defaultValue: "File Editor Auto-Save"),
+                detailText: String(localized: "settings.app.fileEditorAutoSave.subtitle", defaultValue: "Write edits back to disk after a short idle pause. Files above 5 MB, marked text from an input method, and files that changed on disk are never overwritten."),
+                paths: ["fileEditor.autoSave"],
+                synonyms: "fileEditor.autoSave " + String(localized: "settings.search.fileEditor.autoSave", defaultValue: "file editor auto save autosave automatic write disk debounce idle")
+            ),
+            .init(
+                section: .app,
+                id: "file-editor-auto-save-delay",
+                title: String(localized: "settings.app.fileEditorAutoSaveDelay", defaultValue: "File Editor Auto-Save Delay"),
+                detailText: String(localized: "settings.app.fileEditorAutoSaveDelay.subtitle", defaultValue: "Milliseconds of idle time before an automatic save."),
+                paths: ["fileEditor.autoSaveDelay"],
+                synonyms: "fileEditor.autoSaveDelay " + String(localized: "settings.search.fileEditor.autoSaveDelay", defaultValue: "file editor auto save autosave delay milliseconds debounce idle timer")
+            ),
             .init(section: .app, id: "terminal-config", title: String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), synonyms: "Terminal Config ghostty config merged generated preview terminal configuration window open config macos-option-as-alt option as alt left option right option alt key meta"),
             .init(section: .app, id: "global-font-magnification", title: String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"), synonyms: "app.globalFontMagnification global font magnification scale text zoom terminals tabs chrome bigger smaller accessibility"),
             .init(section: .app, id: "imessage-mode", title: String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode"), synonyms: "iMessage Mode app.iMessageMode imessage message messages chat prompt prompts submitted texting reorder move workspace top agent send"),

@@ -13,12 +13,16 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     func attachTextView(_ textView: NSTextView)
     func retryPendingFocus()
     func updateTextContent(_ nextContent: String)
+    /// Reports whether the text view holds marked text from an input method.
+    /// Editors that auto-save drop pending writes while a composition is open.
+    func noteTextEditing(isComposing: Bool)
     @discardableResult
     func saveTextContent() -> Task<Void, Never>?
 }
 
 extension FilePreviewTextEditingPanel {
     var textContentRevision: Int { 0 }
+    func noteTextEditing(isComposing: Bool) {}
 }
 
 struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
@@ -288,6 +292,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
+            // Tell the panel about marked text first: a composition in progress
+            // must cancel any scheduled auto-save before the new buffer is
+            // offered for one (#136).
+            panel.noteTextEditing(isComposing: textView.hasMarkedText())
             panel.updateTextContent(textView.string)
             lastAppliedContentRevision = panel.textContentRevision
             guard isHighlightingVisible else { return }

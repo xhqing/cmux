@@ -796,8 +796,8 @@ Markdown 面板（预览 / 就地编辑 / TextEdit）里打开的文件被外部
 | --- | --- |
 | `scripts/resolve-sign-identity.sh`（新增，可执行） | 唯一的身份解析入口：读 `CMUX_DEV_SIGN_IDENTITY`，未设 / 空 / 全空白 → 输出 `-` 并提示 ad-hoc 的代价；显式 `-` → 输出 `-`；其它值 → 在 `security find-identity -v -p codesigning` 里按名字或 SHA-1 前缀匹配，命中则输出身份名，**找不到非零退出、stdout 为空**、stderr 指出变量名与可用身份。 |
 | `scripts/reload.sh`（开发构建） | 构建前解析 `SIGN_IDENTITY`（解析 stderr 进 reload 日志，成功路径不多打行）；`codesign --sign "$SIGN_IDENTITY"`，其余 flags 与 `CMUX_ALLOW_UNSIGNED_DEV_APP` 容错语义不变。 |
-| `scripts/reloads.sh`（Release / CI） | 同上，在 `xcodebuild` 之前解析（身份配错时立刻失败，不等几十分钟构建完）；codesign 的容错按身份区分：ad-hoc（`-`）保留原来的 `|| true`，用证书签名时失败即让构建失败（否则产物会静默停在 xcodebuild 的 ad-hoc 签名上）。 |
-| `.github/workflows/build.yml` | job env 读三个可选 secret；新增「导入签名证书（可选）」step（仅在配了 `CMUX_DEV_SIGNING_CERT_P12_BASE64` 时执行：临时钥匙串 + `security import -T /usr/bin/codesign` + `set-key-partition-list` + `add-trusted-cert -r trustAsRoot -p codeSign`，然后把 `CMUX_DEV_SIGN_IDENTITY` 写进 `$GITHUB_ENV`；**导入失败即构建失败，不静默回退 ad-hoc**）；新增「校验产物的签名身份」step（`codesign -d --requirements -`，配了身份时必须出现 `certificate leaf`、出现 `cdhash` 就 fail；没配时只打 warning）。 |
+| `scripts/reloads.sh`（Release / CI） | 同上，在 `xcodebuild` 之前解析（身份配错时立刻失败，不等几十分钟构建完）；codesign 的容错按身份区分：ad-hoc（`-`）保留原来的 `|| true`，用证书签名时失败即让构建失败（否则产物会静默停在 xcodebuild 的 ad-hoc 签名上）。**2026-11-22 补**：末尾签名改走 `sign_with_watchdog`——`CMUX_DEV_SIGN_KEYCHAIN` 存在时先显式解锁钥匙串（解不开即失败），再给 `codesign` 套 `CMUX_CODESIGN_TIMEOUT`（默认 600 秒）的 alarm 看门狗，卡住时几分钟内失败而不是耗到作业上限。 |
+| `.github/workflows/build.yml` | job env 读三个可选 secret；新增「导入签名证书（可选）」step（仅在配了 `CMUX_DEV_SIGNING_CERT_P12_BASE64` 时执行：临时钥匙串（**`set-keychain-settings -l`，不设空闲锁定**）+ `security import -T /usr/bin/codesign` + `set-key-partition-list`（失败即构红） + `add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain`，然后把 `CMUX_DEV_SIGN_IDENTITY` / `CMUX_DEV_SIGN_KEYCHAIN` / `_PASSWORD` 写进 `$GITHUB_ENV`；**导入失败即构建失败，不静默回退 ad-hoc**）；构建步骤 `timeout-minutes: 270`；新增「校验产物的签名身份」step（`codesign -d --requirements -`，配了身份时必须出现 `certificate leaf`、出现 `cdhash` 就 fail；没配时只打 warning；同时打 `security show-keychain-info`）。 |
 | `.github/workflows/pr-checks.yml` | `checks` job 新增一个 step 跑 `python3 scripts/tests/test_resolve_sign_identity.py -v`（实测 <2 秒）；job 名与其它 step 未改。 |
 | `scripts/create-dev-signing-cert.sh`（新增，可执行） | 开发机自用证书工具：openssl 生成自签名证书（RSA 2048 / 3650 天 / `CA:FALSE` + `digitalSignature` + `codeSigning`），导入登录钥匙串（`-T /usr/bin/codesign -T /usr/bin/security`），导出 LibreSSL 兼容的 `.p12`（`-keypbe/-certpbe PBE-SHA1-3DES -macalg sha1`，失败回退 `-legacy`），备份到 `~/.dev/private/cmux/signing/`；支持 `--name` / `--out` / `--import <p12>`；同名证书已存在时拒绝覆盖；「始终信任」只打印步骤、不代做。 |
 | `scripts/build-sign-upload.sh`（上游遗留） | 给 `SIGN_HASH` 加注释说明它是上游 Developer ID 指纹、本仓库没有这张证书、不在发版链路上；pre-flight 增加身份可用性检查，缺证书时明确失败。 |
@@ -808,6 +808,8 @@ Markdown 面板（预览 / 就地编辑 / TextEdit）里打开的文件被外部
 ### 逻辑边界（刻意这么做）
 
 - **默认行为零变化**：未设 `CMUX_DEV_SIGN_IDENTITY`、CI 未配证书 → 仍然 `-`（ad-hoc），日志多一行说明。
+- **临时钥匙串不设空闲锁定（2026-11-22）**：`build.yml` 用 `set-keychain-settings -l`（`security show-keychain-info` 显示 `no-timeout`）。旧的 `-lut 3600` 会让 1.5~2 小时的构建在签名前把钥匙串锁上，末尾那次 `codesign --sign <证书>` 于是去等 SecurityAgent 解锁，runner 上无人应答 → 作业挂到 6 小时上限（run 44762116495 / 44820370848）。
+- **日志不是卡点**：GitHub 的 step 日志按体积截断（构建步骤约 6.3 MiB）；成功那次（run 44561499331）的日志也停在同类编译行。判断卡在哪要看取消时收尾的 `Terminate orphan process` 列表（只剩 `codesign`、没有 `xcodebuild` = 构建已跑完，卡在最终签名）。
 - **不静默回退**：指定的身份不可用时一律失败。静默回退等于把 Issue #121 的 bug 带回来，而且只会在下一次授权失效时才被发现。
 - **证书只解决自用**：自签名证书让本机重建不打断自己的 TCC 授权；对外分发仍需 Developer ID + 公证（未变）。
 - **不改 job 名**：`checks` 仍是分支保护认的那个名字；新增 step 只加检查、不改已有项。

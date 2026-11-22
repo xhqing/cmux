@@ -458,7 +458,11 @@ gh secret set CMUX_DEV_SIGNING_IDENTITY -R xhqing/cmux --body "cmux Local Code S
 1. 「导入签名证书（可选）」只在 `CMUX_DEV_SIGNING_CERT_P12_BASE64` 非空时执行：临时钥匙串 + `security import -T /usr/bin/codesign` + `set-key-partition-list` + `add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain`，然后把 `CMUX_DEV_SIGN_IDENTITY` 写进 `$GITHUB_ENV`。**导入失败 / 身份找不到 = 构建直接红**，不静默退回 ad-hoc。
    - 用 `-r trustRoot`（自签名证书自己就是根）。**`-r trustAsRoot -p codeSign` 在 macOS 26.7.2 runner 上会 `errSecParam`**，实测过一次红（run 44756697684），诊断结论见 run 44760741998。
    - 导出 PEM 后先校一次 `BEGIN CERTIFICATE` 再交给 `add-trusted-cert`：空文件只会换来一句含糊的 `errSecParam`，不如直接报「p12 与密码不匹配」。
-2. 构建后「校验产物的签名身份」读 `codesign -d --requirements -`：配了身份时 requirement 里必须出现 `certificate leaf`（出现 `cdhash` 就失败）；没配时只打 warning。
+2. 构建后「校验产物的签名身份」读 `codesign -d --requirements -`：配了身份时 requirement 里必须出现 `certificate leaf`（出现 `cdhash` 就失败）；没配时只打 warning。同一阶段还会打一行 `security show-keychain-info`，钥匙串状态可直接从日志确认。
+
+**长构建与临时钥匙串（2026-11-20 教训）**：临时钥匙串**不设空闲自动锁定**（`set-keychain-settings -l`，`security show-keychain-info` 显示 `no-timeout`）。此前写成 `-lut 3600`，而构建要 1.5~2 小时、中途不碰钥匙串，它必然在签名之前锁上；末尾那次 `codesign --sign <证书>` 于是去等 SecurityAgent 解锁，runner 上无人应答 → 作业挂到 6 小时上限（run 44762116495 / 44820370848，取消收尾时还留着一个活着的 `codesign`）。现在两层保护：① `build.yml` 不设空闲锁定，且 `set-key-partition-list` 失败直接构红；② `reloads.sh` 在 `CMUX_DEV_SIGN_KEYCHAIN` 存在时签名前显式解锁，并给 `codesign` 套 600 秒看门狗（`CMUX_CODESIGN_TIMEOUT` 可调）——真卡住时几分钟内失败，而不是耗到作业上限。
+
+**排查这类问题的坑**：GitHub 的 step 日志按体积截断，构建步骤约 6.3 MiB 之后就没了，**日志最后一行不是卡住的位置**。成功那次（run 44561499331）的日志也停在同一类编译行（16:32:39，而构建实际跑到 17:33:54）。判断卡在哪要看取消时收尾的 `Terminate orphan process` 列表：只剩 `codesign` 活着、`xcodebuild` 不在，就说明构建已跑完、卡在最后的签名上。
 
 **证书已实测的 designated requirement**（同一张证书签两次、内容不同，DR 完全一致——这正是 TCC 跨构建保留授权的前提）：
 

@@ -14,6 +14,7 @@ All notable changes to cmux are documented here.
 - **改了什么**：① `build.yml` 改成 `set-keychain-settings -l`（只锁睡眠、`no-timeout`）；② `set-key-partition-list` 不再 `|| true`，失败直接构建红；③ 把 `CMUX_DEV_SIGN_KEYCHAIN` / `_PASSWORD` 写进 `$GITHUB_ENV`，`reloads.sh` 签名前显式解锁、解不开即失败；④ `reloads.sh` 给 `codesign` 套 600 秒 watchdog（`CMUX_CODESIGN_TIMEOUT` 可调），卡住就报错而不是耗到作业上限；⑤ 构建步骤加 `timeout-minutes: 270` 兜底；⑥ 签名校验步骤打印 `security show-keychain-info`，下次从日志就能看到钥匙串状态。
 - **怎么验证**：`bash -n scripts/reloads.sh` 与 `ruby -ryaml` 解析 workflow 均通过；`set-keychain-settings -l` 在 macOS 上用 `security show-keychain-info` 实测显示 `no-timeout`；perl `alarm` watchdog 实测按时杀掉子进程（exit 142）；随后 dispatch 一次完整构建确认端到端（结果补在本节下方）。
 - **回归检查**：未配证书时导入步骤整段跳过、`CMUX_DEV_SIGN_KEYCHAIN` 不设 → `reloads.sh` 的解锁与 watchdog 都不激活，仍走原来的 `codesign` 路径；ad-hoc 分支保留 `|| true`；证书签名失败仍让构建失败。
+- **端到端验证（2026-11-22，run 45000044880）**：修复后 dispatch 一次（main、arm64、jobs=2、cache=true）**成功**——job 总时长 47m31s、构建步骤 44m54s（远低于 2 小时上限，不再挂到 6 小时）；`security show-keychain-info` 在导入后与签名后都是 `lock-on-sleep no-timeout`；产物 `codesign -d --requirements -` 为 `identifier "com.xhqing.cmux" and certificate leaf = H"a186d9902f87057d5c4090c677d3ad1797323503"`，`codesign -dv` 显示 `Authority=cmux Local Code Signing`、`Sealed Resources version=2 rules=13 files=1898`，签名校验步骤 success。
 
 ### 更正（CloudPort 那条用例不是预算太窄，是主 actor 被占着，2026-11-21）
 

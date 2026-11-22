@@ -137,6 +137,12 @@ jobs:
         # 测试文件由测试责任方维护，实现改动不得改断言迁就。
         run: python3 scripts/tests/test_resolve_sign_identity.py -v
 
+      - name: File editor auto-save settings (Issue #136)
+        # 自动保存的两个键必须同时出现在 schemas/config/cmux.schema.json 与
+        # FileEditorCatalogSection，且默认值 / 范围一致。纯 Python + 文本比对，
+        # 实测 <0.1 秒。测试文件由测试责任方维护，实现改动不得改断言迁就。
+        run: python3 scripts/tests/test_file_editor_autosave_schema.py
+
       - name: Config schema (generated Swift in sync)
         run: |
           set -euo pipefail

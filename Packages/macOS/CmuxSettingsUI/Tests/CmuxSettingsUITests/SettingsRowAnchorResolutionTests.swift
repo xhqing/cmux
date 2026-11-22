@@ -97,6 +97,8 @@ struct SettingsRowAnchorResolutionTests {
         "canvas.paneGap",
         "canvas.snappingEnabled",
         "customSidebars.renderer",
+        "fileEditor.autoSave",
+        "fileEditor.autoSaveDelay",
         "fileEditor.currentLineHighlight",
         "fileEditor.indentGuides",
         "fileEditor.lineNumbers",

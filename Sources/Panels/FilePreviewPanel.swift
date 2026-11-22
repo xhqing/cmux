@@ -1,3 +1,4 @@
+import CmuxFilePreviewCore
 import CmuxFoundation
 import AppKit
 import Bonsplit
@@ -1244,6 +1245,22 @@ enum FilePreviewTextLoader {
 }
 
 
+/// Main-actor bridge that lets the auto-save controller reach its panel after
+/// `init` has finished wiring the panel's remaining stored properties (#136).
+@MainActor
+private final class FilePreviewAutoSaveBridge {
+    weak var panel: FilePreviewPanel?
+
+    func write(content: String, to url: URL) async -> Bool {
+        guard let panel, !panel.isClosed else { return false }
+        return await panel.writeAutoSavedContent(content, to: url)
+    }
+
+    func report(_ outcome: FileEditorAutoSaveOutcome) {
+        panel?.handleAutoSaveOutcome(outcome)
+    }
+}
+
 @MainActor
 final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
@@ -1257,6 +1274,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var textContent = ""
     @Published private(set) var isDirty = false
     @Published private(set) var isSaving = false
+    /// Whether the disk moved on after this panel's baseline and the buffer's
+    /// unsaved edits were kept instead (#136). Cleared by adopting either side.
+    @Published private(set) var hasPendingExternalChange = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
     let previewRevisionState = FilePreviewRevision()
@@ -1266,6 +1286,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
+    /// Debounces edits and writes them back; never overwrites an external change.
+    let autoSaveController: FileEditorAutoSaveController
+    /// Whether the text view currently holds marked (pre-edit) text.
+    private var isInputComposing = false
+    /// Content of the most recent successful auto-save, used to advance
+    /// `originalTextContent` without guessing which buffer the writer saw.
+    private var lastAutoSavedContent: String?
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     var fileContentChangeCoordinator: FileContentChangeCoordinator
@@ -1314,6 +1341,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         filePath: String,
         startFileWatcher: Bool = true,
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
+        autoSaveController: FileEditorAutoSaveController? = nil,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
         },
@@ -1341,7 +1369,26 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.focusCoordinator = FilePreviewFocusCoordinator(
             preferredIntent: Self.defaultFocusIntent(for: initialPreviewMode)
         )
+        // Built before `self` may be captured: the bridge forwards writes and
+        // outcomes back once `init` has assigned the panel to it below.
+        let autoSaveBridge = FilePreviewAutoSaveBridge()
+        self.autoSaveController = autoSaveController ?? FileEditorAutoSaveController(
+            filePath: filePath,
+            encoding: .utf8,
+            settings: {
+                // Read on every edit, so a settings change applies to editors
+                // that are already open.
+                FilePreviewEditorSettings(defaults: .standard).autoSaveSettings
+            },
+            writer: { [autoSaveBridge] content, url, _ in
+                await autoSaveBridge.write(content: content, to: url)
+            },
+            onOutcome: { [autoSaveBridge] outcome in
+                autoSaveBridge.report(outcome)
+            }
+        )
         self.lastObservedFileState = .capture(path: filePath)
+        autoSaveBridge.panel = self
 
         prepareContentForPreviewMode()
         resolvePreviewModeIfNeeded(for: fileURL)
@@ -1363,6 +1410,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         remotePreviewRefresh = nil
         cloudPreviewProviderIdentity = nil
         isClosed = true
+        // Closing the panel must never let a debounced write land afterwards.
+        autoSaveController.cancelPendingAutoSave()
         unbindTabMetadata()
         stopWatchingForFileChanges()
         textLoadCoordinator.cancel()
@@ -1505,6 +1554,80 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard cloudPreviewLease == nil else { return }
         guard replaceTextContentIfChanged(nextContent) else { return }
         setTabMetadataDirtyState(nextContent != originalTextContent)
+        autoSaveController.noteEdit(content: nextContent, isComposing: isInputComposing)
+    }
+
+    /// Records whether the text view holds marked text, and drops any write
+    /// that was waiting for the composition to finish (#136).
+    func noteTextEditing(isComposing: Bool) {
+        isInputComposing = isComposing
+        if isComposing {
+            autoSaveController.cancelPendingAutoSave()
+        }
+    }
+
+    /// Adopts the on-disk version after an external change was detected (#136).
+    ///
+    /// The buffer's unsaved edits are dropped and the auto-save baseline moves
+    /// to the disk version, so the next edit is an ordinary save.
+    func acceptPendingExternalContent() {
+        _ = loadTextContent(replacingDirtyContent: true)
+    }
+
+    /// Writes the buffer over the on-disk version after the user picked that
+    /// side of a detected conflict (#136).
+    func overwritePendingExternalContent() {
+        _ = saveTextContent()
+    }
+
+    /// Performs one auto-save through the shared write pipeline.
+    ///
+    /// Going through `FileContentChangeCoordinator` is load-bearing: a bare
+    /// write would be republished to this panel's watcher and every auto-save
+    /// would surface as an external change (#136).
+    func writeAutoSavedContent(_ content: String, to url: URL) async -> Bool {
+        guard !isClosed, previewMode == .text else { return false }
+        // The controller carries the encoding from `init`; the panel re-learns
+        // it per file on load, so the panel's value is authoritative here.
+        let coordinator = fileContentChangeCoordinator
+        let result = await coordinator.saveTextContent(
+            content,
+            to: url,
+            encoding: textEncoding,
+            using: textSaver,
+            excluding: fileContentObservationID
+        )
+        coordinator.republishSuccessfulSaveIfNeeded(
+            result,
+            to: fileContentChangeCoordinator,
+            at: url.path,
+            excluding: fileContentObservationID
+        )
+        switch result {
+        case .saved:
+            lastAutoSavedContent = content
+            return true
+        case .failed:
+            return false
+        }
+    }
+
+    /// Applies one completed auto-save attempt (#136).
+    func handleAutoSaveOutcome(_ outcome: FileEditorAutoSaveOutcome) {
+        switch outcome {
+        case .saved:
+            let savedContent = lastAutoSavedContent ?? textContent
+            lastAutoSavedContent = nil
+            originalTextContent = savedContent
+            // Edits typed while the write was in flight stay dirty.
+            setTabMetadataDirtyState(textContent != savedContent)
+            isFileUnavailable = false
+            hasPendingExternalChange = false
+        case .conflict:
+            hasPendingExternalChange = true
+        case .failed:
+            isFileUnavailable = !FileManager.default.fileExists(atPath: filePath)
+        }
     }
 
     @discardableResult
@@ -1620,13 +1743,27 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             originalTextContent = ""
             setTabMetadataDirtyState(false)
             isFileUnavailable = true
+            hasPendingExternalChange = false
+            autoSaveController.rebaseToCurrentDiskState()
             return
         case .loaded(let content, let encoding):
             if !replacingDirtyContent && isDirty {
+                // Unsaved edits win, but the panel has to say the disk moved
+                // on. Do **not** rebase the auto-save baseline here: the disk
+                // version is not what the buffer is based on, and adopting it
+                // would let the next auto-save silently overwrite the
+                // external change (#136).
+                let previousOriginal = originalTextContent
                 originalTextContent = content
                 textEncoding = encoding
                 setTabMetadataDirtyState(textContent != originalTextContent)
                 isFileUnavailable = false
+                // A reload that only reflects this panel's own write (a manual
+                // save finished while the user kept typing) is not an external
+                // change and must not raise the banner.
+                if previousOriginal != content || hasPendingExternalChange {
+                    hasPendingExternalChange = textContent != originalTextContent
+                }
                 return
             }
             _ = replaceTextContentIfChanged(content)
@@ -1634,6 +1771,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             textEncoding = encoding
             setTabMetadataDirtyState(false)
             isFileUnavailable = false
+            hasPendingExternalChange = false
+            // The buffer now sits on the disk version, so that becomes the
+            // auto-save baseline and any scheduled write is stale.
+            autoSaveController.rebaseToCurrentDiskState()
         }
     }
 
@@ -1642,6 +1783,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard cloudPreviewLease == nil else { return nil }
         guard previewMode == .text else { return nil }
         guard !isSaving else { return nil }
+        // A manual save owns the disk from here on: drop the debounced write so
+        // it cannot race the ⌘S write (#136).
+        autoSaveController.cancelPendingAutoSave()
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
             _ = replaceTextContentIfChanged(currentContent)
@@ -1687,6 +1831,18 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 self.originalTextContent = currentContent
                 self.setTabMetadataDirtyState(self.textContent != currentContent)
                 self.isFileUnavailable = false
+                self.hasPendingExternalChange = false
+                // The coordinator excluded this panel from its own write
+                // publication, so the auto-save baseline advances here (#136).
+                self.autoSaveController.rebaseToCurrentDiskState()
+                if self.isDirty {
+                    // Edits that arrived while the save was in flight were
+                    // cancelled above; reschedule them against the new baseline.
+                    self.autoSaveController.noteEdit(
+                        content: self.textContent,
+                        isComposing: self.isInputComposing
+                    )
+                }
                 reconciliationTask = self.reloadFromDisk()
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists
@@ -1754,6 +1910,9 @@ struct FilePreviewPanelView: View {
                 header
                 Divider()
             }
+            if panel.hasPendingExternalChange && panel.previewMode == .text {
+                externalChangeBanner
+            }
             content(previewRevision: panel.previewRevisionState.value)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1801,6 +1960,48 @@ struct FilePreviewPanelView: View {
 
             FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
         }
+    }
+
+    /// A blocked auto-save must be visible: the buffer keeps the user's edits
+    /// while the disk moved on, and the user picks which side wins (#136).
+    private var externalChangeBanner: some View {
+        HStack(alignment: .center, spacing: 8) {
+            CmuxSystemSymbolImage(
+                systemName: "arrow.down.doc",
+                pointSize: RightSidebarChromeMetrics.contentIconFrameSize,
+                tint: .secondary
+            )
+            .frame(width: RightSidebarChromeMetrics.contentIconFrameSize)
+            .accessibilityHidden(true)
+            Text(String(
+                localized: "filePreview.externalChange.message",
+                defaultValue: "This file changed on disk. Your unsaved changes were kept."
+            ))
+            .cmuxFont(size: 12)
+            .foregroundStyle(Color(nsColor: themeForegroundColor))
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button(String(
+                localized: "filePreview.externalChange.loadDiskVersion",
+                defaultValue: "Load Disk Version"
+            )) {
+                panel.acceptPendingExternalContent()
+            }
+            .controlSize(.small)
+            Button(String(
+                localized: "filePreview.externalChange.overwrite",
+                defaultValue: "Overwrite Disk"
+            )) {
+                panel.overwritePendingExternalContent()
+            }
+            .controlSize(.small)
+        }
+        .padding(.horizontal, RightSidebarChromeMetrics.contentIconLeadingPadding)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: appearance.backgroundColor))
+        .overlay(alignment: .bottom) { Divider() }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("filePreview-external-change-banner")
     }
 
     @ViewBuilder

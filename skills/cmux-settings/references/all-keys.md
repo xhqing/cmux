@@ -272,6 +272,8 @@ Built-in text editor settings used by text file previews.
 | `fileEditor.indentGuides` | boolean | `true` | Draw vertical indent guides in the built-in file editor. |
 | `fileEditor.currentLineHighlight` | boolean | `true` | Highlight the caret's line when the selection is empty. |
 | `fileEditor.tabWidth` | integer (1–8) | `4` | Columns per tab stop for indent guides. |
+| `fileEditor.autoSave` | boolean | `true` | Write edits back to disk after a short idle pause. Files above 5 MB, marked text from an input method, and files that changed on disk after the buffer's baseline are never auto-saved; a file that moved on disk is reported as a conflict instead of being overwritten. |
+| `fileEditor.autoSaveDelay` | integer (200–5000) | `600` | Idle delay, in milliseconds, before an automatic save. |
 
 ## fileExplorer
 

@@ -4,7 +4,19 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 更正 + 修复（`CloudPortRoutePlanTests.stopDuringStart` 的真因是「断言瞬时状态」，不是主 actor 饥饿，2026-11-23，T13）
+
+- **怎么发现的**：上一条改动落地后跑全量（run 45136803034），这条用例仍然只挂它一条，但这次新加的诊断行把环境排除了：`[MainActorWait] TIMEOUT label="CloudPortRoutePlanTests.wait" kind=actor-responsive healthy=30.00s wall=60.16s blocked=29.95s iterations=15000 maxActorStall=0.10s maxProcessStall=0.11s`——主 actor 与进程全程健康（最长停顿 0.1 秒），预算也不是被环境吃掉的。
+- **真因**：测试等的是 `model.phase == .stopping`，而 `CloudLinkFirstValue.result` 是**取消感知**的（取消时立刻返回 nil）。`stop()` 先 `operation?.cancel()` 再把 `phase` 置为 `.stopping`，于是正在等 `resume.result` 的 forward 立即返回、`await pending?.value` 立即完成、`phase` 连跳 `.needsVPN`——`.stopping` 只存在于几条同步语句之间。测试每 ~4ms 轮询一次，能否看见纯属竞态，这也解释了「把预算从 10 秒加到 30 秒毫无改善」。
+- **改了什么**：`stopDuringStart` 改用测试自己持有的 `InFlightForwardGate`（一个不随取消结束的 continuation）把 forward 卡在「飞行中」，`.stopping` 因此稳定可观测，断言完再放行；取消后的迟到结果仍然发生，所以「不能发布迟到的本地地址」这一核心断言没被削弱。同时把 `wait` helper 的注释从「主 actor 会被别的用例占住」改正为真实结论。
+- **保留**：等待 helper 的饥饿容错与诊断行（对真正的慢环境仍然有效，且正是它定位了这次问题）、`analytics.drain()` 的 60 秒 deadline、`unit-tests.yml` 的 step 超时。
+- **教训**：断言一个「模型会瞬间经过」的中间状态，本身就是 flaky 设计；要断言中间状态，必须由测试把那段状态**卡住**（或改用状态流/回调），而不是靠轮询碰运气。
+
+## [未发布]
+
 ### 修复（CI 全量测试的假红：等待改成饥饿容错 + 自诊断，2026-11-23，T13）
+
+> **2026-11-23 更正**：本节把假红归因为「主 actor 被别的用例占住」。上方的更正条目用诊断数据推翻了这一判断（真因是断言了一个只有几条语句的瞬时状态）。本节的环境容错与诊断能力仍然保留，但「主 actor 饥饿」不再是这些用例红的原因。
 
 - **为什么改**：`unit-tests` 每轮只挂 1 条，而且每次还不是同一条（r29 tag 与 run 44755916546 是 `CloudPortRoutePlanTests.stopDuringStart`，run 44688219519 是 `CloudDesktopNavigationLifecycleTests.leaveAndReenter`，run 44703813508 干脆挂 4 小时撞 job 上限）。根因不是断言写错，而是全量在**单进程**里跑 1072 个 suite：主 actor 被别的用例占住几十秒（run 45034081189 实测 72 处 ≥5 秒的全进程静默、最长 398 秒），于是「轮询 + 墙钟 deadline」把环境卡顿判成了断言失败——同一套断言在环境空闲时是绿的。
 - **改了什么**：① 新增 `cmuxTests/MainActorWaitSupport.swift`：`waitForMainActorState` 只把「主 actor 跟得上」的那部分时间计入预算，环境卡顿只会让等待变长、不会变红；保留硬上限（默认 300 秒）防真挂死；超时向 stderr 打一行诊断，用 `maxActorStall` 与「脱离主 actor 的心跳间隔」区分 `actor-busy` / `process-starved` / `actor-responsive`，下次红能自证原因。② `AppKitTestEventPump.waitUntil`（149 处调用点）改用同一套记账，语义不变（仍逐次 pump 主队列）。③ `CloudPortRoutePlanTests.wait` 改为委托，删掉自带的墙钟 deadline。④ `UpgradeAnalyticsTests` 的 8 处 `analytics.drain()`（无超时、曾挂 4 小时）套上 60 秒 deadline——用一次性 continuation 竞速而不是 task group，因为后者在子任务永久挂起时会连 wrapper 一起挂住。⑤ 把 4 个「等主 actor 链路」的 suite 级 `timeLimit` 从 1 分钟放宽到 15 分钟（`CloudPortRoutePlanTests`、`CloudDesktopNavigationLifecycleTests`、`CloudDesktopAccessTests`、`GhosttyWorkspaceActionTests`；per-test 的 1 分钟上限没动）（1 分钟的墙钟上限会把「延长等待」变成另一种假红），把 `unit-tests.yml` 的「运行 cmuxTests」step 加 `timeout-minutes: 180`（job 级 360 分钟太远，挂死要烧 6 小时）。等待 helper 的硬上限设为 600 秒——比实测最长的 398 秒进程级停顿更宽，真挂死仍会在 10 分钟内失败。

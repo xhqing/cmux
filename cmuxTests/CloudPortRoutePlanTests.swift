@@ -495,17 +495,24 @@ struct CloudPortRoutePlanTests {
     @Test("A canceled forward cannot publish a late local address")
     func stopDuringStart() async {
         let started = CloudLinkFirstValue<Bool>()
-        let resume = CloudLinkFirstValue<Bool>()
+        // `CloudLinkFirstValue.result` resumes with nil the moment its task is
+        // cancelled, so a `stop()` would release an in-flight forward immediately:
+        // `.stopping` would then exist only between two synchronous statements and a
+        // poll would miss it (that race, not a starved main actor, is what made this
+        // test red intermittently — see TODO T13). Hold the forward open with a
+        // continuation the test resumes itself, so `.stopping` stays observable while
+        // it is asserted, and the late result still arrives after the cancellation.
+        let gate = InFlightForwardGate()
         let model = makeModel(forward: { _ in
             started.resolve(true)
-            _ = await resume.result
+            await gate.wait()
             return 43000
         }, route: .loopback)
         model.connect()
         _ = await started.result
         let stopping = Task { await model.stop() }
         #expect(await wait { model.phase == .stopping })
-        resume.resolve(true)
+        gate.release()
         await stopping.value
         #expect(model.phase == .needsVPN && model.localAddress == nil)
         await model.retire()
@@ -558,6 +565,28 @@ struct CloudPortRoutePlanTests {
         #expect(!model.isReady)
     }
 
+    /// Keeps one in-flight forward start open until the test releases it.
+    ///
+    /// Deliberately not cancellation-aware: the model cancels the operation task in
+    /// `stop()`, and this continuation must survive that cancellation so the model
+    /// stays in `.stopping` while the test observes it.
+    @MainActor
+    private final class InFlightForwardGate {
+        private var continuation: CheckedContinuation<Void, Never>?
+        private var isReleased = false
+
+        func wait() async {
+            guard !isReleased else { return }
+            await withCheckedContinuation { continuation = $0 }
+        }
+
+        func release() {
+            isReleased = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
     private func makeModel(
         port: Int = 3000,
         coordinator: CloudTunnelCoordinator? = nil,
@@ -571,10 +600,11 @@ struct CloudPortRoutePlanTests {
 
     private enum TestForwardError: Error { case unavailable }
 
-    /// Cloud 状态迁移是异步的；在 CI 里同一进程要跑 1072 个 suite，主 actor 会被别的
-    /// 用例占住几十秒，所以「30 秒预算」不能按墙钟算——只有主 actor 跟得上的那部分时间
-    /// 才计入预算（`waitForMainActorState`），环境卡顿只会让等待变长。真挂住时由硬上限
-    /// 报错，并在 CI 日志留下「是 actor 忙、还是进程 starving」的那一行诊断。
+    /// Cloud 状态迁移是异步的，所以这里等的是一个真实的状态谓词，而不是睡一个固定时长。
+    /// 预算按「主 actor 跟得上的时间」记账（`waitForMainActorState`）：机器再忙也只让等待
+    /// 变长，不会假红；真正等不到时由硬上限报错，并在 CI 日志留下「是 actor 忙、还是进程
+    /// starving、还是谓词本身没满足」的那一行诊断（2026-11-23 就是靠它把 stopDuringStart
+    /// 的根因从「主 actor 饥饿」纠正成「断言的是一个只存在几条语句的瞬时状态」）。
     private func wait(_ condition: @MainActor () -> Bool) async -> Bool {
         await waitForMainActorState(
             budget: .seconds(30),

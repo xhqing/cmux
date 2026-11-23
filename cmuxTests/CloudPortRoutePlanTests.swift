@@ -11,7 +11,11 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.timeLimit(.minutes(1)))
+// 15 分钟而不是 1 分钟：本 suite 等的是主 actor 上的状态迁移，而 CI 同一进程里
+// 1072 个 suite 并行时主 actor 会停顿几十秒（实测最长 398 秒）。等待机制按「主
+// actor 跟得上的时间」记账后，1 分钟的墙钟上限就成了新的判错来源；真正的防挂死
+// 交给等待 helper 的硬上限与 workflow 的 step 超时（T13）。
+@Suite(.timeLimit(.minutes(15)))
 struct CloudPortRoutePlanTests {
     private let machine = SurfaceMachineID.cloud("vm-1")
 
@@ -491,17 +495,24 @@ struct CloudPortRoutePlanTests {
     @Test("A canceled forward cannot publish a late local address")
     func stopDuringStart() async {
         let started = CloudLinkFirstValue<Bool>()
-        let resume = CloudLinkFirstValue<Bool>()
+        // `CloudLinkFirstValue.result` resumes with nil the moment its task is
+        // cancelled, so a `stop()` would release an in-flight forward immediately:
+        // `.stopping` would then exist only between two synchronous statements and a
+        // poll would miss it (that race, not a starved main actor, is what made this
+        // test red intermittently — see TODO T13). Hold the forward open with a
+        // continuation the test resumes itself, so `.stopping` stays observable while
+        // it is asserted, and the late result still arrives after the cancellation.
+        let gate = InFlightForwardGate()
         let model = makeModel(forward: { _ in
             started.resolve(true)
-            _ = await resume.result
+            await gate.wait()
             return 43000
         }, route: .loopback)
         model.connect()
         _ = await started.result
         let stopping = Task { await model.stop() }
         #expect(await wait { model.phase == .stopping })
-        resume.resolve(true)
+        gate.release()
         await stopping.value
         #expect(model.phase == .needsVPN && model.localAddress == nil)
         await model.retire()
@@ -554,6 +565,28 @@ struct CloudPortRoutePlanTests {
         #expect(!model.isReady)
     }
 
+    /// Keeps one in-flight forward start open until the test releases it.
+    ///
+    /// Deliberately not cancellation-aware: the model cancels the operation task in
+    /// `stop()`, and this continuation must survive that cancellation so the model
+    /// stays in `.stopping` while the test observes it.
+    @MainActor
+    private final class InFlightForwardGate {
+        private var continuation: CheckedContinuation<Void, Never>?
+        private var isReleased = false
+
+        func wait() async {
+            guard !isReleased else { return }
+            await withCheckedContinuation { continuation = $0 }
+        }
+
+        func release() {
+            isReleased = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
     private func makeModel(
         port: Int = 3000,
         coordinator: CloudTunnelCoordinator? = nil,
@@ -567,18 +600,16 @@ struct CloudPortRoutePlanTests {
 
     private enum TestForwardError: Error { case unavailable }
 
-    /// Cloud 状态迁移是异步的。原来的 10 秒预算在 CI（1072 个 suite 并行，且 XCTest 与
-    /// Swift Testing 同进程）上会到期；把预算提到了 30 秒（run 44755916546）后
-    /// `stopDuringStart` 仍然把 30 秒跑满才报错，所以**不是预算太窄，是主 actor 被别的
-    /// 测试长时间占着**——本循环等的 `stop()` 任务与它同一个 actor。此处只保留两个改善：
-    /// ① 用 `Task.sleep` 而不是 `Task.yield()` 忙轮询（后者会把自己要等的任务一起饿着）；
-    /// ② 预算放宽到 30 秒，这是硬上限、不是断言（真挂住仍在 30 秒内报错）。
-    /// 真正的修法是进程级隔离或套件级重试策略，见 `TODO.md` 的 T13。
+    /// Cloud 状态迁移是异步的，所以这里等的是一个真实的状态谓词，而不是睡一个固定时长。
+    /// 预算按「主 actor 跟得上的时间」记账（`waitForMainActorState`）：机器再忙也只让等待
+    /// 变长，不会假红；真正等不到时由硬上限报错，并在 CI 日志留下「是 actor 忙、还是进程
+    /// starving、还是谓词本身没满足」的那一行诊断（2026-11-23 就是靠它把 stopDuringStart
+    /// 的根因从「主 actor 饥饿」纠正成「断言的是一个只存在几条语句的瞬时状态」）。
     private func wait(_ condition: @MainActor () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
-        while !condition(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(2))
-        }
-        return condition()
+        await waitForMainActorState(
+            budget: .seconds(30),
+            label: "CloudPortRoutePlanTests.wait",
+            condition
+        )
     }
 }

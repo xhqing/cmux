@@ -48,6 +48,22 @@ private enum TestAnalytics {
     }
 }
 
+/// Awaits `ProductAnalytics.drain()` with a deadline.
+///
+/// `drain()` waits for the pipeline's barrier and has no timeout of its own: a
+/// wedged pipeline once hung the CI job for four hours until the 6-hour limit
+/// cancelled it (run 44703813508). Bounding it turns a real hang into one red
+/// test with a diagnostic line instead of a dead job (TODO T13).
+@MainActor
+private func drainAnalytics(_ analytics: ProductAnalytics) async -> Bool {
+    await runWithMainActorDeadline(
+        limit: .seconds(60),
+        label: "ProductAnalytics.drain()"
+    ) {
+        await analytics.drain()
+    }
+}
+
 @MainActor
 @Suite("Upgrade analytics", .serialized, .exclusiveAppContext)
 struct UpgradeAnalyticsTests {
@@ -61,7 +77,7 @@ struct UpgradeAnalyticsTests {
         actions.appeared()
         actions.upgrade()
         actions.dismissed()
-        await analytics.drain()
+        #expect(await drainAnalytics(analytics), "analytics.drain() must finish within 60 s")
 
         #expect(opened == [.sidebarBadge])
         #expect(sink.named("cmux_upgrade_prompt_shown").compactMap { $0["source"] } == [AnalyticsValue.string("mac_sidebar_badge")])
@@ -98,7 +114,7 @@ struct UpgradeAnalyticsTests {
         defer { controller.dismiss() }
         controller.present(over: nil, trigger: trigger)
         controller.handleNext(.upgrade)
-        await analytics.drain()
+        #expect(await drainAnalytics(analytics), "analytics.drain() must finish within 60 s")
 
         #expect(performed == [.upgrade])
         let shown = try #require(sink.named("cmux_cloud_welcome_shown").first)
@@ -148,7 +164,7 @@ struct UpgradeAnalyticsTests {
             default: controller.dismiss()
             }
             controller.dismiss()
-            await analytics.drain()
+            #expect(await drainAnalytics(analytics), "analytics.drain() must finish within 60 s")
 
             let buttons = sink.named("cmux_cloud_welcome_button_clicked").compactMap { $0["button"] }
             let expectedButtons: [AnalyticsValue] = button.map { [AnalyticsValue.string($0)] } ?? []
@@ -189,7 +205,7 @@ struct UpgradeAnalyticsTests {
             isAvailable: { false }, isEnabled: { false }, revealMachines: {}, presentIntroduction: {},
             analytics: analytics
         ).perform()
-        await analytics.drain()
+        #expect(await drainAnalytics(analytics), "analytics.drain() must finish within 60 s")
 
         #expect(sink.named("cmux_cloud_button_clicked").compactMap { $0["action"] }
             == [AnalyticsValue.string("open_cloud"), .string("introduce_cloud")])
@@ -217,14 +233,14 @@ struct UpgradeAnalyticsTests {
         )
         defer { controller.dismiss() }
         controller.present(over: nil, trigger: .newCloudWorkspace)
-        await analytics.drain()
+        #expect(await drainAnalytics(analytics), "analytics.drain() must finish within 60 s")
         #expect(sink.named("cmux_upgrade_prompt_shown").isEmpty)
 
         step = .upgrade
         controller.analyticsSession?.stepDisplayed(.upgrade)
         controller.analyticsSession?.stepDisplayed(.upgrade)
         controller.handleNotNow()
-        await analytics.drain()
+        #expect(await drainAnalytics(analytics), "analytics.drain() must finish within 60 s")
         #expect(sink.named("cmux_upgrade_prompt_shown").compactMap { $0["source"] } == [AnalyticsValue.string("mac_cloud_welcome")])
         #expect(sink.named("cmux_cloud_welcome_shown").first?["next_step"] == .string("open_cloud"))
         #expect(sink.named("cmux_cloud_welcome_closed").first?["next_step"] == .string("upgrade"))
@@ -250,7 +266,7 @@ struct UpgradeAnalyticsTests {
         )
         controller.present(over: nil, trigger: .launchAnnouncement)
         controller.handleNotNow()
-        await analytics.drain()
+        #expect(await drainAnalytics(analytics), "analytics.drain() must finish within 60 s")
         #expect(sink.events.isEmpty)
     }
 }
@@ -308,7 +324,7 @@ struct MachineCreateAnalyticsTests {
         launches.complete(status: 1, output: "Error: limit", refusalCode: "vm_active_limit_exceeded")
         #expect(coordinator.retry(id))
         launches.complete(status: 0, output: "OK machine=m1", machineID: "m1")
-        await analytics.drain()
+        #expect(await drainAnalytics(analytics), "analytics.drain() must finish within 60 s")
 
         let failed = sink.named("cmux_cloud_machine_create_failed")
         #expect(failed.count == 1)

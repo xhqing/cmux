@@ -15,7 +15,10 @@ import WebKit
 /// Exercise the provider's real browser configuration path, including the
 /// shared model lookup, rather than manually starting a forward in the test.
 @MainActor
-@Suite(.serialized, .timeLimit(.minutes(1)))
+// 15 分钟而不是 1 分钟：本 suite 等主 actor 上的异步链路，CI 同一进程里 1072 个
+// suite 并行时主 actor 会停顿几十秒；1 分钟的墙钟上限会把「延长等待」变成新的假红
+// （防挂死由等待 helper 的硬上限与 workflow 的 step 超时负责，T13）。
+@Suite(.serialized, .timeLimit(.minutes(15)))
 struct CloudDesktopAccessTests {
     @Test("Route readiness drives cold open and cached retry without a SwiftUI phase update")
     func automaticallyNavigatesAfterRouteReadiness() async throws {

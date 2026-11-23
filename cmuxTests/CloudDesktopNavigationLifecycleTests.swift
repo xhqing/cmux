@@ -10,7 +10,9 @@ import WebKit
 #endif
 
 @MainActor
-@Suite("Desktop navigation ownership", .serialized, .timeLimit(.minutes(1)))
+// 15 分钟同理：这里等 AppKit 事件泵推进，主 actor 卡顿时 1 分钟的上限会先于
+// 等待到期而报错（T13）。
+@Suite("Desktop navigation ownership", .serialized, .timeLimit(.minutes(15)))
 struct CloudDesktopNavigationLifecycleTests {
     @Test("Sidebar click, menu and drop open a Desktop without a SwiftUI host",
           arguments: [false, true], CloudDesktopNavigationFixture.EntryPoint.allCases)

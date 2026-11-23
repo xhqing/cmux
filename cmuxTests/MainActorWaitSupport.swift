@@ -35,7 +35,7 @@ struct MainActorWaitClock {
     init(
         nominalStep: Duration,
         budget: Duration,
-        hardLimit: Duration = .seconds(300)
+        hardLimit: Duration = .seconds(600)
     ) {
         self.nominalStep = nominalStep
         self.budget = budget
@@ -130,7 +130,7 @@ func reportMainActorWaitTimeout(_ line: String) {
 @MainActor
 func waitForMainActorState(
     budget: Duration = .seconds(30),
-    hardLimit: Duration = .seconds(300),
+    hardLimit: Duration = .seconds(600),
     label: @autoclosure () -> String = "",
     state: (() -> String)? = nil,
     _ condition: @MainActor () -> Bool

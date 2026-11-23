@@ -11,7 +11,11 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.timeLimit(.minutes(1)))
+// 15 分钟而不是 1 分钟：本 suite 等的是主 actor 上的状态迁移，而 CI 同一进程里
+// 1072 个 suite 并行时主 actor 会停顿几十秒（实测最长 398 秒）。等待机制按「主
+// actor 跟得上的时间」记账后，1 分钟的墙钟上限就成了新的判错来源；真正的防挂死
+// 交给等待 helper 的硬上限与 workflow 的 step 超时（T13）。
+@Suite(.timeLimit(.minutes(15)))
 struct CloudPortRoutePlanTests {
     private let machine = SurfaceMachineID.cloud("vm-1")
 

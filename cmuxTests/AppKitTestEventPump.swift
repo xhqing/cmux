@@ -33,7 +33,7 @@ struct AppKitTestEventPump {
     /// log says whether the actor or the CPU was the bottleneck (TODO T13).
     func waitUntil(
         timeout: Duration = .seconds(1),
-        hardLimit: Duration = .seconds(300),
+        hardLimit: Duration = .seconds(600),
         label: String = "AppKitTestEventPump.waitUntil",
         _ condition: () -> Bool
     ) async -> Bool {

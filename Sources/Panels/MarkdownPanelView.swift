@@ -203,7 +203,11 @@ struct MarkdownPanelView: View {
                 PanelHeaderIconButton(
                     systemName: "square.and.arrow.down",
                     label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
-                    isDisabled: !panel.isDirty || panel.isSaving,
+                    // In `.editor` the block being edited lives in the page DOM,
+                    // so the panel cannot tell whether there is anything to
+                    // save. Grey it out and the Save click that should flush
+                    // that block is swallowed (#142).
+                    isDisabled: panel.isSaving || (panel.displayMode != .editor && !panel.isDirty),
                     action: { panel.saveTextContent() }
                 )
             }

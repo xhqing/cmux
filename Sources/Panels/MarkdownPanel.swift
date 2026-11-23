@@ -3,6 +3,7 @@ import CmuxBrowser
 import CmuxFoundation
 import Combine
 import Foundation
+import WebKit
 
 enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
     case preview
@@ -12,6 +13,19 @@ enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
     case text
 
     var id: String { rawValue }
+}
+
+/// Where a markdown panel's save has to read the document from.
+///
+/// The in-place editor keeps the block the user is typing into in the page DOM;
+/// `textContent` still holds the pre-edit document until the page commits that
+/// block (`CmuxMarkdownEditor.flush()`, #142). A `.editor` panel with a live web
+/// view therefore has to ask the page first, while text mode and preview write
+/// the panel's own buffer.
+enum MarkdownSavePath {
+    static func requiresPageFlush(displayMode: MarkdownPanelDisplayMode, hasWebView: Bool) -> Bool {
+        displayMode == .editor && hasWebView
+    }
 }
 
 /// A panel that renders a markdown file with live file-watching.
@@ -438,6 +452,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Closes the panel and tears down its renderer and file watcher.
     func close() {
+        requestInPlaceEditorCommit()
         unfocus()
         isClosed = true
         pendingPreviewFocus = false
@@ -509,25 +524,30 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         return true
     }
 
-    /// Save path for the in-place editor: flushes the block the user is
-    /// editing (it lives in a page overlay, not in `textContent`) and then
-    /// writes to disk.
-    func commitEditorAndSave() {
-        guard displayMode == .editor, let webView = rendererSession.webView else {
-            _ = saveTextContent()
-            return
-        }
-        webView.evaluateJavaScript(
+    /// Brings the document the page just committed into the panel. The
+    /// in-place edit lives in the page DOM until `CmuxMarkdownEditor.flush()`
+    /// returns it, so this is the only way the host ever sees that text.
+    private func adoptPageCommittedText(_ text: String?) {
+        guard let text else { return }
+        _ = editorDidCommitText(text)
+    }
+
+    /// Runs the page's in-place editor flush and returns the committed
+    /// document. `nil` means the page has no editor layer (or is already gone),
+    /// so the caller falls back to `textContent`.
+    private static func pageCommittedText(from webView: WKWebView) async -> String? {
+        let value = try? await webView.evaluateJavaScript(
             "window.CmuxMarkdownEditor ? window.CmuxMarkdownEditor.flush() : null"
-        ) { [weak self] value, _ in
-            Task { @MainActor in
-                guard let self else { return }
-                if let text = value as? String, text != self.textContent {
-                    self.updateTextContent(text)
-                }
-                _ = self.saveTextContent()
-            }
-        }
+        )
+        return value as? String
+    }
+
+    /// Save path for the in-place editor (Cmd-S while the rendered document is
+    /// first responder). `saveTextContent()` already flushes the page for
+    /// `.editor`, so this is the header Save button's route as well. Kept as a
+    /// named entry point because the shortcut is wired to it (#142).
+    func commitEditorAndSave() {
+        _ = saveTextContent()
     }
 
     /// Mirrors the page's lock toggle into the panel and remembers it for the
@@ -554,7 +574,18 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Re-reads the file without discarding an unsaved TextEdit buffer.
     @discardableResult
     func reloadFromDisk() -> Task<Void, Never> {
-        loadFileContent(replacingDirtyContent: false)
+        let webView = rendererSession.webView
+        if MarkdownSavePath.requiresPageFlush(displayMode: displayMode, hasWebView: webView != nil),
+           let webView {
+            // Flush first: otherwise the reload replaces the rendered document
+            // and the block the user is editing disappears with it (#142).
+            return Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.adoptPageCommittedText(await Self.pageCommittedText(from: webView))
+                await self.loadFileContent(replacingDirtyContent: false).value
+            }
+        }
+        return loadFileContent(replacingDirtyContent: false)
     }
 
     /// Replaces the unsaved edits with the on-disk version after an external
@@ -605,6 +636,49 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
+        guard !isSaving else { return nil }
+        let webView = rendererSession.webView
+        if MarkdownSavePath.requiresPageFlush(displayMode: displayMode, hasWebView: webView != nil),
+           let webView {
+            // The block being edited is only in the page DOM, so writing
+            // `textContent` here would save the pre-edit document (#142).
+            return flushPageThenSave(in: webView)
+        }
+        return writeTextContentToDisk()
+    }
+
+    /// Commits the page's open block, adopts the document it returns, then
+    /// writes. Separate from `saveTextContent()` so the flushing route cannot
+    /// re-enter itself.
+    private func flushPageThenSave(in webView: WKWebView) -> Task<Void, Never> {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.adoptPageCommittedText(await Self.pageCommittedText(from: webView))
+            await self.writeTextContentToDisk()?.value
+        }
+    }
+
+    /// Best effort, and deliberately not a save: closing a panel with unsaved
+    /// edits keeps the existing "unsaved work is not written" policy. What this
+    /// guarantees is that the text typed into the in-place editor reaches the
+    /// panel before the page is torn down instead of dying with the DOM (#142).
+    private func requestInPlaceEditorCommit() {
+        guard let webView = rendererSession.webView,
+              MarkdownSavePath.requiresPageFlush(displayMode: displayMode, hasWebView: true) else {
+            return
+        }
+        webView.evaluateJavaScript(
+            "window.CmuxMarkdownEditor ? window.CmuxMarkdownEditor.flush() : null"
+        ) { [weak self] value, _ in
+            guard let self, let text = value as? String else { return }
+            self.adoptPageCommittedText(text)
+        }
+    }
+
+    /// Writes the panel's own buffer to disk. Text mode reads the live
+    /// NSTextView; the rendered modes use `textContent`.
+    @discardableResult
+    private func writeTextContentToDisk() -> Task<Void, Never>? {
         guard !isSaving else { return nil }
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {

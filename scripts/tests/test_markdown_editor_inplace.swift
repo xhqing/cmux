@@ -894,6 +894,123 @@ do {
         normalized(try page.flush()),
         normalized("# 甲\n\n乙一段。\n\n丙二段。")
     )
+    // MARK: Scenario 11 — a leftover selection must not swallow the block click
+
+    // A user who selected a line (to read or copy) and then clicks it again
+    // expects the block to open. The click handler used to treat any
+    // non-collapsed selection at mouseup time as a drag and drop the click.
+    try page.eval("window.__test.clickOutsideContent(); true")
+    _ = try page.flush()
+    try page.render("# 标题\n\n把项目交给 AI，你提一句它改一版，来回折腾，到底能不能改到你满意？\n\n尾段。\n")
+    try page.installEditor(locked: false)
+    try page.waitFor("document.querySelectorAll('#content p').length >= 2")
+    let leftoverSelection = try page.json(
+        """
+        (function() {
+          var block = window.__test.elementWithText('#content p', '把项目交给 AI');
+          if (!block) { return JSON.stringify({ editableCount: -1, reason: 'block missing' }); }
+          var range = document.createRange();
+          range.selectNodeContents(block);
+          var selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          var point = window.__test.pointForChar(block, 4);
+          if (!point) { return JSON.stringify({ editableCount: -1, reason: 'no point' }); }
+          window.__test.clickAt(point.x, point.y);
+          return window.__test.state();
+        })()
+        """
+    )
+    checks.equal(
+        "scenario 11: a leftover selection does not swallow the block click",
+        leftoverSelection["editableCount"] as? Int ?? -1,
+        1
+    )
+
+    try page.eval("window.getSelection && window.getSelection().removeAllRanges(); true")
+    // MARK: Scenario 12 — a stale editing state must heal on the next click
+
+    // The page re-renders (host echo, crash recovery) while a block is open, or
+    // WebKit drops the editable attribute: `activeBlock` still points at the
+    // element, but the element is no longer editable. Clicking it must reopen
+    // the edit instead of being skipped as "that block is already being edited".
+    try page.eval("window.__test.clickOutsideContent(); true")
+    _ = try page.flush()
+    try page.render("# 标题\n\n把项目交给 AI，你提一句它改一版，来回折腾，到底能不能改到你满意？\n\n尾段。\n")
+    try page.installEditor(locked: false)
+    try page.waitFor("document.querySelectorAll('#content p').length >= 2")
+    let staleState = try page.json(
+        """
+        (function() {
+          var block = window.__test.elementWithText('#content p', '把项目交给 AI');
+          if (!block) { return JSON.stringify({ opened: -1, after: -1, reason: 'block missing' }); }
+          var point = window.__test.pointForChar(block, 4);
+          if (point) { window.__test.clickAt(point.x, point.y); }
+          var opened = window.__test.editableBlocks().length;
+          // The element leaves the editing state behind the page's back.
+          block.removeAttribute('contenteditable');
+          block.classList.remove('cmux-block-editing');
+          var again = window.__test.pointForChar(block, 6);
+          if (again) { window.__test.clickAt(again.x, again.y); }
+          var after = JSON.parse(window.__test.state()).editableCount;
+          return JSON.stringify({ opened: opened, after: after });
+        })()
+        """
+    )
+    checks.equal("scenario 12: the first click opens the block", staleState["opened"] as? Int ?? -1, 1)
+    checks.equal(
+        "scenario 12: a stale editing state heals on the next click",
+        staleState["after"] as? Int ?? -1,
+        1
+    )
+
+    try page.eval("window.getSelection && window.getSelection().removeAllRanges(); true")
+    // MARK: Scenario 13 — saving and echoing the document keeps the block clickable
+
+    // Field report: edit a paragraph, save (the host flushes the page and pushes
+    // the committed document back), then click the same paragraph again — it
+    // used to refuse to open.
+    try page.eval("window.__test.clickOutsideContent(); true")
+    _ = try page.flush()
+    try page.render("# 标题\n\n把项目交给 AI，你提一句它改一版，来回折腾，到底能不能改到你满意？\n\n尾段。\n")
+    try page.installEditor(locked: false)
+    try page.waitFor("document.querySelectorAll('#content p').length >= 2")
+    _ = try page.eval(
+        """
+        (function() {
+          var block = window.__test.elementWithText('#content p', '把项目交给 AI');
+          var point = window.__test.pointForChar(block, 6);
+          if (point) { window.__test.clickAt(point.x, point.y); }
+          window.__test.type('改');
+          return true;
+        })()
+        """
+    )
+    let savedDocument = try page.flush()
+    checks.isTrue(
+        "scenario 13: the save contains the block edit",
+        savedDocument.contains("改"),
+        "saved: \(savedDocument.prefix(160))"
+    )
+    try page.eval("window.__cmuxRenderMarkdown(\(try jsStringLiteral(savedDocument))); true")
+    let reopened = try page.json(
+        """
+        (function() {
+          // The edit typed a character into "交给", so locate the paragraph by
+          // position instead of its text.
+          var block = document.querySelectorAll('#content p')[0];
+          if (!block) { return JSON.stringify({ editableCount: -1, reason: 'block missing' }); }
+          var point = window.__test.pointForChar(block, 4);
+          if (point) { window.__test.clickAt(point.x, point.y); }
+          return window.__test.state();
+        })()
+        """
+    )
+    checks.equal(
+        "scenario 13: the saved block is editable on the next click",
+        reopened["editableCount"] as? Int ?? -1,
+        1
+    )
 } catch {
     print("❌ harness error: \(error)")
     exit(1)

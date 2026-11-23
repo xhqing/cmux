@@ -2245,6 +2245,12 @@ html { scroll-behavior: smooth; }
       var scrollState = didReplaceContent ? captureMarkdownScrollState() : null;
       if (didReplaceContent) {
         contentEl.replaceChildren(fragment);
+        // The replaced nodes are detached: a block that was open under the
+        // caret no longer exists in the document, and keeping it as the active
+        // block would make every later click on that spot a no-op (#142).
+        if (window.CmuxMarkdownEditor && window.CmuxMarkdownEditor.discardDetachedActiveBlock) {
+          try { window.CmuxMarkdownEditor.discardDetachedActiveBlock(); } catch (e) {}
+        }
       }
       rewriteLocalImageSources();
       rewriteRemoteImageSources();
@@ -2267,6 +2273,9 @@ html { scroll-behavior: smooth; }
       sourceCode.textContent = md || '';
       sourcePre.appendChild(sourceCode);
       contentEl.replaceChildren(errorBox, sourcePre);
+      if (window.CmuxMarkdownEditor && window.CmuxMarkdownEditor.discardDetachedActiveBlock) {
+        try { window.CmuxMarkdownEditor.discardDetachedActiveBlock(); } catch (e) {}
+      }
     }
   };
 

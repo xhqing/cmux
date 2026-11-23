@@ -4,10 +4,12 @@
 
 ## 🟠 橙色（边界情况、防护缺口，可能演化为实际问题）
 
-- [ ] **T13** `unit-tests` 全量在 CI 上的 flake / 挂死面收口（记录：2026-11-23 15:05）
+- [ ] **T13** `unit-tests` 全量在 CI 上的 flake / 挂死面收口（记录：2026-11-24 03:11）
   **现状**：codex 那条调度竞态用例（`coordinationContentionResolvesWithinOneWaitingRequest`）已修（PR #128，两度实测转绿）；两条 Cloud 用例的轮询预算已放宽到 30s（PR #129）。但同一时期的全量仍有第三条不同的用例红，每次还不是同一条：r26 / r29 rerun 是 `CloudPortRoutePlanTests.stopDuringStart`，修复后 main（run 44688219519）是 `CloudDesktopNavigationLifecycleTests.leaveAndReenter`（都是轮询预算到期）；2026-11-20 那次 dispatch（run 44703813508）更是在 `UpgradeAnalyticsTests.welcomeOtherOutcomes` 上挂死 4 小时、最后撞 360 分钟 job 上限被 cancelled（同一条用例在前两次跑里 1.8s 通过），整轮没有结论。
   **要做什么**：① 给「等外部信号」的用例路径（`analytics.drain()`、窗口 present / dismiss、`waitUntil`）加**有界**等待，避免无超时的挂死把整轮拖到 job 上限；② 评估给 workflow 加 per-step `timeout-minutes`（挂死能快速失败、不再烧 6 小时）；③ 定 flake 策略：继续按 SKIP 名单逐个排除（已有 4 轮先例）还是接受「全量红不阻塞发版」（现 `build-macos` 与 Release 资产不受影响）。
   **2026-11-21 更正（run 44755916546）**：30 秒预算落地后 `CloudPortRoutePlanTests.stopDuringStart` 仍然把 30 秒跑满才报错 —— 所以它**不是预算问题**，是同一进程里（XCTest + Swift Testing 混跑、1072 套件并行）主 actor 被别的测试长时间占着，本用例等的 `stop()` 任务与它同一个 actor。同样的推理适用于任何「等主 actor 上的异步任务」的用例；光调 timeout 只能让失败变慢。另外：同一次跑里 codex 那条用例是通过的（第三次）。
+  **2026-11-24 03:11 验证（main `7195a2e`，run 45219812986，含 #141）**：`CloudPortRoutePlanTests.stopDuringStart` **转绿**（#141 的饥饿容错生效，这轮 30 秒预算没再跑满）。同一轮换成三条不同的用例红，每条都是「共享计数的时序断言」而不是「等主 actor 就绪」：`CloudLoopbackPortForwardTests.unixSocketHub`（`hub.connectTargets` 期望 1 实得 2）、`SidebarDerivedStateScaleTests.paneRegistryBookkeepingDoesNotInvalidateCachedSidebar(workspaceCount:)`（`workspaceSnapshotBuilds` 期望 0 实得 1）、`VMClientReadCoalescingTests.explicitTeamCoalescingKey`（URLProtocol 请求计数期望 2）。→ 「每轮换一条」的根因至少还有第二类：并行套件共享状态 / 计数竞争（#141 只覆盖了等待机制那一类）。**下一步**：按同族逐个把这几个计数断言改成不依赖跨套件时序（各自独立 fixture / 串行化该 suite / 断言范围而非精确计数），而不是继续加预算。
+
   **注意**：不要把 timeout 当成「改测试迁就实现」——上述用例挂的都是「等异步链路到位」，断言条件本身没错。
   **2026-11-23 retry 实测否定（run 45181479936）**：`-retry-tests-on-failure -test-iterations 2` 把每个用例都跑两遍（9465→18930 条、测试阶段 1985→4223 秒），没把时序噪声变绿 → 已撤销。这一轮的红换成 `RemoteTmuxMirrorPaneInputMappingTests`（断言 send-keys 到达顺序，上一轮绿、本轮两次都红）→ 与 RemoteTmuxMirror* 同族入 SKIP。**待办**：要「只重跑失败用例」需解析失败清单 + `-only-testing:` 二次调用（不是 xcodebuild 的这两面旗），另做一次验证。
 

@@ -48,7 +48,6 @@ private enum TestAnalytics {
     }
 }
 
-@MainActor
 /// Awaits `ProductAnalytics.drain()` with a deadline.
 ///
 /// `drain()` waits for the pipeline's barrier and has no timeout of its own: a
@@ -65,6 +64,7 @@ private func drainAnalytics(_ analytics: ProductAnalytics) async -> Bool {
     }
 }
 
+@MainActor
 @Suite("Upgrade analytics", .serialized, .exclusiveAppContext)
 struct UpgradeAnalyticsTests {
     @Test("the sidebar Upgrade badge records its impression, click and dismiss with its source")

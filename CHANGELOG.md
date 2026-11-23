@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [未发布]
+## [0.65.2.2-r31] - 2026-11-23
 
 ### 修复（Markdown 就地编辑保存后同一段点不开（点击被残留选区 / 残留编辑态吞掉）、头部 Save 不落盘，2026-11-23，Issue #142）
 

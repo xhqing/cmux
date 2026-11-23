@@ -2,6 +2,15 @@
 
 All notable changes to cmux are documented here.
 
+## [未发布]
+
+### 修复（Markdown 就地编辑保存后同一段点不开（点击被残留选区 / 残留编辑态吞掉）、头部 Save 不落盘，2026-11-23，Issue #142）
+
+- **为什么改**：用户在就地编辑（Edit in Place）模式里改 `docs/articles/why-ai-converges.md` 的第二段，保存后**同一段再点没有任何反应**，文件 mtime 也没变。三条独立成因叠在一起：① 单击判定在 `mouseup` 读**当前**选区判断「是不是拖选」，而单击的折叠依赖 WebKit，页面上留着一个非折叠选区（选中整行很常见）就把后续所有点击吞掉；② `activeBlock` 只在一组 close / discard 路径上清空，页面重渲染替换掉被编辑的元素、或 WebKit 去掉 `contenteditable` 之后它仍指向旧元素，点击「同一块」被无条件 return，这一块从此点不开；③ `saveTextContent()` 读 `textView?.string ?? textContent`，而就地编辑的内容此刻只在页面 DOM 里——面板头部 Save、`close()`、`reloadFromDisk()` 都不 flush，保存等于没保存。
+- **改了什么**：① `Resources/markdown-viewer/markdown-editor.js`：`mousedown` 记录「当时是否已有非折叠选区」，`mouseup` 只把「指针位移 > 4px」「shift 扩选」「本次手势新造出的选区（双击 / 三击）」当选区动作，单击（哪怕页面上留着选区）继续进编辑，并由 `placeCaret` 把选区折叠到点击处；`openBlock` / `mouseup` 的同一块短路加上 `isBlockInEditingState`（元素 `isConnected`、仍在 `#content` 内、`contenteditable="true"`），不满足就先 `discardActiveBlock()` 再重新打开；新增 `discardDetachedActiveBlock()`，`shell.html` 的 `__cmuxRenderMarkdown` 在 `replaceChildren` 之后（含渲染报错兜底路径）调用它，清掉指向已分离元素的 `activeBlock`——未变更的宿主 echo 仍走 `normalizedHTML` 比较、不动正在编辑的块（scenario 10）。② `Sources/Panels/MarkdownPanel.swift`：新增 `MarkdownSavePath.requiresPageFlush(displayMode:hasWebView:)`（`.editor` 且有 webView 才为真）；`saveTextContent()` 成为统一入口，满足条件时先 `CmuxMarkdownEditor.flush()` 把页面提交的文本回灌 `textContent`，再走拆出来的 `writeTextContentToDisk()`（flush 路由与写盘分两层，不会递归）；`commitEditorAndSave()`（⌘S）改为同一入口；`reloadFromDisk()` 先 flush 再读盘，刷新不再丢掉正在编辑的块；`close()` 关闭前请求页面提交活动块（尽力而为、不阻塞关闭）。③ `Sources/Panels/MarkdownPanelView.swift`：`.editor` 模式下面板头部 Save 不再按 `textContent` 的脏标记灰掉——块里的编辑宿主看不见，灰掉正好把「该 flush 的那次点击」吞了；仍受 `isSaving` 约束。
+- **怎么验证**：`swift scripts/tests/test_markdown_editor_inplace.swift` 全绿（58 项，含原 scenario 1~10 与新增 11 ~ 13：残留选区不吞单击、残留编辑态下一次点击自愈、保存 + 宿主 echo 之后同一块仍可编辑）；`node --check Resources/markdown-viewer/markdown-editor.js`；改动的 Swift 文件过 `swiftc -parse`（PR 门禁同款）；保存路由断言 `cmuxTests/MarkdownPanelTests.testSaveRequiresPageFlushOnlyForTheInPlaceEditor` 由 CI 的 app-host 套件跑。手动验收（装新版后）：编辑一段 → 头部 Save → 文件落盘且内容含编辑；再次点击同一段能进编辑；选中整行后单击该行也能进编辑。
+- **回归检查**：拖选文本仍然只选中、不进编辑（位移判据未动，只把「残留选区」从判据里拿掉）；双击 / 三击选词选段仍不进编辑；锁定（lock）状态行为不变；未变更的宿主 echo 仍然不重渲染当前编辑块；`.preview` / `.text` 模式的保存路径与脏标记完全未变（`requiresPageFlush` 仅在 `.editor` + 有 webView 时为真，text 模式仍读 `NSTextView` 的活动内容）；关闭面板仍沿用既有「未保存不写盘」策略，本次只保证页面里的编辑先提交给宿主。
+
 ## [0.65.2.2-r30] - 2026-11-22
 
 > **首个证书签名版本（下一个 tag）需要手动重装一次**：从 r29 及更早（ad-hoc 签名）升级会被 Sparkle 拒绝——签名身份变了。请手动重装：`./scripts/install-release.sh --tag <新版本>`；之后版本之间签名身份一致，应用内更新恢复正常。证书轮换（见 `DEVELOPMENT.md` 第十节第 8 小节）会让这句话再成立一次。

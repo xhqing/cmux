@@ -11,7 +11,7 @@
   **注意**：不要把 timeout 当成「改测试迁就实现」——上述用例挂的都是「等异步链路到位」，断言条件本身没错。
   **2026-11-23 retry 实测否定（run 45181479936）**：`-retry-tests-on-failure -test-iterations 2` 把每个用例都跑两遍（9465→18930 条、测试阶段 1985→4223 秒），没把时序噪声变绿 → 已撤销。这一轮的红换成 `RemoteTmuxMirrorPaneInputMappingTests`（断言 send-keys 到达顺序，上一轮绿、本轮两次都红）→ 与 RemoteTmuxMirror* 同族入 SKIP。**待办**：要「只重跑失败用例」需解析失败清单 + `-only-testing:` 二次调用（不是 xcodebuild 的这两面旗），另做一次验证。
 
-  **2026-11-23 验证 + 两条收口（run 45157271886）**：`stopDuringStart` 改法验证通过（0.004 秒绿）；同一轮只剩 `SettingsWindowPresentationContractTests` 一条（`got .presented`，靠 Timer 在有界 run-loop 等待里关窗，headless 不可信）→ 已入 CI 的 SKIP 名单；同时给 `xcodebuild test` 加 `-retry-tests-on-failure -test-iterations 2`（只重跑失败用例），把剩余的时序抖动静默吸收并在日志留 `(retry ...)` 证据。**剩余观察**：① 下一次全量是否还有新的 headless 窗口类用例红（若有，按同族并入 SKIP）；② 日志里 `(retry ...)` 的出现频率——若某条长期靠重跑才绿，按待查处理而不是一直当噪声。
+  **2026-11-23 验证 + 两条收口（run 45157271886）**：`stopDuringStart` 改法验证通过（0.004 秒绿）；同一轮只剩 `SettingsWindowPresentationContractTests` 一条（`got .presented`，靠 Timer 在有界 run-loop 等待里关窗，headless 不可信）→ 已入 CI 的 SKIP 名单；同时（当时）给 `xcodebuild test` 加了 `-retry-tests-on-failure -test-iterations 2`，期望只重跑失败用例——下一轮实测证明它把每个用例都跑两遍，已撤销（见下方 retry 实测否定条）。**剩余观察**：下一次全量是否还有新的 headless 时序类用例红（若有，按同族并入 SKIP）。
 
   **2026-11-23 更正（run 45136803034 诊断行）**：`[MainActorWait] ... kind=actor-responsive maxActorStall=0.10s iterations=15000` 证明主 actor 与进程全程健康——`stopDuringStart` 不是饥饿，而是**断言了瞬时状态**：`CloudLinkFirstValue.result` 取消感知，`stop()` 一旦 cancel，forward 立即返回、`.stopping` 只存在几条同步语句，轮询基本看不见（预算从 10s 加到 30s 毫无改善也印证）。已改由测试持有的 continuation 把 forward 卡在飞行中，让 `.stopping` 稳定可观测，核心断言不变。**其余两个历史失败**（`CloudDesktopNavigationLifecycleTests` 的 8 秒 waitUntil、`UpgradeAnalyticsTests` 的 4 小时挂死）仍需分别验证：前者要继续看是否同类「瞬时状态 / 预算过窄」，后者已加 60 秒 deadline，若变成一条带诊断的红就说明是 pipeline 真的卡住。
 

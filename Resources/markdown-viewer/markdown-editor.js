@@ -120,6 +120,20 @@
     }
   }
 
+  /// Whether the recorded block is still the one being edited: it has to be in
+  /// the rendered document and still carry the editable attribute. A host
+  /// re-render or WebKit dropping `contenteditable` leaves `activeBlock`
+  /// pointing at a block that is no longer editable, and the "same block, keep
+  /// editing" short-circuits below would then swallow every later click on it
+  /// (#142).
+  function isBlockInEditingState(state) {
+    if (!state || !state.element || !state.host) { return false; }
+    if (!state.element.isConnected) { return false; }
+    if (!contentEl || !contentEl.contains(state.element)) { return false; }
+    if (state.host.getAttribute('contenteditable') !== 'true') { return false; }
+    return true;
+  }
+
   function blockElementAt(target) {
     var element = target && target.closest ? target.closest('[' + BLOCK_ATTRIBUTE_START + ']') : null;
     if (!element || !contentEl.contains(element)) { return null; }
@@ -479,14 +493,30 @@
     detachBlockEditing(state);
   }
 
+  /// Drops the open edit when the element behind it is no longer part of the
+  /// rendered document (the host replaced the content). Keeping it would make
+  /// every later click on that spot a no-op (#142).
+  function discardDetachedActiveBlock() {
+    if (!activeBlock) { return; }
+    if (isBlockInEditingState(activeBlock)) { return; }
+    discardActiveBlock();
+  }
+
   function openBlock(element, point) {
     if (locked) {
       shineLockPill();
       return;
     }
     if (activeBlock) {
-      if (activeBlock.element === element) { return; }
-      closeActiveBlock(true, true);
+      if (activeBlock.element === element) {
+        if (isBlockInEditingState(activeBlock)) { return; }
+        // The block left the editing state behind the page's back (the host
+        // re-rendered it, WebKit dropped `contenteditable`). Drop the stale
+        // state instead of treating this click as "already editing" (#142).
+        discardActiveBlock();
+      } else {
+        closeActiveBlock(true, true);
+      }
     }
     var range = blockRange(element);
     if (!range) { return; }
@@ -580,17 +610,34 @@
 
     contentEl.addEventListener('mousedown', function(event) {
       if (event.button !== 0) { return; }
-      pointerStart = { x: event.clientX, y: event.clientY, target: event.target };
+      var selection = global.getSelection && global.getSelection();
+      pointerStart = {
+        x: event.clientX,
+        y: event.clientY,
+        target: event.target,
+        // Whether a selection was already standing *before* this gesture.
+        // The mouseup-time range says nothing about the gesture's intent:
+        // WebKit often keeps a leftover selection standing under a plain
+        // click, and treating that as a drag swallows the click (#142).
+        hadSelection: Boolean(selection && !selection.isCollapsed),
+        extendSelection: event.shiftKey === true
+      };
     }, true);
 
     contentEl.addEventListener('mouseup', function(event) {
       var start = pointerStart;
       pointerStart = null;
       if (!installed || !start || event.button !== 0) { return; }
-      // A drag is a text selection, not a block activation.
+      // A drag is pointer movement, not the selection left over from an
+      // earlier gesture: selecting text always moves the pointer.
       if (Math.abs(event.clientX - start.x) > 4 || Math.abs(event.clientY - start.y) > 4) { return; }
+      // Shift-click extends a selection and is not a block activation.
+      if (event.shiftKey || start.extendSelection) { return; }
       var selection = global.getSelection && global.getSelection();
-      if (selection && !selection.isCollapsed) { return; }
+      var hasSelectionNow = Boolean(selection && !selection.isCollapsed);
+      // A selection this gesture *created* (double/triple click) is still a
+      // selection, not an activation. A leftover selection is not.
+      if (hasSelectionNow && !start.hadSelection) { return; }
       if (isEmbeddedControl(event.target)) { return; }
       var element = blockElementAt(event.target);
       if (!element) { return; }
@@ -598,7 +645,7 @@
         shineLockPill();
         return;
       }
-      if (activeBlock && activeBlock.element === element) { return; }
+      if (activeBlock && activeBlock.element === element && isBlockInEditingState(activeBlock)) { return; }
       // The caret has to be resolved from the click itself: a synthetic
       // mousedown/mouseup pair never moves WebKit's selection, so the block
       // would open with the caret at its first character.
@@ -660,6 +707,7 @@
       if (typeof markdown === 'string') { sourceText = markdown; }
       if (!contentEl) { contentEl = document.getElementById('content'); }
       if (!contentEl) { return; }
+      discardDetachedActiveBlock();
       stampBlockRanges(sourceText);
       if (installed) {
         installLockPill();
@@ -671,6 +719,7 @@
     /// 去掉编辑器痕迹后的当前 DOM（见 `normalizedHTML`）：宿主用它决定要不
     /// 要重渲染整篇文档，安装前后都能调用。
     normalizedHTML: normalizedHTML,
+    discardDetachedActiveBlock: discardDetachedActiveBlock,
     closeActiveBlock: function(commit) { closeActiveBlock(commit !== false, true); },
     /// Commits any open block and hands the canonical document back, so the
     /// host can save without waiting for a follow-up message.

@@ -557,6 +557,16 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(nextPanel.isEditorLocked, "the next markdown editor opens in the last used lock state")
     }
 
+    /// Saving in the in-place editor has to ask the page to commit the open
+    /// block first: `textContent` does not include it, so a plain
+    /// `saveTextContent()` would write the pre-edit document (#142).
+    func testSaveRequiresPageFlushOnlyForTheInPlaceEditor() {
+        XCTAssertTrue(MarkdownSavePath.requiresPageFlush(displayMode: .editor, hasWebView: true))
+        XCTAssertFalse(MarkdownSavePath.requiresPageFlush(displayMode: .editor, hasWebView: false))
+        XCTAssertFalse(MarkdownSavePath.requiresPageFlush(displayMode: .preview, hasWebView: true))
+        XCTAssertFalse(MarkdownSavePath.requiresPageFlush(displayMode: .text, hasWebView: true))
+    }
+
     func testMarkdownRendererSessionReusesCoordinatorAcrossViewRecreation() {
         let session = MarkdownRendererSession()
         let panelId = UUID()

@@ -10,16 +10,12 @@ All notable changes to cmux are documented here.
 - **这一轮的红**：`RemoteTmuxMirrorPaneInputMappingTests.remoteManualInputPreservesLiteralAndNamedKeyOrder`——断言「x → End → y」三条 `send-keys` 的到达顺序；同一轮两次都红，而上一轮它是绿的（1.607 秒通过）→ 输入投递顺序在 headless runner 上不稳定，与已被排除的 `RemoteTmuxMirror*` 分组同类，整组入 SKIP。
 - **要「只重跑失败用例」的正确做法**：解析失败清单，再用 `-only-testing:` 二次调用 xcodebuild（而不是靠 `-test-iterations`）。这一条留作 T13 待办，需单独实现与验证，不在此次顺手改。
 
-## [未发布]
-
 ### 修复（`stopDuringStart` 的修复已验证；再收两条 headless 噪声：窗口契约 suite 入 SKIP + 失败用例重跑一次，2026-11-23，T13）
 
 - **验证结果**：run 45157271886 里 `stopDuringStart` **0.004 秒通过**（此前每次 30–60 秒后红），全量 9465 条用例只剩 1 个 issue，证明「瞬时状态」判断与 gate 改法都对。
 - **新的那 1 条**：`SettingsWindowPresentationContractTests.closingTheWindowDuringTheDeminiaturizeWaitIsNotResurrected` 报 `expected .failed after a mid-wait close, got .presented`——它靠「presenter 的有界 run-loop 等待期间 50ms Timer 关窗」制造竞态，headless runner 上 Timer 不一定在泵里触发，属需要真实窗口服务器 / 运行循环时序的一族，按既有四轮先例加入 CI 的 `-skip-testing` 名单（本机 `scripts/test-all-local.sh` 仍跑）。
-- **结构性补强**：`xcodebuild test` 加 `-retry-tests-on-failure -test-iterations 2`——每个用例正常跑一次，只有失败的才重跑一次。headless 时序噪声会被重跑吸收（日志留 `(retry ...)` 证据），确定性回归两轮都红。这是 T13 里「套件级重试策略」的落地，与 SKIP 名单分工：结构性不可测的入 SKIP，偶发时序抖动用重跑。
-- **边界**：重跑会掩盖「间歇性真 bug」——若某条用例长期靠重跑才绿，应视为待查项（`(retry ...)` 在日志里可统计），不能一直当噪声。
-
-## [未发布]
+- **~~结构性补强~~（已撤销）**：当时给 `xcodebuild test` 加了 `-retry-tests-on-failure -test-iterations 2`，期望「只重跑失败的用例」。下一轮实测证明这组旗不这么工作（见上方更正），已从 workflow 撤销。
+- **边界**：真实有效的做法是「解析失败清单 + `-only-testing:` 二次调用」，见 T13 待办。
 
 ### 更正 + 修复（`CloudPortRoutePlanTests.stopDuringStart` 的真因是「断言瞬时状态」，不是主 actor 饥饿，2026-11-23，T13）
 
@@ -29,8 +25,6 @@ All notable changes to cmux are documented here.
 - **保留**：等待 helper 的饥饿容错与诊断行（对真正的慢环境仍然有效，且正是它定位了这次问题）、`analytics.drain()` 的 60 秒 deadline、`unit-tests.yml` 的 step 超时。
 - **教训**：断言一个「模型会瞬间经过」的中间状态，本身就是 flaky 设计；要断言中间状态，必须由测试把那段状态**卡住**（或改用状态流/回调），而不是靠轮询碰运气。
 
-## [未发布]
-
 ### 修复（CI 全量测试的假红：等待改成饥饿容错 + 自诊断，2026-11-23，T13）
 
 > **2026-11-23 更正**：本节把假红归因为「主 actor 被别的用例占住」。上方的更正条目用诊断数据推翻了这一判断（真因是断言了一个只有几条语句的瞬时状态）。本节的环境容错与诊断能力仍然保留，但「主 actor 饥饿」不再是这些用例红的原因。
@@ -39,6 +33,17 @@ All notable changes to cmux are documented here.
 - **改了什么**：① 新增 `cmuxTests/MainActorWaitSupport.swift`：`waitForMainActorState` 只把「主 actor 跟得上」的那部分时间计入预算，环境卡顿只会让等待变长、不会变红；保留硬上限（默认 300 秒）防真挂死；超时向 stderr 打一行诊断，用 `maxActorStall` 与「脱离主 actor 的心跳间隔」区分 `actor-busy` / `process-starved` / `actor-responsive`，下次红能自证原因。② `AppKitTestEventPump.waitUntil`（149 处调用点）改用同一套记账，语义不变（仍逐次 pump 主队列）。③ `CloudPortRoutePlanTests.wait` 改为委托，删掉自带的墙钟 deadline。④ `UpgradeAnalyticsTests` 的 8 处 `analytics.drain()`（无超时、曾挂 4 小时）套上 60 秒 deadline——用一次性 continuation 竞速而不是 task group，因为后者在子任务永久挂起时会连 wrapper 一起挂住。⑤ 把 4 个「等主 actor 链路」的 suite 级 `timeLimit` 从 1 分钟放宽到 15 分钟（`CloudPortRoutePlanTests`、`CloudDesktopNavigationLifecycleTests`、`CloudDesktopAccessTests`、`GhosttyWorkspaceActionTests`；per-test 的 1 分钟上限没动）（1 分钟的墙钟上限会把「延长等待」变成另一种假红），把 `unit-tests.yml` 的「运行 cmuxTests」step 加 `timeout-minutes: 180`（job 级 360 分钟太远，挂死要烧 6 小时）。等待 helper 的硬上限设为 600 秒——比实测最长的 398 秒进程级停顿更宽，真挂死仍会在 10 分钟内失败。
 - **怎么验证**：新增 `MainActorWaitSupportTests`（立即为真、等待中翻真、永不为真仍在预算耗尽时判负、deadline wrapper 按时返回 / 超时返回），随 `xcodebuild test` 在 CI 跑；本机是 CommandLineTools（无 Testing 模块），只能 `swiftc -parse` + `scripts/lint-pbxproj-test-wiring.sh` 预检，结论以分支上一次 `unit-tests` 全量为准。
 - **回归检查 / 边界**：① 断言条件一条没改，只换等待机制——「条件永不成立」仍会红（受硬上限约束，只是红得晚）；② 需要「1 秒内确认某事没发生」的负数断言语义不变：条件不成立时仍返回 false，只是环境卡顿时会多等；③ 不碰产品代码，`build-macos` 不受影响；④ 真挂死的用例变成「一条带诊断的红」，不再拖垮整轮。
+
+||||||| 59e305c
+
+## [0.65.2.2-r31] - 2026-11-23
+
+### 修复（Markdown 就地编辑保存后同一段点不开（点击被残留选区 / 残留编辑态吞掉）、头部 Save 不落盘，2026-11-23，Issue #142）
+
+- **为什么改**：用户在就地编辑（Edit in Place）模式里改 `docs/articles/why-ai-converges.md` 的第二段，保存后**同一段再点没有任何反应**，文件 mtime 也没变。三条独立成因叠在一起：① 单击判定在 `mouseup` 读**当前**选区判断「是不是拖选」，而单击的折叠依赖 WebKit，页面上留着一个非折叠选区（选中整行很常见）就把后续所有点击吞掉；② `activeBlock` 只在一组 close / discard 路径上清空，页面重渲染替换掉被编辑的元素、或 WebKit 去掉 `contenteditable` 之后它仍指向旧元素，点击「同一块」被无条件 return，这一块从此点不开；③ `saveTextContent()` 读 `textView?.string ?? textContent`，而就地编辑的内容此刻只在页面 DOM 里——面板头部 Save、`close()`、`reloadFromDisk()` 都不 flush，保存等于没保存。
+- **改了什么**：① `Resources/markdown-viewer/markdown-editor.js`：`mousedown` 记录「当时是否已有非折叠选区」，`mouseup` 只把「指针位移 > 4px」「shift 扩选」「本次手势新造出的选区（双击 / 三击）」当选区动作，单击（哪怕页面上留着选区）继续进编辑，并由 `placeCaret` 把选区折叠到点击处；`openBlock` / `mouseup` 的同一块短路加上 `isBlockInEditingState`（元素 `isConnected`、仍在 `#content` 内、`contenteditable="true"`），不满足就先 `discardActiveBlock()` 再重新打开；新增 `discardDetachedActiveBlock()`，`shell.html` 的 `__cmuxRenderMarkdown` 在 `replaceChildren` 之后（含渲染报错兜底路径）调用它，清掉指向已分离元素的 `activeBlock`——未变更的宿主 echo 仍走 `normalizedHTML` 比较、不动正在编辑的块（scenario 10）。② `Sources/Panels/MarkdownPanel.swift`：新增 `MarkdownSavePath.requiresPageFlush(displayMode:hasWebView:)`（`.editor` 且有 webView 才为真）；`saveTextContent()` 成为统一入口，满足条件时先 `CmuxMarkdownEditor.flush()` 把页面提交的文本回灌 `textContent`，再走拆出来的 `writeTextContentToDisk()`（flush 路由与写盘分两层，不会递归）；`commitEditorAndSave()`（⌘S）改为同一入口；`reloadFromDisk()` 先 flush 再读盘，刷新不再丢掉正在编辑的块；`close()` 关闭前请求页面提交活动块（尽力而为、不阻塞关闭）。③ `Sources/Panels/MarkdownPanelView.swift`：`.editor` 模式下面板头部 Save 不再按 `textContent` 的脏标记灰掉——块里的编辑宿主看不见，灰掉正好把「该 flush 的那次点击」吞了；仍受 `isSaving` 约束。
+- **怎么验证**：`swift scripts/tests/test_markdown_editor_inplace.swift` 全绿（58 项，含原 scenario 1~10 与新增 11 ~ 13：残留选区不吞单击、残留编辑态下一次点击自愈、保存 + 宿主 echo 之后同一块仍可编辑）；`node --check Resources/markdown-viewer/markdown-editor.js`；改动的 Swift 文件过 `swiftc -parse`（PR 门禁同款）；保存路由断言 `cmuxTests/MarkdownPanelTests.testSaveRequiresPageFlushOnlyForTheInPlaceEditor` 由 CI 的 app-host 套件跑。手动验收（装新版后）：编辑一段 → 头部 Save → 文件落盘且内容含编辑；再次点击同一段能进编辑；选中整行后单击该行也能进编辑。
+- **回归检查**：拖选文本仍然只选中、不进编辑（位移判据未动，只把「残留选区」从判据里拿掉）；双击 / 三击选词选段仍不进编辑；锁定（lock）状态行为不变；未变更的宿主 echo 仍然不重渲染当前编辑块；`.preview` / `.text` 模式的保存路径与脏标记完全未变（`requiresPageFlush` 仅在 `.editor` + 有 webView 时为真，text 模式仍读 `NSTextView` 的活动内容）；关闭面板仍沿用既有「未保存不写盘」策略，本次只保证页面里的编辑先提交给宿主。
 
 ## [0.65.2.2-r30] - 2026-11-22
 

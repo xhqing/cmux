@@ -4,11 +4,12 @@
 
 ## 🟠 橙色（边界情况、防护缺口，可能演化为实际问题）
 
-- [ ] **T13** `unit-tests` 全量在 CI 上的 flake / 挂死面收口（记录：2026-11-20 22:45）
+- [ ] **T13** `unit-tests` 全量在 CI 上的 flake / 挂死面收口（记录：2026-11-23 15:05）
   **现状**：codex 那条调度竞态用例（`coordinationContentionResolvesWithinOneWaitingRequest`）已修（PR #128，两度实测转绿）；两条 Cloud 用例的轮询预算已放宽到 30s（PR #129）。但同一时期的全量仍有第三条不同的用例红，每次还不是同一条：r26 / r29 rerun 是 `CloudPortRoutePlanTests.stopDuringStart`，修复后 main（run 44688219519）是 `CloudDesktopNavigationLifecycleTests.leaveAndReenter`（都是轮询预算到期）；2026-11-20 那次 dispatch（run 44703813508）更是在 `UpgradeAnalyticsTests.welcomeOtherOutcomes` 上挂死 4 小时、最后撞 360 分钟 job 上限被 cancelled（同一条用例在前两次跑里 1.8s 通过），整轮没有结论。
   **要做什么**：① 给「等外部信号」的用例路径（`analytics.drain()`、窗口 present / dismiss、`waitUntil`）加**有界**等待，避免无超时的挂死把整轮拖到 job 上限；② 评估给 workflow 加 per-step `timeout-minutes`（挂死能快速失败、不再烧 6 小时）；③ 定 flake 策略：继续按 SKIP 名单逐个排除（已有 4 轮先例）还是接受「全量红不阻塞发版」（现 `build-macos` 与 Release 资产不受影响）。
   **2026-11-21 更正（run 44755916546）**：30 秒预算落地后 `CloudPortRoutePlanTests.stopDuringStart` 仍然把 30 秒跑满才报错 —— 所以它**不是预算问题**，是同一进程里（XCTest + Swift Testing 混跑、1072 套件并行）主 actor 被别的测试长时间占着，本用例等的 `stop()` 任务与它同一个 actor。同样的推理适用于任何「等主 actor 上的异步任务」的用例；光调 timeout 只能让失败变慢。另外：同一次跑里 codex 那条用例是通过的（第三次）。
   **注意**：不要把 timeout 当成「改测试迁就实现」——上述用例挂的都是「等异步链路到位」，断言条件本身没错。
+  **2026-11-23 进展（r30 tag run 45034081189 补充证据 + 第一步落地）**：r30 的 tag 构建同样只挂 1 条（还是 `stopDuringStart`，30.0 秒跑满），日志里 72 处 ≥5 秒的全进程静默、最长 398 秒，证实「单进程 1072 suite 抢主 actor / runner 饥饿」这一判断。据此按「只改等待机制、不动断言」落地：新增 `cmuxTests/MainActorWaitSupport.swift`（`waitForMainActorState` 只把主 actor 跟得上的时间计入预算 + 硬上限 + 超时诊断行）、`AppKitTestEventPump.waitUntil` 与 `CloudPortRoutePlanTests.wait` 改用它、`UpgradeAnalyticsTests` 的 8 处 `analytics.drain()` 加 60 秒 deadline、`unit-tests.yml` 测试 step 加 `timeout-minutes: 180`。**剩余**：① 观察若干轮 tag 构建是否还出现「条件本身没变却红」；② 若诊断行显示 `process-starved` 居多，则再评估把 `cmuxTests` 分片到多进程（单进程并发度是吞吐与饥饿的共同来源）；③ 若显示 `actor-responsive`，说明是排队顺序问题，需要另找（主 actor 上的长同步块）。
 
 - [ ] **T9** 删掉残留的旧 fork `xhqing/cmux-upstream-fork-archive`（就是原来那个 1.1 GiB 的 fork，2026-11-02 让位改名后留下的）：当前 gh token 没有 `delete_repo` 权限，需要 `gh auth refresh -h github.com -s delete_repo` 之后 `gh repo delete xhqing/cmux-upstream-fork-archive --yes`，或者直接在网页 Settings → Danger Zone 删除（记录：2026-11-03 07:20）
 - [ ] **T10** 把 `cmuxTests` / `cmuxCLITests` 接入 CI（记录：2026-11-16 18:20）

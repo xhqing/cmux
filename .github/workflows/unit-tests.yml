@@ -110,6 +110,10 @@ jobs:
         run: ./scripts/setup.sh
 
       - name: 运行 cmuxTests
+        # step 级超时：job 级 360 分钟太远，一条挂死的用例曾烧掉 4 小时才被取消
+        # （run 44703813508，T13）。正常全量 20~25 分钟，180 分钟是 7 倍余量；
+        # 真挂住时在这里快速失败，不必等 job 上限。
+        timeout-minutes: 180
         # 保留完整输出：xcodebuild 的测试输出很长，GitHub 会截断实时日志，
         # 失败时只能靠下一行的 artifact 定位具体是哪条用例。
         #

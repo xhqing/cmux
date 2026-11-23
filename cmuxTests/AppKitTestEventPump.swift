@@ -25,15 +25,39 @@ struct AppKitTestEventPump {
         }
     }
 
+    /// Pumps the main queue until `condition` holds.
+    ///
+    /// The budget is spent on *healthy* waiting only: when the main actor is busy
+    /// with other suites in the same process (the CI job runs every suite at
+    /// once), the wait extends instead of failing, and the timeout line in the CI
+    /// log says whether the actor or the CPU was the bottleneck (TODO T13).
     func waitUntil(
         timeout: Duration = .seconds(1),
+        hardLimit: Duration = .seconds(300),
+        label: String = "AppKitTestEventPump.waitUntil",
         _ condition: () -> Bool
     ) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while !condition() {
-            guard ContinuousClock.now < deadline, !Task.isCancelled else { return false }
+        if condition() { return true }
+        var clock = MainActorWaitClock(
+            nominalStep: .milliseconds(1),
+            budget: timeout,
+            hardLimit: hardLimit
+        )
+        let heartbeat = MainActorWaitHeartbeat()
+        while true {
+            let start = ContinuousClock.now
             await drain()
+            clock.record(start.duration(to: ContinuousClock.now))
+            if condition() {
+                _ = await heartbeat.stop()
+                return true
+            }
+            guard !Task.isCancelled, !clock.isExhausted else { break }
         }
-        return true
+        let processStall = await heartbeat.stop()
+        reportMainActorWaitTimeout(
+            clock.diagnostic(label: label, detachedStall: processStall, state: nil)
+        )
+        return condition()
     }
 }

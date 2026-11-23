@@ -2,6 +2,15 @@
 
 All notable changes to cmux are documented here.
 
+## [未发布]
+
+### 修复（CI 全量测试的假红：等待改成饥饿容错 + 自诊断，2026-11-23，T13）
+
+- **为什么改**：`unit-tests` 每轮只挂 1 条，而且每次还不是同一条（r29 tag 与 run 44755916546 是 `CloudPortRoutePlanTests.stopDuringStart`，run 44688219519 是 `CloudDesktopNavigationLifecycleTests.leaveAndReenter`，run 44703813508 干脆挂 4 小时撞 job 上限）。根因不是断言写错，而是全量在**单进程**里跑 1072 个 suite：主 actor 被别的用例占住几十秒（run 45034081189 实测 72 处 ≥5 秒的全进程静默、最长 398 秒），于是「轮询 + 墙钟 deadline」把环境卡顿判成了断言失败——同一套断言在环境空闲时是绿的。
+- **改了什么**：① 新增 `cmuxTests/MainActorWaitSupport.swift`：`waitForMainActorState` 只把「主 actor 跟得上」的那部分时间计入预算，环境卡顿只会让等待变长、不会变红；保留硬上限（默认 300 秒）防真挂死；超时向 stderr 打一行诊断，用 `maxActorStall` 与「脱离主 actor 的心跳间隔」区分 `actor-busy` / `process-starved` / `actor-responsive`，下次红能自证原因。② `AppKitTestEventPump.waitUntil`（149 处调用点）改用同一套记账，语义不变（仍逐次 pump 主队列）。③ `CloudPortRoutePlanTests.wait` 改为委托，删掉自带的墙钟 deadline。④ `UpgradeAnalyticsTests` 的 8 处 `analytics.drain()`（无超时、曾挂 4 小时）套上 60 秒 deadline——用一次性 continuation 竞速而不是 task group，因为后者在子任务永久挂起时会连 wrapper 一起挂住。⑤ `unit-tests.yml` 的「运行 cmuxTests」step 加 `timeout-minutes: 180`（job 级 360 分钟太远，挂死要烧 6 小时）。
+- **怎么验证**：新增 `MainActorWaitSupportTests`（立即为真、等待中翻真、永不为真仍在预算耗尽时判负、deadline wrapper 按时返回 / 超时返回），随 `xcodebuild test` 在 CI 跑；本机是 CommandLineTools（无 Testing 模块），只能 `swiftc -parse` + `scripts/lint-pbxproj-test-wiring.sh` 预检，结论以分支上一次 `unit-tests` 全量为准。
+- **回归检查 / 边界**：① 断言条件一条没改，只换等待机制——「条件永不成立」仍会红（受硬上限约束，只是红得晚）；② 需要「1 秒内确认某事没发生」的负数断言语义不变：条件不成立时仍返回 false，只是环境卡顿时会多等；③ 不碰产品代码，`build-macos` 不受影响；④ 真挂死的用例变成「一条带诊断的红」，不再拖垮整轮。
+
 ## [0.65.2.2-r30] - 2026-11-22
 
 > **首个证书签名版本（下一个 tag）需要手动重装一次**：从 r29 及更早（ad-hoc 签名）升级会被 Sparkle 拒绝——签名身份变了。请手动重装：`./scripts/install-release.sh --tag <新版本>`；之后版本之间签名身份一致，应用内更新恢复正常。证书轮换（见 `DEVELOPMENT.md` 第十节第 8 小节）会让这句话再成立一次。

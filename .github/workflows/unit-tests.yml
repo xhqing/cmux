@@ -193,22 +193,26 @@ jobs:
             # 窗口展示契约用例，整组都需要真实窗口服务器 / 运行循环时序，交给本机
             # `scripts/test-all-local.sh`（有 GUI 会话）跑。
             cmuxTests/SettingsWindowPresentationContractTests
+            # 第六轮（2026-11-23，run 45181479936）：`remoteManualInputPreservesLiteralAndNamedKeyOrder`
+            # 断言「x → End → y」三条 send-keys 的**到达顺序**；同一轮两次都红，而上一轮
+            # （run 45157271886）它是绿的——输入事件的投递顺序在 headless runner 上不稳定。
+            # 与上面已被排除的 RemoteTmuxMirror* 分组同类，整组交给本机 GUI 会话跑。
+            cmuxTests/RemoteTmuxMirrorPaneInputMappingTests
           )
           ARGS=()
           for suite in "${SKIP[@]}"; do ARGS+=("-skip-testing:${suite}"); done
           echo "跳过 ${#SKIP[@]} 个 headless 不可信分组"
-          # `-retry-tests-on-failure -test-iterations 2`：每个用例正常跑一次，**只有
-          # 失败的**才重跑一次。headless runner 的时序抖动（窗口服务器 / 运行循环泵）
-          # 会让同一条正确用例偶发红；重跑一次能把这类噪声与真回归分开——真回归两轮
-          # 都红。日志里 `(retry ...)` 的条目就是噪声证据（T13，2026-11-23）。
+          # 别加 `-retry-tests-on-failure -test-iterations 2`：实测（run 45181479936）
+          # 它把**每个**用例都跑两遍（9465→18930 条、测试阶段 1985 秒→4223 秒），
+          # 并没有「只重跑失败的」，也没把 headless 时序噪声变成绿。要「只重跑失败
+          # 用例」得自己解析失败清单再用 `-only-testing:` 二次调用，那是另一件事
+          # （T13 的待办），不要指望 xcodebuild 的这两面旗。
           xcodebuild test \
             -project cmux.xcodeproj \
             -scheme cmux-unit \
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath /tmp/cmux-build \
             -only-testing:cmuxTests \
-            -retry-tests-on-failure \
-            -test-iterations 2 \
             "${ARGS[@]}" 2>&1 | tee /tmp/cmux-tests-raw.log
 
       - name: 上传测试日志（始终上传）

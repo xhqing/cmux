@@ -4,6 +4,14 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 更正（xcodebuild 的 retry 两面旗不按预期工作；改为继续「按族入 SKIP」，2026-11-23，T13）
+
+- **实测证据（run 45181479936）**：加上 `-retry-tests-on-failure -test-iterations 2` 后，测试数从 9465 变成 18930、测试阶段从 1985 秒涨到 4223 秒——**每个用例都跑了两遍**，既不是「只重跑失败的」，也没有把 headless 时序噪声吸收掉。这条参数已撤销，并在 workflow 里写明原因，避免以后又有人照着加。
+- **这一轮的红**：`RemoteTmuxMirrorPaneInputMappingTests.remoteManualInputPreservesLiteralAndNamedKeyOrder`——断言「x → End → y」三条 `send-keys` 的到达顺序；同一轮两次都红，而上一轮它是绿的（1.607 秒通过）→ 输入投递顺序在 headless runner 上不稳定，与已被排除的 `RemoteTmuxMirror*` 分组同类，整组入 SKIP。
+- **要「只重跑失败用例」的正确做法**：解析失败清单，再用 `-only-testing:` 二次调用 xcodebuild（而不是靠 `-test-iterations`）。这一条留作 T13 待办，需单独实现与验证，不在此次顺手改。
+
+## [未发布]
+
 ### 修复（`stopDuringStart` 的修复已验证；再收两条 headless 噪声：窗口契约 suite 入 SKIP + 失败用例重跑一次，2026-11-23，T13）
 
 - **验证结果**：run 45157271886 里 `stopDuringStart` **0.004 秒通过**（此前每次 30–60 秒后红），全量 9465 条用例只剩 1 个 issue，证明「瞬时状态」判断与 gate 改法都对。

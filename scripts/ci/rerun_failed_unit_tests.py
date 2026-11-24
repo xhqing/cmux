@@ -267,16 +267,15 @@ def main(argv: list[str] | None = None) -> int:
     from_xcresult = (
         identifiers_from_xcresult_json(args.xcresult_json) if args.xcresult_json else []
     )
-    # The xcresult carries the real selectable identifiers; the log fallback has
-    # to guess a suite from the failing file, which is wrong for nested suites
-    # (`extension X { @Suite struct Y }`). Trust the xcresult whenever it yields
-    # anything, and rely on --executed-xcresult-json to prove the selectors
-    # actually selected a test.
-    if from_xcresult:
-        identifiers = merge_identifiers(from_xcresult)
-    else:
-        from_log = identifiers_from_log(args.log) if args.log else []
-        identifiers = merge_identifiers(from_log)
+    # Both sources are always read (the `--explain` line reports both), but the
+    # choice is explicit: the xcresult carries the real selectable identifiers,
+    # while the log fallback has to guess a suite from the failing file — wrong
+    # for nested suites (`extension X { @Suite struct Y }`). Whenever the
+    # xcresult yields anything, it is the only source used;
+    # --executed-xcresult-json then proves the selectors actually selected a test.
+    from_log = identifiers_from_log(args.log) if args.log else []
+    source = from_xcresult if from_xcresult else from_log
+    identifiers = merge_identifiers(source)
 
     if args.explain:
         print(

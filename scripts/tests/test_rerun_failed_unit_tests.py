@@ -108,6 +108,17 @@ XCRESULT_JSON = {
 }
 
 
+XCRESULT_NODE_IDENTIFIERS = {
+    "testNodes": [
+        {
+            "nodeType": "Test Case",
+            "nodeIdentifier": "cmuxTests/RemoteTmuxMirrorPaneInputMappingTests/remoteManualInputPreservesLiteralAndNamedKeyOrder()",
+            "result": "Failed",
+        }
+    ]
+}
+
+
 class ParserTests(unittest.TestCase):
     def write_log(self, text: str) -> Path:
         handle = tempfile.NamedTemporaryFile(
@@ -284,6 +295,22 @@ class ParserTests(unittest.TestCase):
             ["--log", str(log), "--executed-xcresult-json", str(executed)]
         )
         self.assertEqual(status, 4)
+
+    def test_explain_reports_both_sources_without_crashing(self):
+        # The CI step passes --explain. A first version read `from_log` before it
+        # was assigned whenever the xcresult had results: UnboundLocalError, and on
+        # the runner (bash -e + redirect) that surfaced as a silent exit 1.
+        path = self.write_json(XCRESULT_NODE_IDENTIFIERS)
+        status, identifiers = self.run_main(
+            ["--xcresult-json", str(path), "--explain"]
+        )
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            identifiers,
+            [
+                "cmuxTests/RemoteTmuxMirrorPaneInputMappingTests/remoteManualInputPreservesLiteralAndNamedKeyOrder"
+            ],
+        )
 
     def test_nothing_found_is_an_error_not_a_pass(self):
         log = self.write_log("all green here\n")

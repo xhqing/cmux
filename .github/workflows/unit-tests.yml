@@ -233,6 +233,13 @@ jobs:
         timeout-minutes: 60
         run: |
           set -uo pipefail
+          # GitHub 用 `bash -e` 跑 run 块：不关掉它，任何一条（含被重定向掉输出的）
+          # 命令失败都会静默退出 1。这里全部显式判退出码并打印原因。
+          set +e
+
+          python3 --version
+          echo "首个 xcresult 目录：$( [ -d /tmp/cmux-tests.xcresult ] && echo present || echo missing )"
+          echo "原始日志大小：$(wc -c < /tmp/cmux-tests-raw.log 2>/dev/null || echo missing)"
 
           xcresult_json=/tmp/cmux-tests-xcresult.json
           if [ -d /tmp/cmux-tests.xcresult ]; then
@@ -243,10 +250,27 @@ jobs:
             fi
           fi
 
+          # 自检：提取器的 fixture 断言在 runner 的 python3 上也要过，否则直接红并
+          # 说明是「提取器本身跑不起来」，不是用例问题。
+          python3 scripts/tests/test_rerun_failed_unit_tests.py > /tmp/rerun-parser-selftest.log 2>&1
+          selftest_status=$?
+          echo "提取器自检退出码：${selftest_status}"
+          tail -n 5 /tmp/rerun-parser-selftest.log || true
+          if [ "${selftest_status}" -ne 0 ]; then
+            echo "::error::提取器的 fixture 断言在这台 runner 上没过（退出码 ${selftest_status}）：按真回归处理。"
+            exit 1
+          fi
+
           parse_args=(--log /tmp/cmux-tests-raw.log --explain)
-          if [ -s "${xcresult_json}" ]; then parse_args+=(--xcresult-json "${xcresult_json}"); fi
+          if [ -s "${xcresult_json}" ]; then
+            echo "xcresult JSON 大小：$(wc -c < "${xcresult_json}")"
+            parse_args+=(--xcresult-json "${xcresult_json}")
+          else
+            echo "没有可用的 xcresult JSON，退回只看日志"
+          fi
           ids="$(python3 scripts/ci/rerun_failed_unit_tests.py "${parse_args[@]}" 2>/tmp/rerun-parse.log)"
           parse_status=$?
+          echo "提取器退出码：${parse_status}"
           cat /tmp/rerun-parse.log || true
           if [ "${parse_status}" -ne 0 ] || [ -z "${ids}" ]; then
             echo "::error::首轮失败，但没能提取出失败用例（解析退出码 ${parse_status}）：按真回归处理，不做猜测。"
@@ -302,7 +326,7 @@ jobs:
               while IFS= read -r identifier; do
                 [ -n "${identifier}" ] && echo "- \`${identifier}\`"
               done <<< "${ids}"
-            } >> "${GITHUB_STEP_SUMMARY}"
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             exit 0
           fi
 
@@ -319,5 +343,10 @@ jobs:
             /tmp/cmux-tests-raw.log
             /tmp/cmux-tests-rerun.log
             /tmp/cmux-tests-failed.txt
+            /tmp/rerun-parse.log
+            /tmp/rerun-parser-selftest.log
+            /tmp/rerun-guard.log
+            /tmp/xcresult-error.log
+            /tmp/xcresult-rerun-error.log
           if-no-files-found: warn
           retention-days: 14

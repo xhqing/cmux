@@ -312,6 +312,30 @@ class ParserTests(unittest.TestCase):
             ],
         )
 
+    def test_selector_comparison_tolerates_spelling_differences(self):
+        # Xcode has spelled Swift Testing identifiers `Suite/test()` and
+        # `Suite.test()` and may drop the target prefix in a rerun's payload; the
+        # guard must compare on meaning, not on spelling (canary run 45364553835
+        # failed the guard twice with `TEST SUCCEEDED` on both attempts).
+        selectors = [
+            "cmuxTests/RerunCanaryTests/failsOnceThenPasses()",
+            "cmuxTests/RerunCanarySuites/NestedRerunCanaryTests/nestedFailsOnceThenPasses()",
+        ]
+        for executed in (
+            selectors,
+            ["RerunCanaryTests/failsOnceThenPasses()"],
+            ["cmuxTests/RerunCanaryTests.failsOnceThenPasses()"],
+        ):
+            with self.subTest(executed=executed[0]):
+                unmatched = parser_module.unmatched_selectors(
+                    selectors[:1], executed
+                )
+                self.assertEqual(unmatched, [])
+        self.assertEqual(
+            parser_module.unmatched_selectors(selectors[:1], ["cmuxTests/Other/x()"]),
+            selectors[:1],
+        )
+
     def test_coarsen_to_suite_keeps_the_containing_suite(self):
         # Second attempt when a test-level selector matched nothing: run the
         # containing suite (still targeted, just with more neighbours).

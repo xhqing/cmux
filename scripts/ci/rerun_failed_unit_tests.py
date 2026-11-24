@@ -193,18 +193,36 @@ def executed_identifiers_from_xcresult_json(path: Path) -> list[str]:
     return found
 
 
+def _normalized_identifier(identifier: str) -> str:
+    """Canonical form used only for comparisons (never for `-only-testing:`).
+
+    Xcode has used `Suite/test` and `Suite.test` spellings for Swift Testing
+    identifiers across versions, and the executed result may keep the parameter
+    list while the selector does not. Comparing on this canonical form keeps the
+    guard from reporting a false mismatch on a spelling difference alone.
+    """
+    identifier = _strip_test_parameters(identifier.strip())
+    identifier = identifier.replace(".", "/").replace(" ", "")
+    identifier = identifier.strip("/")
+    # The rerun's payload may drop the target prefix; comparisons should not care.
+    prefix = f"{TARGET}/"
+    if identifier.startswith(prefix):
+        identifier = identifier[len(prefix):]
+    return identifier
+
+
 def unmatched_selectors(
     selected: list[str], executed: list[str]
 ) -> list[str]:
     """Selectors that did not select any executed test.
 
     A selector matches when an executed identifier equals it, or is nested under
-    it (`Suite` selects `Suite/test`), ignoring parameter lists.
+    it (`Suite` selects `Suite/test`), on the canonical form above.
     """
-    normalized_executed = [_strip_test_parameters(each) for each in executed]
+    normalized_executed = [_normalized_identifier(each) for each in executed]
     unmatched: list[str] = []
     for selector in selected:
-        probe = _strip_test_parameters(selector)
+        probe = _normalized_identifier(selector)
         matched = any(
             executed_id == probe or executed_id.startswith(f"{probe}/")
             for executed_id in normalized_executed
@@ -309,6 +327,19 @@ def main(argv: list[str] | None = None) -> int:
         unmatched = unmatched_selectors(args.select, executed)
         if unmatched:
             print("selectors that ran no test: " + ", ".join(unmatched), file=sys.stderr)
+            # The next red must be diagnosable: the rerun's own identifiers are the
+            # only way to tell a selector-form difference from a selection that
+            # genuinely selected nothing.
+            print(f"executed identifiers seen ({len(executed)}):", file=sys.stderr)
+            for each in executed[:20]:
+                print(f"  {each}", file=sys.stderr)
+            try:
+                raw = args.executed_xcresult_json.read_text(encoding="utf-8", errors="replace")
+                print(f"executed xcresult json bytes={len(raw)}", file=sys.stderr)
+                if not executed:
+                    print(f"  head: {raw[:200]!r}", file=sys.stderr)
+            except OSError as error:
+                print(f"executed xcresult json unreadable: {error}", file=sys.stderr)
             return 4
         return 0
 
@@ -352,6 +383,9 @@ def main(argv: list[str] | None = None) -> int:
                 "selectors that ran no test: " + ", ".join(unmatched),
                 file=sys.stderr,
             )
+            print(f"executed identifiers seen ({len(executed)}):", file=sys.stderr)
+            for each in executed[:20]:
+                print(f"  {each}", file=sys.stderr)
             return 4
 
     for identifier in identifiers:

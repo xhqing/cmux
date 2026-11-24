@@ -192,14 +192,17 @@ class ParserTests(unittest.TestCase):
             ],
         )
 
-    def test_union_of_both_sources_and_suite_collapses_methods(self):
+    def test_xcresult_wins_over_the_log_fallback(self):
+        # The log can only guess a suite from the failing file, which is wrong for
+        # nested suites; the xcresult identifiers are authoritative, so they are
+        # the only source used when both are present.
         log = self.write_log(SWIFT_TESTING_FUNCTION_LOG + SWIFT_TESTING_DISPLAY_NAME_LOG)
         path = self.write_json(
             {
                 "testNodes": [
                     {
                         "nodeType": "Test Case",
-                        "identifier": "cmuxTests/RemoteTmuxMirrorPaneInputMappingTests",
+                        "nodeIdentifier": "cmuxTests/RemoteTmuxMirrorPaneInputMappingTests",
                         "result": "Failed",
                     }
                 ]
@@ -209,13 +212,78 @@ class ParserTests(unittest.TestCase):
             ["--log", str(log), "--xcresult-json", str(path)]
         )
         self.assertEqual(status, 0)
+        self.assertEqual(identifiers, ["cmuxTests/RemoteTmuxMirrorPaneInputMappingTests"])
+
+    def test_node_identifier_field_and_nested_suites_are_read(self):
+        # Real `xcresulttool get test-results tests` payloads name the selector
+        # `nodeIdentifier` (and a nested suite keeps its parent in the path).
+        path = self.write_json(
+            {
+                "testNodes": [
+                    {
+                        "nodeType": "Test Case",
+                        "nodeIdentifier": "cmuxTests/SettingsWindowSharedStateSuites/SettingsWindowPresentationContractTests/asyncDeminiaturizeCommitIsAwaitedWithoutReplacingTheWindow()",
+                        "result": "Failed",
+                    },
+                    {
+                        "nodeType": "Test Case",
+                        "testIdentifier": "cmuxTests/OtherSuite/otherTest()",
+                        "result": "Passed",
+                    },
+                ]
+            }
+        )
+        status, identifiers = self.run_main(["--xcresult-json", str(path)])
+        self.assertEqual(status, 0)
         self.assertEqual(
             identifiers,
             [
-                "cmuxTests/RemoteTmuxMirrorPaneInputMappingTests",
-                "cmuxTests/SettingsWindowPresentationContractTests/closingTheWindowDuringTheDeminiaturizeWaitIsNotResurrected",
+                "cmuxTests/SettingsWindowSharedStateSuites/SettingsWindowPresentationContractTests/asyncDeminiaturizeCommitIsAwaitedWithoutReplacingTheWindow"
             ],
         )
+
+    def test_executed_identifiers_and_unmatched_selectors(self):
+        executed = self.write_json(
+            {
+                "testNodes": [
+                    {
+                        "nodeType": "Test Case",
+                        "nodeIdentifier": "cmuxTests/RerunCanaryTests/failsOnceThenPasses()",
+                        "result": "Passed",
+                    }
+                ]
+            }
+        )
+        loaded = parser_module.executed_identifiers_from_xcresult_json(executed)
+        self.assertEqual(
+            loaded, ["cmuxTests/RerunCanaryTests/failsOnceThenPasses()"]
+        )
+        # A suite selector covers the test inside it.
+        self.assertEqual(
+            parser_module.unmatched_selectors(["cmuxTests/RerunCanaryTests"], loaded),
+            [],
+        )
+        # A selector that selected nothing is reported (this is the "silent green"
+        # hole the canary run exposed).
+        self.assertEqual(
+            parser_module.unmatched_selectors(
+                [
+                    "cmuxTests/SettingsWindowPresentationContractTests/asyncDeminiaturizeCommitIsAwaitedWithoutReplacingTheWindow"
+                ],
+                loaded,
+            ),
+            [
+                "cmuxTests/SettingsWindowPresentationContractTests/asyncDeminiaturizeCommitIsAwaitedWithoutReplacingTheWindow"
+            ],
+        )
+
+    def test_unmatched_selector_is_an_error_exit(self):
+        log = self.write_log(SWIFT_TESTING_FUNCTION_LOG)
+        executed = self.write_json({"testNodes": []})
+        status, _ = self.run_main(
+            ["--log", str(log), "--executed-xcresult-json", str(executed)]
+        )
+        self.assertEqual(status, 4)
 
     def test_nothing_found_is_an_error_not_a_pass(self):
         log = self.write_log("all green here\n")

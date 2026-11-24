@@ -236,9 +236,11 @@ jobs:
 
           xcresult_json=/tmp/cmux-tests-xcresult.json
           if [ -d /tmp/cmux-tests.xcresult ]; then
-            xcrun xcresulttool get test-results tests \
-              --path /tmp/cmux-tests.xcresult --format json > "${xcresult_json}" 2>/tmp/xcresult-error.log \
-              || { echo "::warning::xcresulttool 解析失败，退回只看日志"; head -n 20 /tmp/xcresult-error.log || true; }
+            if ! xcrun xcresulttool get test-results tests \
+              --path /tmp/cmux-tests.xcresult --format json > "${xcresult_json}" 2>/tmp/xcresult-error.log; then
+              echo "::warning::xcresulttool 解析失败，退回只看日志"
+              head -n 20 /tmp/xcresult-error.log || true
+            fi
           fi
 
           parse_args=(--log /tmp/cmux-tests-raw.log --explain)
@@ -274,6 +276,25 @@ jobs:
           rerun_status=${PIPESTATUS[0]}
 
           if [ "${rerun_status}" -eq 0 ]; then
+            # 0 tests 也会 exit 0：必须用重跑自己的 xcresult 证明每个选择器都选中了
+            # 用例（嵌套 suite 的真实标识与文件名推出来的不一样，canary run
+            # 45313220473 就吃过这个亏），否则宁可红。
+            rerun_json=/tmp/cmux-tests-rerun-xcresult.json
+            if ! xcrun xcresulttool get test-results tests \
+              --path /tmp/cmux-tests-rerun.xcresult --format json > "${rerun_json}" 2>/tmp/xcresult-rerun-error.log; then
+              echo "::error::重跑通过但读不出它的 xcresult，无法确认选择器真的选中了用例：按真回归处理。"
+              head -n 20 /tmp/xcresult-rerun-error.log || true
+              exit 1
+            fi
+            guard_args=(--log /tmp/cmux-tests-raw.log --executed-xcresult-json "${rerun_json}")
+            if [ -s "${xcresult_json}" ]; then guard_args+=(--xcresult-json "${xcresult_json}"); fi
+            if ! python3 scripts/ci/rerun_failed_unit_tests.py "${guard_args[@]}" > /dev/null 2>/tmp/rerun-guard.log; then
+              echo "::error::二次调用通过，但下列选择器没有选中任何用例（0 tests 也会 exit 0）："
+              sed 's/^/  /' /tmp/rerun-guard.log || true
+              echo "::error::按真回归处理，不判定为噪声。"
+              exit 1
+            fi
+
             echo "::warning::首轮失败的用例在二次调用里全部通过：按 headless 时序噪声处理（清单见 job summary）。"
             {
               echo "### 首轮失败、重跑通过（时序噪声）"

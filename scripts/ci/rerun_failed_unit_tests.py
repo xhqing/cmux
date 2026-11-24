@@ -95,6 +95,23 @@ def identifiers_from_log(path: Path) -> list[str]:
     return found
 
 
+TEST_IDENTIFIER_KEYS = ("nodeIdentifier", "testIdentifier", "identifier")
+
+
+def test_identifier(of_node: dict) -> str | None:
+    """Reads the selectable identifier out of one xcresult node.
+
+    Xcode's own app-host parser (`scripts/ci/app_host_result_accounting.py`) reads
+    `nodeIdentifier` / `testIdentifier`; older payloads used `identifier`. All
+    three are accepted so a toolchain bump cannot silently yield zero selectors.
+    """
+    for key in TEST_IDENTIFIER_KEYS:
+        value = of_node.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 def identifiers_from_xcresult_json(path: Path) -> list[str]:
     """Identifiers of failed leaves anywhere in an xcresult JSON tree.
 
@@ -121,7 +138,7 @@ def identifiers_from_xcresult_json(path: Path) -> list[str]:
 
     def walk(node: object) -> None:
         if isinstance(node, dict):
-            identifier = node.get("identifier")
+            identifier = test_identifier(node)
             node_type = str(node.get("nodeType", node.get("type", ""))).lower()
             if (
                 isinstance(identifier, str)
@@ -141,6 +158,60 @@ def identifiers_from_xcresult_json(path: Path) -> list[str]:
 
     walk(payload)
     return found
+
+
+def executed_identifiers_from_xcresult_json(path: Path) -> list[str]:
+    """Every test identifier that actually ran, whatever its result.
+
+    Used after the rerun to prove the selectors matched something: a suite that
+    is nested (`extension X { @Suite struct Y }`) has a different selectable
+    identifier than its file stem, and a selector that matches nothing makes
+    `xcodebuild` exit 0 with "0 tests" — a silent green we must never publish.
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    found: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            node_type = str(node.get("nodeType", node.get("type", ""))).lower()
+            identifier = test_identifier(node)
+            if identifier is not None and (
+                "test case" in node_type or node.get("result") is not None
+            ):
+                found.append(identifier)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(payload)
+    return found
+
+
+def unmatched_selectors(
+    selected: list[str], executed: list[str]
+) -> list[str]:
+    """Selectors that did not select any executed test.
+
+    A selector matches when an executed identifier equals it, or is nested under
+    it (`Suite` selects `Suite/test`), ignoring parameter lists.
+    """
+    normalized_executed = [_strip_test_parameters(each) for each in executed]
+    unmatched: list[str] = []
+    for selector in selected:
+        probe = _strip_test_parameters(selector)
+        matched = any(
+            executed_id == probe or executed_id.startswith(f"{probe}/")
+            for executed_id in normalized_executed
+        )
+        if not matched:
+            unmatched.append(selector)
+    return unmatched
 
 
 def merge_identifiers(candidates: list[str]) -> list[str]:
@@ -178,6 +249,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="JSON from `xcrun xcresulttool get test-results tests --format json`",
     )
     parser.add_argument("--explain", action="store_true", help="report sources on stderr")
+    parser.add_argument(
+        "--executed-xcresult-json",
+        type=Path,
+        default=None,
+        help="rerun's xcresult JSON; every selector must match an executed test",
+    )
     return parser.parse_args(argv)
 
 
@@ -190,8 +267,16 @@ def main(argv: list[str] | None = None) -> int:
     from_xcresult = (
         identifiers_from_xcresult_json(args.xcresult_json) if args.xcresult_json else []
     )
-    from_log = identifiers_from_log(args.log) if args.log else []
-    identifiers = merge_identifiers(from_xcresult + from_log)
+    # The xcresult carries the real selectable identifiers; the log fallback has
+    # to guess a suite from the failing file, which is wrong for nested suites
+    # (`extension X { @Suite struct Y }`). Trust the xcresult whenever it yields
+    # anything, and rely on --executed-xcresult-json to prove the selectors
+    # actually selected a test.
+    if from_xcresult:
+        identifiers = merge_identifiers(from_xcresult)
+    else:
+        from_log = identifiers_from_log(args.log) if args.log else []
+        identifiers = merge_identifiers(from_log)
 
     if args.explain:
         print(
@@ -204,6 +289,16 @@ def main(argv: list[str] | None = None) -> int:
     if not identifiers:
         print("no failing test identifiers found", file=sys.stderr)
         return 3
+
+    if args.executed_xcresult_json is not None:
+        executed = executed_identifiers_from_xcresult_json(args.executed_xcresult_json)
+        unmatched = unmatched_selectors(identifiers, executed)
+        if unmatched:
+            print(
+                "selectors that ran no test: " + ", ".join(unmatched),
+                file=sys.stderr,
+            )
+            return 4
 
     for identifier in identifiers:
         print(identifier)

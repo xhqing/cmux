@@ -198,8 +198,8 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(
             identifiers,
             [
-                "cmuxTests/RemoteTmuxMirrorPaneInputMappingTests/remoteManualInputPreservesLiteralAndNamedKeyOrder",
-                "cmuxTests/SearchTests/parameterized",
+                "cmuxTests/RemoteTmuxMirrorPaneInputMappingTests/remoteManualInputPreservesLiteralAndNamedKeyOrder()",
+                "cmuxTests/SearchTests/parameterized(case:)",
             ],
         )
 
@@ -249,7 +249,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(
             identifiers,
             [
-                "cmuxTests/SettingsWindowSharedStateSuites/SettingsWindowPresentationContractTests/asyncDeminiaturizeCommitIsAwaitedWithoutReplacingTheWindow"
+                "cmuxTests/SettingsWindowSharedStateSuites/SettingsWindowPresentationContractTests/asyncDeminiaturizeCommitIsAwaitedWithoutReplacingTheWindow()"
             ],
         )
 
@@ -308,9 +308,36 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(
             identifiers,
             [
-                "cmuxTests/RemoteTmuxMirrorPaneInputMappingTests/remoteManualInputPreservesLiteralAndNamedKeyOrder"
+                "cmuxTests/RemoteTmuxMirrorPaneInputMappingTests/remoteManualInputPreservesLiteralAndNamedKeyOrder()"
             ],
         )
+
+    def test_coarsen_to_suite_keeps_the_containing_suite(self):
+        # Second attempt when a test-level selector matched nothing: run the
+        # containing suite (still targeted, just with more neighbours).
+        self.assertEqual(
+            parser_module.coarsen_to_suite(
+                [
+                    "cmuxTests/RerunCanarySuites/NestedRerunCanaryTests/nestedFailsOnceThenPasses()",
+                    "cmuxTests/RerunCanaryTests/failsOnceThenPasses()",
+                ]
+            ),
+            [
+                "cmuxTests/RerunCanarySuites/NestedRerunCanaryTests",
+                "cmuxTests/RerunCanaryTests",
+            ],
+        )
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            status = parser_module.main(
+                [
+                    "--coarsen-to-suite",
+                    "--select",
+                    "cmuxTests/RerunCanaryTests/failsOnceThenPasses()",
+                ]
+            )
+        self.assertEqual(status, 0)
+        self.assertEqual(buffer.getvalue().splitlines(), ["cmuxTests/RerunCanaryTests"])
 
     def test_nothing_found_is_an_error_not_a_pass(self):
         log = self.write_log("all green here\n")

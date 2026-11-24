@@ -214,6 +214,25 @@ def unmatched_selectors(
     return unmatched
 
 
+def coarsen_to_suite(identifiers: list[str]) -> list[str]:
+    """Drops the test-level component, keeping the suite that contains it.
+
+    Used as a second attempt when a test-level selector matched nothing (for
+    example if a future Xcode changes the Swift Testing identifier form): running
+    the containing suite still reruns the failed test, just with more neighbours.
+    """
+    suites: list[str] = []
+    for identifier in identifiers:
+        pieces = _strip_test_parameters(identifier).split("/")
+        while pieces and not pieces[-1]:
+            pieces.pop()
+        if len(pieces) <= 1:
+            suites.append(identifier)
+            continue
+        suites.append("/".join(pieces[:-1]))
+    return sorted(set(suites))
+
+
 def merge_identifiers(candidates: list[str]) -> list[str]:
     """Normalizes, dedupes, and collapses method identifiers under a suite."""
     normalized: list[str] = []
@@ -221,7 +240,11 @@ def merge_identifiers(candidates: list[str]) -> list[str]:
         identifier = candidate.strip()
         if not identifier:
             continue
-        identifier = _strip_test_parameters(identifier)
+        # Keep the identifier verbatim: Swift Testing test-level identifiers carry
+        # their parameter list (`…/failsOnceThenPasses()`), and dropping it makes
+        # `-only-testing:` match the suite but run **0 tests** (canary run
+        # 45343729378). XCTest identifiers have no parameter list, so they are
+        # unaffected.
         if not identifier.startswith(f"{TARGET}/"):
             # xcresult identifiers may omit the target; log-derived ones never
             # do. Prefixing keeps `-only-testing:` well formed either way.
@@ -250,6 +273,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--explain", action="store_true", help="report sources on stderr")
     parser.add_argument(
+        "--coarsen-to-suite",
+        action="store_true",
+        help="ignore the sources and coarsen --select identifiers to their suites",
+    )
+    parser.add_argument(
+        "--select",
+        action="append",
+        default=[],
+        help="identifier to reuse with --coarsen-to-suite (repeatable)",
+    )
+    parser.add_argument(
         "--executed-xcresult-json",
         type=Path,
         default=None,
@@ -260,6 +294,24 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
+    if args.coarsen_to_suite:
+        if not args.select:
+            print("error: --coarsen-to-suite needs --select", file=sys.stderr)
+            return 2
+        for identifier in coarsen_to_suite(args.select):
+            print(identifier)
+        return 0
+
+    if args.executed_xcresult_json is not None and args.select:
+        # Guard mode with explicit selectors: no sources needed, only the rerun's
+        # own results.
+        executed = executed_identifiers_from_xcresult_json(args.executed_xcresult_json)
+        unmatched = unmatched_selectors(args.select, executed)
+        if unmatched:
+            print("selectors that ran no test: " + ", ".join(unmatched), file=sys.stderr)
+            return 4
+        return 0
+
     if args.log is None and args.xcresult_json is None:
         print("error: pass at least one of --log / --xcresult-json", file=sys.stderr)
         return 2
@@ -290,8 +342,11 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     if args.executed_xcresult_json is not None:
+        # Guard mode: validate explicit selectors (`--select`) when given, so a
+        # coarsened second attempt can be checked against its own rerun.
+        selected = list(args.select) if args.select else identifiers
         executed = executed_identifiers_from_xcresult_json(args.executed_xcresult_json)
-        unmatched = unmatched_selectors(identifiers, executed)
+        unmatched = unmatched_selectors(selected, executed)
         if unmatched:
             print(
                 "selectors that ran no test: " + ", ".join(unmatched),

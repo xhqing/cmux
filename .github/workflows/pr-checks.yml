@@ -143,6 +143,12 @@ jobs:
         # 实测 <0.1 秒。测试文件由测试责任方维护，实现改动不得改断言迁就。
         run: python3 scripts/tests/test_file_editor_autosave_schema.py
 
+      - name: Unit-test failure extractor (rerun mechanism)
+        # 「失败用例二次调用」靠这个提取器点名重跑哪些用例。选择错方向的后果是
+        # 「重跑通过、回归仍在」——所以它自己有 fixture 级断言，纯 Python、实测
+        # <0.1 秒，放进门禁。测试文件由测试责任方维护，实现改动不得改断言迁就。
+        run: python3 scripts/tests/test_rerun_failed_unit_tests.py
+
       - name: Config schema (generated Swift in sync)
         run: |
           set -euo pipefail

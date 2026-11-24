@@ -4,6 +4,15 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 新增（失败用例二次调用：只重跑失败的用例，把 headless 时序噪声与真回归分开，2026-11-24，T13）
+
+- **为什么改**：`unit-tests` 全量的红每次换一条，走的都是 headless 环境噪声（窗口服务器、运行循环泵、跨套件计数），而 `-retry-tests-on-failure -test-iterations 2` 实测是「每条用例都跑两遍」（9465→18930 条、测试阶段 1985→4223 秒），既贵又没把噪声变为绿。需要的是**只重跑失败的那几条**：通过 → 噪声；仍失败 → 真回归。
+- **改了什么**：① 新增 `scripts/ci/rerun_failed_unit_tests.py`：从 `xcresulttool get test-results tests --format json` 与原始 `xcodebuild` 日志里提取失败用例的 `-only-testing:` 标识（两源取并集）。Swift Testing 的函数式命名精确到方法；只有展示名的用例退到整 suite（**绝不漏选**）；XCTest 走 `Suite/method`。提取不到任何标识时以退出码 3 失败，绝不当作「无事可做」。② `unit-tests.yml`：测试 step 加 `id` + `continue-on-error`、`-resultBundlePath`，新增「失败用例二次调用」step——只对失败清单跑一次 `xcodebuild test -only-testing:…`，通过则绿 + `::warning::` + job summary 列出被吸收的用例，仍失败则红并贴出重跑日志尾部；上传产物加上重跑日志与失败清单。③ `pr-checks.yml` 加一个 <0.1 秒的 step 跑提取器的 fixture 断言（`scripts/tests/test_rerun_failed_unit_tests.py`，9 条：三种日志方言、xcresult 嵌套树的失败叶子、并集去重与 suite 收口、漏选与猜 suite 的反例）。
+- **怎么验证**：提取器用**两轮真实 CI 日志**回放（run 45157271886 的窗口契约用例 → `cmuxTests/SettingsWindowPresentationContractTests/closingTheWindowDuringTheDeminiaturizeWaitIsNotResurrected`；run 45181479936 的输入映射用例 → `cmuxTests/RemoteTmuxMirrorPaneInputMappingTests/remoteManualInputPreservesLiteralAndNamedKeyOrder`），与 fixture 断言一致；workflow 与提取器的 bash/Python 语法已在本地校验。端到端（首轮红 → 二次调用 → 绿/红两种分支）用 canary 分支在 CI 上跑了一轮验证。
+- **边界**：`-only-testing:` 选择不到的用例（例如只存在于 xcresult 里、日志无踪影且 xcresult 解析也失败）会走「提取不到 → 红」，不会静默放过；长期靠重跑才绿的用例应在日志里统计（`首轮失败、重跑通过` 段落）而不是一直当噪声。
+
+## [未发布]
+
 ### 更正（xcodebuild 的 retry 两面旗不按预期工作；改为继续「按族入 SKIP」，2026-11-23，T13）
 
 - **实测证据（run 45181479936）**：加上 `-retry-tests-on-failure -test-iterations 2` 后，测试数从 9465 变成 18930、测试阶段从 1985 秒涨到 4223 秒——**每个用例都跑了两遍**，既不是「只重跑失败的」，也没有把 headless 时序噪声吸收掉。这条参数已撤销，并在 workflow 里写明原因，避免以后又有人照着加。

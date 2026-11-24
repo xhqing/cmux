@@ -11,6 +11,8 @@
   **2026-11-24 03:11 验证（main `7195a2e`，run 45219812986，含 #141）**：`CloudPortRoutePlanTests.stopDuringStart` **转绿**（#141 的饥饿容错生效，这轮 30 秒预算没再跑满）。同一轮换成三条不同的用例红，每条都是「共享计数的时序断言」而不是「等主 actor 就绪」：`CloudLoopbackPortForwardTests.unixSocketHub`（`hub.connectTargets` 期望 1 实得 2）、`SidebarDerivedStateScaleTests.paneRegistryBookkeepingDoesNotInvalidateCachedSidebar(workspaceCount:)`（`workspaceSnapshotBuilds` 期望 0 实得 1）、`VMClientReadCoalescingTests.explicitTeamCoalescingKey`（URLProtocol 请求计数期望 2）。→ 「每轮换一条」的根因至少还有第二类：并行套件共享状态 / 计数竞争（#141 只覆盖了等待机制那一类）。**下一步**：按同族逐个把这几个计数断言改成不依赖跨套件时序（各自独立 fixture / 串行化该 suite / 断言范围而非精确计数），而不是继续加预算。
 
   **注意**：不要把 timeout 当成「改测试迁就实现」——上述用例挂的都是「等异步链路到位」，断言条件本身没错。
+  **2026-11-24 失败用例二次调用已落地**：`scripts/ci/rerun_failed_unit_tests.py`（xcresult + 日志两源并集，漏选即红）+ `unit-tests.yml` 的「首轮红 → 只重跑失败清单 → 通过判噪声 / 仍红判回归」+ 门禁里的 fixture 断言（9 条）。端到端分支验证见同批 commit 的 canary 说明。**剩余观察**：① 长期靠重跑才绿的用例要统计（job summary 里有清单），不能一直当噪声；② `-test-iterations 2` 那组旗不要再加回来（实测每个用例都跑两遍）。
+
   **2026-11-23 retry 实测否定（run 45181479936）**：`-retry-tests-on-failure -test-iterations 2` 把每个用例都跑两遍（9465→18930 条、测试阶段 1985→4223 秒），没把时序噪声变绿 → 已撤销。这一轮的红换成 `RemoteTmuxMirrorPaneInputMappingTests`（断言 send-keys 到达顺序，上一轮绿、本轮两次都红）→ 与 RemoteTmuxMirror* 同族入 SKIP。**待办**：要「只重跑失败用例」需解析失败清单 + `-only-testing:` 二次调用（不是 xcodebuild 的这两面旗），另做一次验证。
 
   **2026-11-23 验证 + 两条收口（run 45157271886）**：`stopDuringStart` 改法验证通过（0.004 秒绿）；同一轮只剩 `SettingsWindowPresentationContractTests` 一条（`got .presented`，靠 Timer 在有界 run-loop 等待里关窗，headless 不可信）→ 已入 CI 的 SKIP 名单；同时（当时）给 `xcodebuild test` 加了 `-retry-tests-on-failure -test-iterations 2`，期望只重跑失败用例——下一轮实测证明它把每个用例都跑两遍，已撤销（见下方 retry 实测否定条）。**剩余观察**：下一次全量是否还有新的 headless 时序类用例红（若有，按同族并入 SKIP）。

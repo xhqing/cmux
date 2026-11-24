@@ -110,6 +110,10 @@ jobs:
         run: ./scripts/setup.sh
 
       - name: 运行 cmuxTests
+        id: unit_tests
+        # 这一 step 失败不直接判红：下一步只重跑失败的用例，用来区分 headless 时序
+        # 噪声与真回归（MUST：不这么做，恢复性判定就没有落点）。
+        continue-on-error: true
         # step 级超时：job 级 360 分钟太远，一条挂死的用例曾烧掉 4 小时才被取消
         # （run 44703813508，T13）。正常全量 20~25 分钟，180 分钟是 7 倍余量；
         # 真挂住时在这里快速失败，不必等 job 上限。
@@ -207,19 +211,92 @@ jobs:
           # 并没有「只重跑失败的」，也没把 headless 时序噪声变成绿。要「只重跑失败
           # 用例」得自己解析失败清单再用 `-only-testing:` 二次调用，那是另一件事
           # （T13 的待办），不要指望 xcodebuild 的这两面旗。
+          rm -rf /tmp/cmux-tests.xcresult
+          set +e
           xcodebuild test \
             -project cmux.xcodeproj \
             -scheme cmux-unit \
             -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath /tmp/cmux-build \
             -only-testing:cmuxTests \
+            -resultBundlePath /tmp/cmux-tests.xcresult \
             "${ARGS[@]}" 2>&1 | tee /tmp/cmux-tests-raw.log
+          status=${PIPESTATUS[0]}
+          echo "xcodebuild 退出码：${status}"
+          exit "${status}"
+
+      - name: 失败用例二次调用（只重跑失败的用例，区分噪声与回归）
+        # 首轮红时只重跑失败的用例：通过 → 判定为 headless 时序噪声（绿 + warning，
+        # 清单写进 job summary）；仍失败 → 真回归（红）。提取不到失败用例时不猜，
+        # 直接按真回归处理。提取器是 scripts/ci/rerun_failed_unit_tests.py（T13）。
+        if: steps.unit_tests.outcome == 'failure'
+        timeout-minutes: 60
+        run: |
+          set -uo pipefail
+
+          xcresult_json=/tmp/cmux-tests-xcresult.json
+          if [ -d /tmp/cmux-tests.xcresult ]; then
+            xcrun xcresulttool get test-results tests \
+              --path /tmp/cmux-tests.xcresult --format json > "${xcresult_json}" 2>/tmp/xcresult-error.log \
+              || { echo "::warning::xcresulttool 解析失败，退回只看日志"; head -n 20 /tmp/xcresult-error.log || true; }
+          fi
+
+          parse_args=(--log /tmp/cmux-tests-raw.log --explain)
+          if [ -s "${xcresult_json}" ]; then parse_args+=(--xcresult-json "${xcresult_json}"); fi
+          ids="$(python3 scripts/ci/rerun_failed_unit_tests.py "${parse_args[@]}" 2>/tmp/rerun-parse.log)"
+          parse_status=$?
+          cat /tmp/rerun-parse.log || true
+          if [ "${parse_status}" -ne 0 ] || [ -z "${ids}" ]; then
+            echo "::error::首轮失败，但没能提取出失败用例（解析退出码 ${parse_status}）：按真回归处理，不做猜测。"
+            exit 1
+          fi
+
+          printf '%s\n' "${ids}" > /tmp/cmux-tests-failed.txt
+          echo "二次调用将只跑这些用例："
+          while IFS= read -r identifier; do
+            [ -n "${identifier}" ] && echo "  - ${identifier}"
+          done <<< "${ids}"
+
+          rerun_args=()
+          while IFS= read -r identifier; do
+            [ -n "${identifier}" ] && rerun_args+=("-only-testing:${identifier}")
+          done <<< "${ids}"
+
+          rm -rf /tmp/cmux-tests-rerun.xcresult
+          set +e
+          xcodebuild test \
+            -project cmux.xcodeproj \
+            -scheme cmux-unit \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath /tmp/cmux-build \
+            -resultBundlePath /tmp/cmux-tests-rerun.xcresult \
+            "${rerun_args[@]}" 2>&1 | tee /tmp/cmux-tests-rerun.log
+          rerun_status=${PIPESTATUS[0]}
+
+          if [ "${rerun_status}" -eq 0 ]; then
+            echo "::warning::首轮失败的用例在二次调用里全部通过：按 headless 时序噪声处理（清单见 job summary）。"
+            {
+              echo "### 首轮失败、重跑通过（时序噪声）"
+              echo ""
+              while IFS= read -r identifier; do
+                [ -n "${identifier}" ] && echo "- \`${identifier}\`"
+              done <<< "${ids}"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          echo "::error::二次调用仍失败（退出码 ${rerun_status}）：按真回归处理。"
+          tail -n 120 /tmp/cmux-tests-rerun.log || true
+          exit 1
 
       - name: 上传测试日志（始终上传）
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unit-tests-log-${{ github.run_number }}
-          path: /tmp/cmux-tests-raw.log
+          path: |
+            /tmp/cmux-tests-raw.log
+            /tmp/cmux-tests-rerun.log
+            /tmp/cmux-tests-failed.txt
           if-no-files-found: warn
           retention-days: 14

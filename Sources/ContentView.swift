@@ -1000,6 +1000,11 @@ struct ContentView: View {
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
+    /// Bumped whenever the titlebar chrome refreshes (tab/surface focus, cwd,
+    /// workspace switches) so the proxy icon re-resolves what it stands for.
+    /// `focusedPanelId` is derived from the bonsplit tree and never published,
+    /// so focus changes reach SwiftUI only through those refresh calls.
+    @State private var titlebarProxyIconGeneration: UInt64 = 0
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var tmuxOverlayExperiment = TmuxOverlayExperimentTargetObserver()
     @State private var tmuxOverlayCoordinator = TmuxWorkspacePaneOverlayCoordinator()
@@ -2138,9 +2143,10 @@ struct ContentView: View {
                             .allowsHitTesting(false)
                     }
 
-                    // Draggable folder icon + focused command name
-                    if let directory = focusedDirectory {
-                        DetachedFolderDragIcon(directory: directory)
+                    // Draggable proxy icon: the focused document when the focused
+                    // surface shows one, otherwise the workspace folder.
+                    if let proxyTarget = titlebarProxyTarget {
+                        DetachedFolderDragIcon(target: proxyTarget)
                             .frame(width: 16, height: 16)
                             .padding(.leading, -6)
                     }
@@ -2331,6 +2337,7 @@ struct ContentView: View {
     }
 
     @MainActor private func scheduleTitlebarTextRefresh() {
+        titlebarProxyIconGeneration &+= 1
         titlebarTextUpdateCoalescer.signal {
             updateTitlebarText()
         }
@@ -2452,6 +2459,34 @@ struct ContentView: View {
         }
         if tab.usesRemoteDirectoryProvenance { return nil }
         return tab.presentedCurrentDirectory
+    }
+
+    /// The file the focused surface displays, when that surface is file-backed
+    /// (Markdown viewer or file preview).
+    private var focusedSurfaceFile: String? {
+        guard let selectedId = tabManager.selectedTabId,
+              let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
+              let focusedPanelId = tab.focusedPanelId,
+              let panel = tab.panels[focusedPanelId] else {
+            return nil
+        }
+        if let markdownPanel = panel as? MarkdownPanel {
+            return markdownPanel.filePath
+        }
+        if let filePreviewPanel = panel as? FilePreviewPanel {
+            return filePreviewPanel.filePath
+        }
+        return nil
+    }
+
+    /// What the titlebar's draggable proxy icon stands for: the focused document
+    /// when there is one, otherwise the focused directory.
+    private var titlebarProxyTarget: TitlebarProxyTarget? {
+        _ = titlebarProxyIconGeneration
+        return TitlebarProxyTarget.resolve(
+            focusedDirectory: focusedDirectory,
+            focusedFile: focusedSurfaceFile
+        )
     }
 
     private var effectiveLeftSidebarProviderId: String {

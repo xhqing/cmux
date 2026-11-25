@@ -2261,7 +2261,7 @@ final class WindowDragHandleHitTests: XCTestCase {
 @MainActor
 final class DraggableFolderHitTests: XCTestCase {
     func testFolderHitTestReturnsContainerWhenInsideBounds() {
-        let folderView = DraggableFolderNSView(directory: "/tmp")
+        let folderView = DraggableFolderNSView(target: .directory("/tmp"))
         folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
 
         guard let hit = folderView.hitTest(NSPoint(x: 8, y: 8)) else {
@@ -2272,14 +2272,14 @@ final class DraggableFolderHitTests: XCTestCase {
     }
 
     func testFolderHitTestReturnsNilOutsideBounds() {
-        let folderView = DraggableFolderNSView(directory: "/tmp")
+        let folderView = DraggableFolderNSView(target: .directory("/tmp"))
         folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
 
         XCTAssertNil(folderView.hitTest(NSPoint(x: 20, y: 8)))
     }
 
     func testFolderIconDisablesWindowMoveBehavior() {
-        let folderView = DraggableFolderNSView(directory: "/tmp")
+        let folderView = DraggableFolderNSView(target: .directory("/tmp"))
         XCTAssertFalse(folderView.mouseDownCanMoveWindow)
     }
 }
@@ -2669,12 +2669,12 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
     }
 
     func testSuppressionHitPathRecognizesFolderView() {
-        let folderView = DraggableFolderNSView(directory: "/tmp")
+        let folderView = DraggableFolderNSView(target: .directory("/tmp"))
         XCTAssertTrue(shouldSuppressWindowMoveForFolderDrag(hitView: folderView))
     }
 
     func testSuppressionHitPathRecognizesDescendantOfFolderView() {
-        let folderView = DraggableFolderNSView(directory: "/tmp")
+        let folderView = DraggableFolderNSView(target: .directory("/tmp"))
         let child = NSView(frame: .zero)
         folderView.addSubview(child)
         XCTAssertTrue(shouldSuppressWindowMoveForFolderDrag(hitView: child))
@@ -2688,7 +2688,7 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
     func testSuppressionEventPathRecognizesFolderHitInsideWindow() {
         let (window, contentView) = makeWindowWithContentView()
         window.isMovable = true
-        let folderView = DraggableFolderNSView(directory: "/tmp")
+        let folderView = DraggableFolderNSView(target: .directory("/tmp"))
         folderView.frame = NSRect(x: 10, y: 10, width: 16, height: 16)
         contentView.addSubview(folderView)
 

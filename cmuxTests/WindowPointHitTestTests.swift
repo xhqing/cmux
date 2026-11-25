@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import Foundation
 import Testing
 
@@ -44,7 +45,7 @@ struct WindowPointHitTestTests {
         let window = try Self.makeWindow()
         defer { window.orderOut(nil) }
         let contentView = try #require(window.contentView)
-        let folder = DraggableFolderNSView(directory: NSTemporaryDirectory())
+        let folder = DraggableFolderNSView(target: .directory(NSTemporaryDirectory()))
         folder.frame = NSRect(x: 20, y: 0, width: 40, height: 40)
         let filler = NSView(frame: NSRect(x: 0, y: 40, width: 240, height: 160))
         contentView.addSubview(folder)

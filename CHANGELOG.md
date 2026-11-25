@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [未发布]
+## [0.65.2.2-r32] - 2026-11-25
 
 ### 修复（标题栏的拖动图标跟随聚焦的文档：焦点在 Markdown / 文件预览上时显示文档图标、拖动的也是该文件，2026-11-25）
 
@@ -22,8 +22,6 @@ All notable changes to cmux are documented here.
 - **canary 第三轮（run 45343729378）**：守卫按设计拦下了假绿（`0 tests in 3 suites` 却 exit 0），并暴露出**第四个坑**——Swift Testing 的测试级标识带参数表（`…/failsOnceThenPasses()`），我此前把它剥掉了，于是 `-only-testing:` 只匹配到 suite、选中 0 条用例。现在标识**原样保留**；并且当测试级选择器没选中用例时，自动**退回 suite 级**再跑一次（仍只跑相关 suite），两级都不过就判红。同时修掉 macOS 自带 bash 3.2 没有 `mapfile` 的移植性问题，以及「粗化失败却仍走到成功分支」的假绿路径（本地桩件按 CI 的 `bash -e` 验过四条路径：命中 / 粗化命中 / 两级都选不中 / 重跑仍失败）。
 - **canary 第二轮（run 45329468536）暴露的第三个坑**：`--explain` 读取了一个只在「xcresult 无结果」分支里赋值的变量 → `UnboundLocalError`；CI 里它被 `bash -e` 与 stderr 重定向组合成「静默退出 1」。已修，并补了 `--explain` + xcresult 同时存在的回归断言；`GITHUB_STEP_SUMMARY` 也用 `:-/dev/null` 兜底。该 step 现在把 python 版本、两个输入的大小、提取器退出码、自检结果都打进日志，诊断文件一并上传。
 - **canary 暴露并修掉的两个坑（2026-11-24，run 45313220473）**：① 真实 `xcresulttool` 负载里选择器字段叫 `nodeIdentifier` / `testIdentifier`（不是 `identifier`），首版解析因此拿到 0 条，全程退化成「按文件名猜 suite」——现已三个字段名都读，且 **xcresult 有任何结果时只信它**（日志猜名对嵌套 suite 必错）；② 嵌套 suite（`extension X { @Suite struct Y }`，如 `SettingsWindowPresentationContractTests`）的可选标识带父路径、与文件名不同，选择器匹配不到时 `xcodebuild` 仍以 **0 tests 退出 0**——这会变成「假绿」。现在二次调用通过后必须用**重跑自己的 xcresult** 证明每个选择器都选中了用例（解析器 `--executed-xcresult-json`，不匹配退出码 4），否则判红。canary 首轮那条没被选中的失败用例、以及它 `-skip-testing` 未生效的事实，都是这条守卫要防的。
-
-## [未发布]
 
 ### 更正（xcodebuild 的 retry 两面旗不按预期工作；改为继续「按族入 SKIP」，2026-11-23，T13）
 
@@ -142,7 +140,6 @@ All notable changes to cmux are documented here.
 - **改了什么**：① 新增 `scripts/resolve-sign-identity.sh`：读 `CMUX_DEV_SIGN_IDENTITY`，未设 / 空 / 全空白 → `-`（行为不变，stderr 说明 ad-hoc 的代价），显式 `-` 照办，其它值按名字或 SHA-1 前缀在 `security find-identity -v -p codesigning` 里匹配，**找不到非零退出、stdout 为空**（绝不静默回退 ad-hoc）；② `scripts/reload.sh` / `scripts/reloads.sh` 改成用解析出的身份，其余 flags 与 `CMUX_ALLOW_UNSIGNED_DEV_APP` 容错语义不变，构建前解析（配错时立刻失败）；`reloads.sh` 里 ad-hoc（`-`）保留原来的 `|| true`，用证书签名时失败即让构建失败（否则产物会静默停在 ad-hoc 上）；③ `build.yml` 支持三个可选 secret（`CMUX_DEV_SIGNING_CERT_P12_BASE64` / `CMUX_DEV_SIGNING_CERT_PASSWORD` / `CMUX_DEV_SIGNING_IDENTITY`）：配了才导入临时钥匙串 + `add-trusted-cert -r trustAsRoot -p codeSign`，导入失败即构建失败；构建后新增断言（`codesign -d --requirements -`，配了身份时必须出现 `certificate leaf`，出现 `cdhash` 就 fail）；④ `pr-checks.yml` 的 `checks` job 新增一个 <2 秒的 step 跑 `scripts/tests/test_resolve_sign_identity.py`（job 名与其它 step 未动）；⑤ 新增 `scripts/create-dev-signing-cert.sh`（生成 / 导入 / 导出可恢复的 p12，备份到 `~/.dev/private/cmux/signing/`，同名证书拒绝覆盖，「始终信任」只打印步骤）；⑥ `build-sign-upload.sh` 的 `SIGN_HASH` 注明是上游 Developer ID 指纹、不在本仓库发版链路，pre-flight 增加身份可用性检查；⑦ 文档同步：`DEVELOPMENT.md` 新增第十节，`PATCHES.md` 新增 P16，README 双语、`.pi/APPEND_SYSTEM.md` 把 ad-hoc 表述改准确。
 - **怎么验证**：`python3 scripts/tests/test_resolve_sign_identity.py -v`（8 项，1 项因本机无证书 skip）全过；`bash -n` 五个改动脚本全通过；`ruby -ryaml` 解析两个 workflow 通过；真机验收需要先按 DEVELOPMENT.md 第十节建证书并「始终信任」，再设 `CMUX_DEV_SIGN_IDENTITY` 重建两次，确认屏幕录制授权不再失效。
 - **回归检查**：① 未设 `CMUX_DEV_SIGN_IDENTITY` / CI 未配证书时，产物仍是 ad-hoc，构建行为与以前一致（多一行日志说明）；② `CMUX_ALLOW_UNSIGNED_DEV_APP` 与 `reloads.sh` 对 codesign 失败的容错语义未变；③ `checks` job 名未改，只新增一个 step；④ 完整构建仍需 `build-macos` 兜底（本机不跑）。
-
 
 ## [0.65.2.2-r28] - 2026-11-19
 
@@ -764,7 +761,6 @@ r19 的 `build-macos` 因下面这条 CLI 编译错误失败，Release 建出来
 - [@xybio](https://github.com/xybio)
 - [@zelig81](https://github.com/zelig81)
 - [@zhechenzhu](https://github.com/zhechenzhu)
-
 
 ## [0.65.0] - 2026-10-05
 

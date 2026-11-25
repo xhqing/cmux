@@ -2,6 +2,14 @@
 
 All notable changes to cmux are documented here.
 
+## [未发布]
+
+### 变更（AGENTS.md 角色口径更新为三级 agentLeader / subLeader / Worker，2026-11-25）
+
+- **为什么改**：用户 2026-11-25 把全团队 Leader / Worker 重定义为三级角色（agentLeader = Agent 项目主工作区 main、subLeader = 子项目主工作区 main、Worker = 任何项目的非 main 分支 worktree）。原 `AGENTS.md` 写的是「本项目（或其 worktree）= Worker、建删 worktree 是 Atlas（Leader）的活」，把子项目主工作区 main 也说成了 Worker，与全局规则冲突。
+- **改了什么**：`AGENTS.md`「你的角色」节改为按「当前是否停在 main」判定——本项目主工作区 main = subLeader（ff 同步 local main、建删自身 worktree、派 Worker、合并自身 PR、发自身版本、回收 Worker，对 dev-agent 与 sibling 只读），非 main 分支 worktree = Worker（只干当前 worktree，不碰 local main、不建删 worktree）；规则索引表里的「Leader / Worker 分工」改为「agentLeader / subLeader / Worker 分工」。`.pi/APPEND_SYSTEM.md` 逐条核对：没有「任何分支 / worktree = Worker」类角色定义，测试只读节里的「Leader」按全局术语口径保留，未改。
+- **回归检查**：只改角色表述，项目硬约束、验证要求、测试只读约定一字未动；版本号不动（文档类改动，不触发 bump / 发版）。
+
 ## [0.65.2.2-r32] - 2026-11-25
 
 ### 修复（标题栏的拖动图标跟随聚焦的文档：焦点在 Markdown / 文件预览上时显示文档图标、拖动的也是该文件，2026-11-25）

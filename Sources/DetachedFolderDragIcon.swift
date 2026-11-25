@@ -1,30 +1,33 @@
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The draggable proxy icon at the leading edge of the window titlebar.
+///
+/// The historical name predates file-backed surfaces: it now shows the icon of
+/// the document the focused surface displays (Markdown viewer, file preview)
+/// and only falls back to the folder icon for directory-backed surfaces.
 struct DetachedFolderDragIcon: NSViewRepresentable {
-    let directory: String
+    let target: TitlebarProxyTarget
 
     func makeNSView(context: Context) -> DraggableFolderNSView {
-        DraggableFolderNSView(directory: directory)
+        DraggableFolderNSView(target: target)
     }
 
     func updateNSView(_ nsView: DraggableFolderNSView, context: Context) {
-        if nsView.directory != directory {
-            nsView.directory = directory
-            nsView.updateIcon()
-        }
+        nsView.apply(target: target)
     }
 }
 
 @MainActor
 final class DraggableFolderNSView: NSView, NSDraggingSource {
-    private final class FolderIconImageView: NSImageView {
+    private final class ProxyIconImageView: NSImageView {
         override var mouseDownCanMoveWindow: Bool { false }
     }
 
-    var directory: String
-    private var imageView: FolderIconImageView!
+    private(set) var target: TitlebarProxyTarget
+    private var imageView: ProxyIconImageView!
     private var pendingDragEvent: NSEvent?
     private var pendingDragStartPoint: NSPoint?
     private let dragStartThresholdSquared: CGFloat = 9
@@ -33,11 +36,17 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         String(format: "(%.1f,%.1f)", point.x, point.y)
     }
 
-    init(directory: String) {
-        self.directory = directory
+    init(target: TitlebarProxyTarget) {
+        self.target = target
         super.init(frame: .zero)
         identifier = NSUserInterfaceItemIdentifier("cmux.folderDragIcon")
         setupImageView()
+    }
+
+    func apply(target: TitlebarProxyTarget) {
+        guard self.target != target else { return }
+        self.target = target
+        updateIcon()
     }
 
     required init?(coder: NSCoder) {
@@ -51,7 +60,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     override var mouseDownCanMoveWindow: Bool { false }
 
     private func setupImageView() {
-        imageView = FolderIconImageView()
+        imageView = ProxyIconImageView()
         imageView.imageScaling = .scaleProportionallyDown
         imageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(imageView)
@@ -79,6 +88,25 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         return generic
     }
 
+    /// UTType-based document icon, the same lookup macOS uses for Finder proxy
+    /// icons. Deliberately not `icon(forFile:)`: that stats the file, and a
+    /// missing or remote path would make the titlebar block on a slow stat.
+    private static func documentIcon(forPath path: String, size: CGFloat) -> NSImage {
+        let fileType = UTType(filenameExtension: URL(fileURLWithPath: path).pathExtension) ?? .data
+        let icon = (NSWorkspace.shared.icon(for: fileType).copy() as? NSImage) ?? NSWorkspace.shared.icon(for: fileType)
+        icon.size = NSSize(width: size, height: size)
+        return icon
+    }
+
+    private static func proxyIcon(for target: TitlebarProxyTarget, size: CGFloat) -> NSImage {
+        switch target {
+        case .directory:
+            return genericFolderIcon(size: size)
+        case let .file(path):
+            return documentIcon(forPath: path, size: size)
+        }
+    }
+
     /// Resolves the localized display name for `path` off-main (the API
     /// stats), then runs `onResolved` on the main thread.
     private static func localizedDisplayName(forPath path: String, onResolved: @escaping (String) -> Void) {
@@ -100,7 +128,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
 
-        imageView.image = Self.genericFolderIcon(size: 16)
+        imageView.image = Self.proxyIcon(for: target, size: 16)
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
@@ -111,7 +139,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         #if DEBUG
         let nowMovable = window.map { String($0.isMovable) } ?? "nil"
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
-        cmuxDebugLog("folder.dragEnd dirBytes=\(directory.utf8.count) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
+        cmuxDebugLog("folder.dragEnd pathBytes=\(target.path.utf8.count) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
         _ = session
     }
@@ -139,7 +167,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
         if event.clickCount == 2 {
             clearPendingDrag()
-            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
+            revealInFinder()
             return
         }
 
@@ -148,7 +176,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let responderDesc = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         let nowMovable = window.map { String($0.isMovable) } ?? "nil"
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
-        cmuxDebugLog("folder.mouseDown dirBytes=\(directory.utf8.count) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
+        cmuxDebugLog("folder.mouseDown pathBytes=\(target.path.utf8.count) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
 
         pendingDragEvent = event
@@ -179,19 +207,30 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     private func beginFolderDrag(with event: NSEvent) {
-        let fileURL = URL(fileURLWithPath: directory)
-        let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
+        let itemURL = URL(fileURLWithPath: target.path)
+        let draggingItem = NSDraggingItem(pasteboardWriter: itemURL as NSURL)
 
-        // Cosmetic drag image: use the generic folder rather than re-statting
-        // `directory` — see updateIcon().
-        let iconImage = Self.genericFolderIcon(size: 32)
+        // Cosmetic drag image: reuse the resolved UTType icon rather than
+        // re-statting the path — see updateIcon().
+        let iconImage = Self.proxyIcon(for: target, size: 32)
         draggingItem.setDraggingFrame(bounds, contents: iconImage)
 
         let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
         #if DEBUG
         let itemCount = session.draggingPasteboard.pasteboardItems?.count ?? 0
-        cmuxDebugLog("folder.dragStart dirBytes=\(directory.utf8.count) pasteboardItems=\(itemCount)")
+        cmuxDebugLog("folder.dragStart pathBytes=\(target.path.utf8.count) pasteboardItems=\(itemCount)")
         #endif
+    }
+
+    /// Double-click reveals the proxied item, matching the native titlebar
+    /// proxy icon: the folder itself, or the document inside its folder.
+    private func revealInFinder() {
+        switch target {
+        case let .directory(path):
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
+        case let .file(path):
+            NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: target.menuDirectory)
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -208,10 +247,10 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
     private func buildPathMenu() -> NSMenu {
         let menu = NSMenu()
-        let url = URL(fileURLWithPath: directory).standardized
+        let url = URL(fileURLWithPath: target.menuDirectory).standardized
         var pathComponents: [URL] = []
 
-        // Build path from current directory up to root
+        // Build path from the proxied folder up to root
         var current = url
         while current.path != "/" {
             pathComponents.append(current)

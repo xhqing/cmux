@@ -4,6 +4,13 @@ All notable changes to cmux are documented here.
 
 ## [未发布]
 
+### 修复（标题栏的拖动图标跟随聚焦的文档：焦点在 Markdown / 文件预览上时显示文档图标、拖动的也是该文件，2026-11-25）
+
+- **为什么改**：标题栏左侧那个可拖动的图标一直画成文件夹（`DetachedFolderDragIcon` 只接受一个目录），可工作区标题常常就是当前文档的名字——把一个 Markdown 文件开成工作区时，标题栏出现「文件夹图标 + `why-ai-converges.md`」这种图文不符：聚焦的是文档，图标却是文件夹，拖出去的也是它所在目录（2026-11-25 用户截图指出）。
+- **改了什么**：① 新增 `CmuxAppKitSupportUI` 的 `WindowChrome/Titlebar/TitlebarProxyTarget`（`.directory(path)` / `.file(path)`）：`path` 是拖拽载荷，`menuDirectory` 是右键路径菜单要列的文件夹（文件取父目录，与 macOS 文档窗口的原生 proxy 图标一致），`resolve(focusedDirectory:focusedFile:)` 定下「聚焦文件优先、否则目录」。② `Sources/DetachedFolderDragIcon.swift`：图标改为按目标取——目录仍是 Finder 文件夹图标，文件走 `UTType(filenameExtension:)` 的文档图标（与 Finder 显示一致；刻意不用 `icon(forFile:)`，避免 stat 卡在远程路径 / automounter 上）；拖拽载荷、拖动时的跟随图像、双击「在 Finder 中显示」（文件是选中该文件）、右键路径菜单（从文件所在文件夹往上）都一起改成基于目标。③ `ContentView`：补 `focusedSurfaceFile`（聚焦面板是 `MarkdownPanel` / `FilePreviewPanel` 时取它的 `filePath`）与 `titlebarProxyTarget`；因为 `focusedPanelId` 是从 bonsplit 树推导的、不走 `@Published`，另加 `titlebarProxyIconGeneration` 计数，在既有的 `scheduleTitlebarTextRefresh()` 里自增，让切换标签 / 切换面板时标题栏真的重算图标。
+- **怎么验证**：`swiftc -parse -enable-bare-slash-regex` 过全部改动文件（与 PR 门禁同口径）；把 `DetachedFolderDragIcon.swift` 与新值类型摘成独立 harness，在 Swift 5 下分别以非 DEBUG / DEBUG 两种模式 `swiftc -typecheck` 通过；`CmuxAppKitSupportUI` 包内新增 `TitlebarProxyTargetTests`（文件优先于目录、目录回落、空白路径视为缺失、文件的菜单目录取父目录），随 PR 门禁的 `check-swift-packages.py` 真实编译并执行。界面效果（文件夹 → `MD` 文档图标、拖拽载荷变为文件）需要装到本机看过；app target 的类型检查与构建仍由 `build-macos` 兜底（本机只有 CommandLineTools，编不了 app）。
+- **边界**：只在聚焦的是 `MarkdownPanel` / `FilePreviewPanel` 时改图标；终端、浏览器等目录型表面的行为一字未改（仍拖目录、双击开目录）。文档图标只由文件的 UTType 决定，与面板内的渲染模式无关，所以切换「预览 / 编辑」不会让图标跳变。
+
 ### 新增（失败用例二次调用：只重跑失败的用例，把 headless 时序噪声与真回归分开，2026-11-24，T13）
 
 - **为什么改**：`unit-tests` 全量的红每次换一条，走的都是 headless 环境噪声（窗口服务器、运行循环泵、跨套件计数），而 `-retry-tests-on-failure -test-iterations 2` 实测是「每条用例都跑两遍」（9465→18930 条、测试阶段 1985→4223 秒），既贵又没把噪声变为绿。需要的是**只重跑失败的那几条**：通过 → 噪声；仍失败 → 真回归。
